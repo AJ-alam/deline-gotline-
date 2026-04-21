@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --sans: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--sans);
+  box-sizing: border-box;
+  background-color: #fcfaf8;
+  background-image:
+    radial-gradient(circle at 10% 20%, #fcfaf8 0%, #f6ede3 30%, #fcfaf8 100%),
+    radial-gradient(circle at 90% 80%, rgba(229, 166, 98, 0.15) 0%, rgba(252, 250, 248, 0) 40%);
+  background-attachment: fixed;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+* {
+  box-sizing: border-box;
+}
