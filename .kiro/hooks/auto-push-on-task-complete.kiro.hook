@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Auto Push to GitHub on Task Complete",
+  "description": "After each spec task is marked completed, stages all changes, creates a commit with the task name, and pushes to GitHub",
+  "version": "1",
+  "when": {
+    "type": "postTaskExecution"
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "git add -A && git commit -m \"feat: completed spec task\" && git push -u origin main",
+    "timeout": 60
+  },
+  "workspaceFolderName": "deline-gotline--main",
+  "shortName": "auto-push-on-task-complete"
+}
