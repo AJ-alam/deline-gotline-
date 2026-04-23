@@ -280,7 +280,7 @@ const StaffDashboard: React.FC = () => {
     if (!selectedAppId || isPdfExporting) return;
     const app = applications.find(a => String(a.id) === String(selectedAppId));
     if (!app) {
-      alert('Application data not found. Please refresh.');
+      showToast('Application data not found. Please refresh.', 'error');
       return;
     }
 
@@ -2095,7 +2095,7 @@ const StaffDashboard: React.FC = () => {
                 <button 
                   className="btn-auth-primary" 
                   style={{ width: 'auto', background: 'var(--admin-accent)', color: '#111', fontWeight: '800', padding: '10px 24px' }}
-                  onClick={() => alert("Paper Form entry coming soon.")}
+                  onClick={() => showToast('Paper Form entry coming soon', 'error')}
                 >
                   + ENTER PAPER FORM
                 </button>
@@ -2681,8 +2681,8 @@ const StaffDashboard: React.FC = () => {
                 {/* Right: Sidebar Actions & Logs */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                   <div className="admin-chart-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={() => alert('Download receipt coming soon')}>DOWNLOAD RECEIPT</button>
-                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={() => alert('Message student coming soon')}>MESSAGE STUDENT</button>
+                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={() => showToast('Download receipt coming soon', 'error')}>DOWNLOAD RECEIPT</button>
+                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={() => showToast('Message student coming soon', 'error')}>MESSAGE STUDENT</button>
                   </div>
 
                   <div className="admin-chart-card">
@@ -2852,9 +2852,9 @@ const StaffDashboard: React.FC = () => {
                                                 await API.updatePolicySetting('bulk', { settings: items });
                                                 setIsDirty({ ...isDirty, [section.id]: false });
                                                 fetchPolicySettings();
-                                                alert("Section updated successfully.");
+                                                showToast('✓ Section updated successfully');
                                               } catch (err: any) {
-                                                alert(err.message || "Failed to update section.");
+                                                showToast(err.message || 'Failed to update section.', 'error');
                                               }
                                             }
                                           }}
@@ -3638,9 +3638,9 @@ const StaffDashboard: React.FC = () => {
                         try {
                           await API.dispatchFinanceReport();
                           setShowFinanceModal(false);
-                          alert(`Report successfully dispatched to ${financeEmail}`);
+                          showToast(`✓ Report successfully dispatched to ${financeEmail}`);
                         } catch (err: any) {
-                          alert("Failed to dispatch report. Please check server connection.");
+                          showToast('Failed to dispatch report. Please check server connection.', 'error');
                         } finally {
                           setIsExporting(false);
                         }
