@@ -28,7 +28,7 @@
 - [x] 2.11 Add Note input field
 - [x] 2.12 Add Share Link button
 - [x] 2.13 Add Export PDF button
-- [ ] 2.14 Test all buttons and functionality
+- [x] 2.14 Test all buttons and functionality
 - [ ] 2.15 Verify banking details only show for directors
 
 ### Task 3: Integrate Eligibility Determination Display
