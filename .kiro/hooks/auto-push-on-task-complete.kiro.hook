@@ -8,8 +8,8 @@
   },
   "then": {
     "type": "runCommand",
-    "command": "git add -A && git commit -m \"feat: completed spec task\" && git push -u origin main",
-    "timeout": 60
+    "command": "\"C:\\Program Files\\Git\\bin\\git.exe\" add -A && \"C:\\Program Files\\Git\\bin\\git.exe\" commit -m \"feat: completed spec task\" && \"C:\\Program Files\\Git\\bin\\git.exe\" push -u origin master",
+    "timeout": 120
   },
   "workspaceFolderName": "deline-gotline--main",
   "shortName": "auto-push-on-task-complete"

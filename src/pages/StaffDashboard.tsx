@@ -51,7 +51,14 @@ const StaffDashboard: React.FC = () => {
   const [shareLinkUrl, setShareLinkUrl] = useState('');
   const [isGeneratingShareLink, setIsGeneratingShareLink] = useState(false);
   const [shareLinkCopied, setShareLinkCopied] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const navigate = useNavigate();
+
+  // ── TOAST HELPER ──
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
 
   const [applications, setApplications] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -138,7 +145,7 @@ const StaffDashboard: React.FC = () => {
       XLSX.writeFile(workbook, `Approved_Payments_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
       setShowFinanceModal(true);
     } catch (err) {
-      alert("Export failed");
+      showToast('Export failed', 'error');
     } finally {
       setIsExporting(false);
     }
@@ -190,10 +197,12 @@ const StaffDashboard: React.FC = () => {
       });
       setShowConfirmModal(false);
       setDecisionNotes('');
+      const statusLabel = status === 'accepted' ? 'approved' : status === 'rejected' ? 'rejected' : 'forwarded to director';
+      showToast(`✓ Application #${selectedAppId} ${statusLabel} successfully`);
       setCurrentView(role === 'director' ? 'director-queue' : 'applications');
       fetchApplications();
     } catch (err: any) {
-      alert(err.message || 'Action failed');
+      showToast(err.message || 'Action failed', 'error');
     }
   };
 
@@ -210,10 +219,11 @@ const StaffDashboard: React.FC = () => {
       setShowRejectModal(false);
       setRejectReason('');
       setRejectReasonError(null);
+      showToast(`✓ Application #${selectedAppId} rejected`);
       setCurrentView(role === 'director' ? 'director-queue' : 'applications');
       fetchApplications();
     } catch (err: any) {
-      alert(err.message || 'Rejection failed');
+      showToast(err.message || 'Rejection failed', 'error');
     }
   };
 
@@ -229,7 +239,7 @@ const StaffDashboard: React.FC = () => {
        setShareLinkUrl(url);
     } catch (err: any) {
        setShowShareLinkModal(false);
-       alert('Share failed: ' + err.message);
+       showToast('Share failed: ' + err.message, 'error');
     } finally {
        setIsGeneratingShareLink(false);
     }
@@ -259,9 +269,10 @@ const StaffDashboard: React.FC = () => {
     try {
        await API.requestMoreInfo(Number(selectedAppId));
        setShowRequestInfoModal(false);
+       showToast(`✓ More information requested from student for application #${selectedAppId}`);
        fetchApplications();
     } catch (err: any) {
-       alert('Action failed: ' + err.message);
+       showToast('Action failed: ' + err.message, 'error');
     }
   };
 
@@ -606,7 +617,7 @@ const StaffDashboard: React.FC = () => {
       doc.save(`DGG_Application_${app.id}_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err: any) {
       console.error('PDF Export Error:', err);
-      alert('PDF generation failed: ' + err.message);
+      showToast('PDF generation failed: ' + err.message, 'error');
     } finally {
       setIsPdfExporting(false);
     }
@@ -619,6 +630,7 @@ const StaffDashboard: React.FC = () => {
     try {
       await API.addSubmissionNote(Number(selectedAppId), staffNote);
       setStaffNote('');
+      showToast('✓ Note added successfully');
       fetchApplications(); // Refresh list to get new notes
     } catch (err: any) {
       setNoteError(err.message || 'Failed to add note');
@@ -633,9 +645,9 @@ const StaffDashboard: React.FC = () => {
       await API.markLegitimate(Number(selectedAppId), 'Marked as legitimate by staff');
       setDuplicateStatus(null);
       fetchApplications();
-      alert('Application marked as legitimate');
+      showToast('✓ Application marked as legitimate');
     } catch (err: any) {
-      alert(err.message || 'Failed to mark as legitimate');
+      showToast(err.message || 'Failed to mark as legitimate', 'error');
     }
   };
 
@@ -645,9 +657,9 @@ const StaffDashboard: React.FC = () => {
       await API.markDuplicate(Number(selectedAppId), 'Confirmed as duplicate by staff');
       setDuplicateStatus(null);
       fetchApplications();
-      alert('Application marked as duplicate');
+      showToast('✓ Application confirmed as duplicate');
     } catch (err: any) {
-      alert(err.message || 'Failed to mark as duplicate');
+      showToast(err.message || 'Failed to mark as duplicate', 'error');
     }
   };
 
@@ -859,10 +871,10 @@ const StaffDashboard: React.FC = () => {
        const app = applications.find(a => Number(a.id) === Number(selectedAppId));
        if (!app) throw new Error("Application not found in state");
        await API.updateSubmissionStatus(Number(selectedAppId), app.status, { office_use_data: officeUseInputs });
-       alert('Office use data saved successfully');
+       showToast('✓ Office use data saved successfully');
        fetchApplications();
      } catch (err: any) {
-       alert(err.message || 'Failed to save office use data');
+       showToast(err.message || 'Failed to save office use data', 'error');
      } finally {
        setIsSavingOffice(false);
      }
@@ -2624,8 +2636,8 @@ const StaffDashboard: React.FC = () => {
                                         try {
                                           await API.updateSubmissionStatus(selectedApp.id, selectedApp.status, { amount: autoSuggested.total });
                                           fetchApplications();
-                                          alert("System suggested total applied!");
-                                        } catch (er) { alert("Failed to apply total"); }
+                                          showToast('✓ System suggested total applied');
+                                        } catch (er) { showToast('Failed to apply total', 'error'); }
                                       }
                                     }}
                                   >
@@ -3083,8 +3095,8 @@ const StaffDashboard: React.FC = () => {
                             >
                               Review â†’
                             </button>
-                            <button className="director-decision-icon-btn approve"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
-                            <button className="director-decision-icon-btn deny"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                            <button className="director-decision-icon-btn approve" aria-label="Quick approve application" onClick={() => { setSelectedAppId(String(app.id)); setShowConfirmModal(true); }}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+                            <button className="director-decision-icon-btn deny" aria-label="Quick reject application" onClick={() => { setSelectedAppId(String(app.id)); setRejectReason(''); setRejectReasonError(null); setShowRejectModal(true); }}><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                           </div>
                         </td>
                       </tr>
@@ -3701,6 +3713,34 @@ const StaffDashboard: React.FC = () => {
           )}
         </main>
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            bottom: '32px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: toast.type === 'error' ? '#991b1b' : '#166534',
+            color: '#fff',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            fontSize: '13px',
+            fontWeight: '600',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+            zIndex: 9999,
+            border: toast.type === 'error' ? '1px solid #fecaca' : '1px solid #bbf7d0',
+            maxWidth: '480px',
+            textAlign: 'center',
+            animation: 'fadeInUp 0.2s ease',
+          }}
+        >
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 };
