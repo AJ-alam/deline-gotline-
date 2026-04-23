@@ -157,6 +157,8 @@ const StaffDashboard: React.FC = () => {
   const stats = getStats();
 
   const [staffNote, setStaffNote] = useState('');
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
 
   const handleDecision = async (status: 'accepted' | 'rejected' | 'forwarded') => {
     if (!selectedAppId) return;
@@ -242,12 +244,40 @@ const StaffDashboard: React.FC = () => {
 
   const handleAddNote = async () => {
     if (!selectedAppId || !staffNote.trim()) return;
+    setIsAddingNote(true);
+    setNoteError(null);
     try {
       await API.addSubmissionNote(Number(selectedAppId), staffNote);
       setStaffNote('');
       fetchApplications(); // Refresh list to get new notes
     } catch (err: any) {
-      alert(err.message || 'Failed to add note');
+      setNoteError(err.message || 'Failed to add note');
+    } finally {
+      setIsAddingNote(false);
+    }
+  };
+
+  const handleMarkLegitimate = async () => {
+    if (!selectedAppId) return;
+    try {
+      await API.markLegitimate(Number(selectedAppId), 'Marked as legitimate by staff');
+      setDuplicateStatus(null);
+      fetchApplications();
+      alert('Application marked as legitimate');
+    } catch (err: any) {
+      alert(err.message || 'Failed to mark as legitimate');
+    }
+  };
+
+  const handleMarkDuplicate = async () => {
+    if (!selectedAppId) return;
+    try {
+      await API.markDuplicate(Number(selectedAppId), 'Confirmed as duplicate by staff');
+      setDuplicateStatus(null);
+      fetchApplications();
+      alert('Application marked as duplicate');
+    } catch (err: any) {
+      alert(err.message || 'Failed to mark as duplicate');
     }
   };
 
@@ -321,7 +351,124 @@ const StaffDashboard: React.FC = () => {
            setOfficeUseInputs({ dateReceived: '', approvedBy: '', commitmentNum: '' });
         }
      }
+     // Reset note state when switching applications
+     setStaffNote('');
+     setNoteError(null);
   }, [selectedAppId, applications]);
+
+  // ── ELIGIBILITY CHECK: Fetch when detail view opens for a selected application ──
+  useEffect(() => {
+    if (!selectedAppId || (currentView !== 'detail' && currentView !== 'director-detail')) {
+      // Reset eligibility state when leaving detail view
+      setEligibilityResult(null);
+      setEligibilityError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchEligibility = async () => {
+      setIsEligibilityLoading(true);
+      setEligibilityError(null);
+      setEligibilityResult(null);
+      try {
+        const result = await API.checkEligibility(Number(selectedAppId));
+        if (!cancelled) {
+          setEligibilityResult(result);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setEligibilityError(err.message || 'Failed to check eligibility');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsEligibilityLoading(false);
+        }
+      }
+    };
+
+    fetchEligibility();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAppId, currentView]);
+
+  // ── DUPLICATE CHECK: Fetch when detail view opens for a selected application ──
+  useEffect(() => {
+    if (!selectedAppId || (currentView !== 'detail' && currentView !== 'director-detail')) {
+      // Reset duplicate state when leaving detail view
+      setDuplicateStatus(null);
+      setDuplicateError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchDuplicateStatus = async () => {
+      setIsDuplicateLoading(true);
+      setDuplicateError(null);
+      setDuplicateStatus(null);
+      try {
+        const result = await API.checkDuplicates(Number(selectedAppId));
+        if (!cancelled) {
+          setDuplicateStatus(result);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          setDuplicateError(err.message || 'Failed to check duplicate status');
+        }
+      } finally {
+        if (!cancelled) {
+          setIsDuplicateLoading(false);
+        }
+      }
+    };
+
+    fetchDuplicateStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAppId, currentView]);
+
+  // ── AUDIT TRAIL: Fetch when detail view opens for a selected application ──
+  useEffect(() => {
+    if (!selectedAppId || (currentView !== 'detail' && currentView !== 'director-detail')) {
+      setAuditLogs([]);
+      setAuditError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchAuditLogs = async () => {
+      setIsAuditLoading(true);
+      setAuditError(null);
+      try {
+        const result = await API.getAuditLogs({ submission: Number(selectedAppId) }) as any;
+        if (!cancelled) {
+          setAuditLogs(Array.isArray(result) ? result : []);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          // Audit logs are supplementary — don't block the UI on error
+          setAuditError(err.message || 'Failed to load audit logs');
+          setAuditLogs([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsAuditLoading(false);
+        }
+      }
+    };
+
+    fetchAuditLogs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAppId, currentView]);
 
   const handleSaveOfficeUse = async () => {
      if (!selectedAppId) return;
@@ -342,16 +489,91 @@ const StaffDashboard: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [fundingStreamFilter, setFundingStreamFilter] = useState('all');
+  const [sortColumn, setSortColumn] = useState<string>('submitted_at');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [eligibilityResult, setEligibilityResult] = useState<any>(null);
+  const [isEligibilityLoading, setIsEligibilityLoading] = useState(false);
+  const [eligibilityError, setEligibilityError] = useState<string | null>(null);
+  const [duplicateStatus, setDuplicateStatus] = useState<any>(null);
+  const [isDuplicateLoading, setIsDuplicateLoading] = useState(false);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // ── AUDIT TRAIL STATE ──
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, fundingStreamFilter]);
 
   const filteredApps = applications.filter(app => {
     const fullName = (app.student_details?.full_name || '').toLowerCase();
+    const email = (app.student_details?.email || '').toLowerCase();
+    const beneficiaryNumber = (app.student_details?.beneficiary_number || '').toLowerCase();
     const query = searchQuery.toLowerCase();
     const matchesSearch = fullName.includes(query) ||
       String(app.id).includes(query) ||
+      email.includes(query) ||
+      beneficiaryNumber.includes(query) ||
       (app.form_title || '').toLowerCase().includes(query);
     const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesFunding = fundingStreamFilter === 'all' || 
+      (app.form_title || '').includes(fundingStreamFilter);
+    return matchesSearch && matchesStatus && matchesFunding;
   });
+
+  // Sorting logic
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const filteredAndSortedApps = [...filteredApps].sort((a, b) => {
+    let aVal: any;
+    let bVal: any;
+
+    // Handle nested student_name field
+    if (sortColumn === 'student_name') {
+      aVal = (a.student_details?.full_name || '').toLowerCase();
+      bVal = (b.student_details?.full_name || '').toLowerCase();
+    } else {
+      aVal = a[sortColumn as keyof typeof a];
+      bVal = b[sortColumn as keyof typeof b];
+    }
+
+    // Convert strings to lowercase for case-insensitive sorting
+    if (typeof aVal === 'string') {
+      aVal = (aVal || '').toLowerCase();
+      bVal = (bVal || '').toLowerCase();
+    }
+
+    // Handle null/undefined values
+    if (aVal == null) aVal = '';
+    if (bVal == null) bVal = '';
+
+    if (sortDirection === 'asc') {
+      return aVal > bVal ? 1 : -1;
+    } else {
+      return aVal < bVal ? 1 : -1;
+    }
+  });
+
+  // Pagination
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredAndSortedApps.length / itemsPerPage);
+  const paginatedApps = filteredAndSortedApps.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
 
   const selectedApp = applications.find(a => String(a.id) === String(selectedAppId));
 
@@ -504,16 +726,616 @@ const StaffDashboard: React.FC = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'pending': return <span className="admin-badge badge-new">New Submission</span>;
-      case 'reviewed': return <span className="admin-badge badge-review">SSW Reviewed</span>;
-      case 'forwarded': return <span className="admin-badge badge-pending" style={{ background: '#e0e7ff', color: '#3730a3' }}>Pending Director</span>;
-      case 'accepted': return <span className="admin-badge badge-approved">Approved</span>;
-      case 'rejected': return <span className="admin-badge badge-denied">Rejected</span>;
-      default: return <span className="admin-badge">{status.toUpperCase()}</span>;
-    }
+    const statusClassMap: Record<string, string> = {
+      pending: 'badge-pending',
+      reviewed: 'badge-reviewed',
+      forwarded: 'badge-forwarded',
+      accepted: 'badge-accepted',
+      rejected: 'badge-rejected'
+    };
+
+    const badgeClass = statusClassMap[status] || '';
+
+    return (
+      <span className={`admin-badge ${badgeClass}`}>
+        {status.charAt(0).toUpperCase() + status.slice(1)}
+      </span>
+    );
   };
 
+
+  // Eligibility result rendering
+  const renderEligibilityResult = () => {
+    if (!eligibilityResult) return null;
+    
+    return (
+      <div className="admin-chart-card" style={{ marginBottom: '24px' }}>
+        <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '16px' }}>
+          ✓ ELIGIBILITY DETERMINATION
+        </h3>
+        
+        {eligibilityResult.eligible_streams && eligibilityResult.eligible_streams.length > 0 && (
+          <div style={{ marginBottom: '16px' }}>
+            <h4 style={{ fontSize: '12px', fontWeight: '700', color: '#1a6b3a', marginBottom: '8px' }}>
+              ELIGIBLE FOR
+            </h4>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {eligibilityResult.eligible_streams.map((stream: string) => (
+                <span key={stream} className="admin-badge" style={{ background: '#10b981', color: '#fff' }}>
+                  {stream}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {eligibilityResult.ineligible_streams && eligibilityResult.ineligible_streams.length > 0 && (
+          <div>
+            <h4 style={{ fontSize: '12px', fontWeight: '700', color: '#cc3333', marginBottom: '8px' }}>
+              NOT ELIGIBLE FOR
+            </h4>
+            {eligibilityResult.ineligible_streams.map((stream: string) => (
+              <div key={stream} style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b' }}>
+                  {stream}
+                </div>
+                {eligibilityResult.details && eligibilityResult.details[stream] && (
+                  <ul style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', paddingLeft: '20px' }}>
+                    {eligibilityResult.details[stream].reasons?.map((reason: string, i: number) => (
+                      <li key={i}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Duplicate status rendering
+  const renderDuplicateStatus = () => {
+    if (!duplicateStatus || !duplicateStatus.is_flagged) return null;
+    
+    return (
+      <div className="admin-chart-card" style={{ background: '#fef2f2', border: '1px solid #fecaca', marginBottom: '24px' }}>
+        <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '16px', color: '#b91c1c' }}>
+          ⚠️ DUPLICATE FLAG
+        </h3>
+        <p style={{ fontSize: '13px', color: '#991b1b', marginBottom: '16px' }}>
+          {duplicateStatus.message || 'This application has been flagged for review'}
+        </p>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            className="admin-input"
+            style={{ background: '#1a6b3a', color: '#fff', border: 'none', cursor: 'pointer', padding: '8px 16px', borderRadius: '6px' }}
+            onClick={handleMarkLegitimate}
+          >
+            ✓ Mark as Legitimate
+          </button>
+          <button 
+            className="admin-input"
+            style={{ background: '#cc3333', color: '#fff', border: 'none', cursor: 'pointer', padding: '8px 16px', borderRadius: '6px' }}
+            onClick={handleMarkDuplicate}
+          >
+            ✕ Confirm Duplicate
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Funding breakdown rendering
+  const renderFundingBreakdown = () => {
+    // Show a "not yet calculated" state when policy settings haven't loaded
+    const isPolicyLoaded = Object.keys(policySettings).length > 0;
+
+    if (!isPolicyLoaded && !autoSuggested) {
+      return (
+        <div className="admin-chart-card" style={{ marginTop: '32px', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '800' }}>💰 FUNDING BREAKDOWN</h3>
+            <span className="admin-badge badge-pending" style={{ fontSize: '9px', padding: '2px 8px' }}>PENDING</span>
+          </div>
+          <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #e2e8f0', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+            Funding calculation not yet available. Policy settings are loading or this application has not been processed.
+          </div>
+        </div>
+      );
+    }
+
+    if (!autoSuggested) return null;
+
+    // Handle ineligible case
+    if (autoSuggested.ineligible) {
+      return (
+        <div className="admin-chart-card" style={{ marginTop: '32px', marginBottom: '24px', background: '#fef2f2', border: '1px solid #fecaca' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#b91c1c' }}>💰 FUNDING BREAKDOWN</h3>
+            <span className="admin-badge" style={{ background: '#fee2e2', color: '#b91c1c', fontSize: '9px', padding: '2px 8px' }}>INELIGIBLE</span>
+          </div>
+          <p style={{ fontSize: '13px', color: '#991b1b' }}>{autoSuggested.reason || 'Student does not meet eligibility criteria for this funding stream.'}</p>
+        </div>
+      );
+    }
+
+    const tuitionAmount = autoSuggested.tuition?.system ?? 0;
+    const livingAmount = autoSuggested.living?.system ?? 0;
+    const booksAmount = autoSuggested.books?.system ?? 500;
+    const specialAmount = autoSuggested.special?.system ?? 0;
+    const totalAmount = autoSuggested.total ?? 0;
+
+    const breakdownRows: Array<{ label: string; amount: number; note?: string; icon: string }> = [
+      {
+        icon: '🎓',
+        label: 'Tuition',
+        amount: tuitionAmount,
+        note: autoSuggested.tuition?.rule,
+      },
+      {
+        icon: '🏠',
+        label: 'Living Allowance',
+        amount: livingAmount,
+        note: autoSuggested.living?.rule,
+      },
+      {
+        icon: '📚',
+        label: 'Books & Supplies',
+        amount: booksAmount,
+        note: autoSuggested.books?.rule,
+      },
+    ];
+
+    if (specialAmount > 0) {
+      breakdownRows.push({
+        icon: '⭐',
+        label: 'Special Awards',
+        amount: specialAmount,
+        note: autoSuggested.special?.rule || 'Academic or graduation award',
+      });
+    }
+
+    return (
+      <div className="admin-chart-card" style={{ marginTop: '32px', marginBottom: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: '800' }}>💰 FUNDING BREAKDOWN</h3>
+          <span className="admin-badge" style={{ background: '#dcfce7', color: '#166534', fontSize: '9px', padding: '2px 8px' }}>
+            {autoSuggested.stream || 'SYSTEM CALCULATED'}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+          {breakdownRows.map((row, idx) => (
+            <div
+              key={idx}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 16px',
+                background: idx % 2 === 0 ? '#f8fafc' : '#fff',
+                borderRadius: idx === 0 ? '8px 8px 0 0' : idx === breakdownRows.length - 1 ? '0 0 8px 8px' : '0',
+                border: '1px solid #e2e8f0',
+                borderTop: idx === 0 ? '1px solid #e2e8f0' : 'none',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '16px', width: '24px', textAlign: 'center' }}>{row.icon}</span>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>{row.label}</div>
+                  {row.note && (
+                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{row.note}</div>
+                  )}
+                </div>
+              </div>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>
+                ${row.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          ))}
+
+          {/* Total row */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 16px',
+              background: '#1e293b',
+              borderRadius: '0 0 8px 8px',
+              marginTop: '2px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '16px', width: '24px', textAlign: 'center' }}>💵</span>
+              <div style={{ fontSize: '14px', fontWeight: '800', color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Total Funding
+              </div>
+            </div>
+            <div style={{ fontSize: '18px', fontWeight: '900', color: '#e5a662' }}>
+              ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        </div>
+
+        {/* Approved amount comparison (if already decided) */}
+        {selectedApp?.amount > 0 && selectedApp?.status === 'accepted' && (
+          <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #dcfce7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: '12px', fontWeight: '700', color: '#166534' }}>✓ Approved Amount</div>
+            <div style={{ fontSize: '14px', fontWeight: '800', color: '#166534' }}>
+              ${parseFloat(selectedApp.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Banking details rendering (director only)
+  const renderBankingDetails = () => {
+    if (role !== 'director' || !selectedApp?.student_details) return null;
+    
+    return (
+      <div className="admin-chart-card" style={{ background: '#f0fdf4', border: '1px solid #dcfce7', marginBottom: '24px' }}>
+        <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '16px', color: '#166534' }}>
+          🔒 BANKING DETAILS (DIRECTOR ONLY)
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+              ACCOUNT HOLDER
+            </label>
+            <div style={{ fontSize: '13px', fontWeight: '600' }}>
+              {selectedApp.student_details.account_holder_name || selectedApp.student_details.full_name}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+              BANK NAME
+            </label>
+            <div style={{ fontSize: '13px', fontWeight: '600' }}>
+              {selectedApp.student_details.bank_name || 'N/A'}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+              ACCOUNT NUMBER
+            </label>
+            <div style={{ fontSize: '13px', fontWeight: '600' }}>
+              {selectedApp.student_details.account_number || 'N/A'}
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+              TRANSIT NUMBER
+            </label>
+            <div style={{ fontSize: '13px', fontWeight: '600' }}>
+              {selectedApp.student_details.transit_number || 'N/A'}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Handler functions for duplicate detection
+
+  // ── AUDIT TRAIL TIMELINE ──
+  const renderAuditTrail = () => {
+    const app = applications.find(a => String(a.id) === String(selectedAppId));
+
+    // Build timeline entries from submission data
+    const timelineEntries: Array<{
+      action: string;
+      performer: string;
+      timestamp: string;
+      color: string;
+      icon: string;
+    }> = [];
+
+    if (app) {
+      // 1. Application submitted
+      if (app.submitted_at) {
+        timelineEntries.push({
+          action: 'Application Submitted',
+          performer: app.student_details?.full_name || 'Student',
+          timestamp: app.submitted_at,
+          color: '#1a6b3a',
+          icon: '📋',
+        });
+      }
+
+      // 2. Reviewed by SSW
+      if (app.reviewed_at) {
+        const reviewerName = app.reviewed_by_name || (app.reviewed_by ? `Staff #${app.reviewed_by}` : 'Staff Member');
+        timelineEntries.push({
+          action: 'Application Reviewed',
+          performer: reviewerName,
+          timestamp: app.reviewed_at,
+          color: '#3182ce',
+          icon: '🔍',
+        });
+      }
+
+      // 3. Forwarded to Director
+      if (app.forwarded_at) {
+        const forwarderName = app.forwarded_by_name || (app.forwarded_by ? `Staff #${app.forwarded_by}` : 'Staff Member');
+        timelineEntries.push({
+          action: 'Forwarded to Director',
+          performer: forwarderName,
+          timestamp: app.forwarded_at,
+          color: '#a855f7',
+          icon: '📤',
+        });
+      }
+
+      // 4. Final decision
+      if (app.decided_at) {
+        const deciderName = app.decided_by_name || (app.decided_by ? `Director #${app.decided_by}` : 'Director');
+        const isApproved = app.status === 'accepted';
+        timelineEntries.push({
+          action: `Application ${isApproved ? 'Approved' : 'Rejected'}`,
+          performer: deciderName,
+          timestamp: app.decided_at,
+          color: isApproved ? '#1a6b3a' : '#cc3333',
+          icon: isApproved ? '✅' : '❌',
+        });
+      }
+
+      // 5. Notes added (from submission notes)
+      if (app.notes && Array.isArray(app.notes)) {
+        app.notes.forEach((note: any) => {
+          if (note.created_at) {
+            timelineEntries.push({
+              action: 'Note Added',
+              performer: note.added_by_name || note.author_name || 'Staff Member',
+              timestamp: note.created_at,
+              color: '#e5a662',
+              icon: '📝',
+            });
+          }
+        });
+      }
+    }
+
+    // Merge in any additional audit log entries from the API
+    auditLogs.forEach((log: any) => {
+      if (log.timestamp) {
+        const performerName = log.performed_by_details?.full_name || log.role || 'System';
+        timelineEntries.push({
+          action: log.action || 'Action Recorded',
+          performer: performerName,
+          timestamp: log.timestamp,
+          color: '#64748b',
+          icon: '🔒',
+        });
+      }
+    });
+
+    // Sort all entries chronologically (oldest first)
+    timelineEntries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const formatTimestamp = (ts: string) => {
+      try {
+        const d = new Date(ts);
+        return d.toLocaleString('en-CA', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } catch {
+        return ts;
+      }
+    };
+
+    return (
+      <div className="audit-trail-section" style={{ marginTop: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: '800', margin: 0 }}>🕐 AUDIT TRAIL</h3>
+          {!isAuditLoading && (
+            <span className="admin-badge" style={{ background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', fontSize: '9px' }}>
+              {timelineEntries.length} EVENT{timelineEntries.length !== 1 ? 'S' : ''}
+            </span>
+          )}
+        </div>
+
+        {/* Loading state */}
+        {isAuditLoading && (
+          <div className="audit-trail-loading">
+            <div className="audit-trail-spinner"></div>
+            <span>Loading audit trail...</span>
+          </div>
+        )}
+
+        {/* Error state */}
+        {auditError && !isAuditLoading && (
+          <div className="audit-trail-error">
+            <span>⚠️</span>
+            <span>Could not load additional audit entries: {auditError}</span>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!isAuditLoading && timelineEntries.length === 0 && (
+          <div className="audit-trail-empty">
+            <div className="audit-trail-empty-icon">📋</div>
+            <div className="audit-trail-empty-text">No audit entries yet</div>
+            <div className="audit-trail-empty-sub">Actions taken on this application will appear here</div>
+          </div>
+        )}
+
+        {/* Timeline */}
+        {!isAuditLoading && timelineEntries.length > 0 && (
+          <div className="audit-timeline">
+            {timelineEntries.map((entry, idx) => (
+              <div key={idx} className={`audit-timeline-item ${idx === timelineEntries.length - 1 ? 'audit-timeline-item--last' : ''}`}>
+                <div className="audit-timeline-dot" style={{ background: entry.color }}></div>
+                <div className="audit-timeline-content">
+                  <div className="audit-timeline-action">
+                    <span className="audit-timeline-icon">{entry.icon}</span>
+                    <span className="audit-timeline-action-text">{entry.action}</span>
+                  </div>
+                  <div className="audit-timeline-meta">
+                    <span className="audit-timeline-performer">{entry.performer}</span>
+                    <span className="audit-timeline-separator">·</span>
+                    <span className="audit-timeline-time">{formatTimestamp(entry.timestamp)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ── SUBMITTED INFORMATION SECTION ──
+  // Converts snake_case or camelCase field labels to human-readable format
+  const formatFieldLabel = (label: string): string => {
+    if (!label) return '';
+    // Replace underscores and hyphens with spaces
+    let formatted = label.replace(/[_-]/g, ' ');
+    // Insert space before capital letters (camelCase → words)
+    formatted = formatted.replace(/([a-z])([A-Z])/g, '$1 $2');
+    // Capitalize first letter of each word
+    formatted = formatted.replace(/\b\w/g, (c) => c.toUpperCase());
+    return formatted.trim();
+  };
+
+  // Determine if an answer is a file upload (URL pointing to a file)
+  const isFileAnswer = (answer: any): boolean => {
+    if (answer.answer_file) return true;
+    const text = answer.answer_text || '';
+    return (
+      text.startsWith('http') ||
+      text.startsWith('/media/') ||
+      /\.(pdf|doc|docx|jpg|jpeg|png|gif|xlsx|xls|csv)$/i.test(text)
+    );
+  };
+
+  // Group answers into logical sections based on common field label patterns
+  const groupAnswers = (answers: any[]): Record<string, any[]> => {
+    const groups: Record<string, any[]> = {
+      'Personal Information': [],
+      'Program & Enrollment': [],
+      'Financial Information': [],
+      'Documents & Files': [],
+      'Other Information': [],
+    };
+
+    const personalKeywords = ['name', 'email', 'phone', 'address', 'dob', 'birth', 'gender', 'treaty', 'beneficiary', 'sin', 'postal', 'city', 'province', 'contact', 'pronouns'];
+    const programKeywords = ['program', 'institution', 'school', 'university', 'college', 'semester', 'enrollment', 'enrolment', 'course', 'year', 'start', 'end', 'gpa', 'grade', 'credential', 'degree', 'diploma', 'certificate', 'practicum', 'placement'];
+    const financialKeywords = ['tuition', 'income', 'amount', 'funding', 'bursary', 'scholarship', 'payment', 'bank', 'account', 'transit', 'financial', 'dependent', 'stream', 'award', 'cost', 'fee', 'expense', 'budget'];
+
+    for (const answer of answers) {
+      const label = (answer.field?.label || answer.field_label || '').toLowerCase();
+
+      if (isFileAnswer(answer)) {
+        groups['Documents & Files'].push(answer);
+      } else if (personalKeywords.some(kw => label.includes(kw))) {
+        groups['Personal Information'].push(answer);
+      } else if (programKeywords.some(kw => label.includes(kw))) {
+        groups['Program & Enrollment'].push(answer);
+      } else if (financialKeywords.some(kw => label.includes(kw))) {
+        groups['Financial Information'].push(answer);
+      } else {
+        groups['Other Information'].push(answer);
+      }
+    }
+
+    // Remove empty groups
+    return Object.fromEntries(Object.entries(groups).filter(([, items]) => items.length > 0));
+  };
+
+  const renderSubmittedInformation = () => {
+    const app = applications.find(a => String(a.id) === String(selectedAppId));
+    if (!app) return null;
+
+    const answers: any[] = app.answers || [];
+
+    if (answers.length === 0) {
+      return (
+        <div style={{ marginTop: '32px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '16px' }}>SUBMITTED INFORMATION</h3>
+          <div style={{ padding: '24px', background: '#f8fafc', borderRadius: '10px', border: '1px dashed #e2e8f0', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+            No form answers available for this submission.
+          </div>
+        </div>
+      );
+    }
+
+    const grouped = groupAnswers(answers);
+
+    const groupIcons: Record<string, string> = {
+      'Personal Information': '👤',
+      'Program & Enrollment': '🎓',
+      'Financial Information': '💰',
+      'Documents & Files': '📎',
+      'Other Information': '📋',
+    };
+
+    return (
+      <div style={{ marginTop: '32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: '800' }}>SUBMITTED INFORMATION</h3>
+          <span className="admin-badge" style={{ background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', fontSize: '9px' }}>
+            {answers.length} FIELD{answers.length !== 1 ? 'S' : ''}
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {Object.entries(grouped).map(([groupName, groupAnswers]) => (
+            <div key={groupName} className="submitted-info-group">
+              <div className="submitted-info-group-header">
+                <span style={{ marginRight: '8px' }}>{groupIcons[groupName] || '📋'}</span>
+                {groupName}
+              </div>
+              <div className="submitted-info-grid">
+                {groupAnswers.map((answer: any, idx: number) => {
+                  const fieldLabel = answer.field?.label || answer.field_label || `Field ${idx + 1}`;
+                  const displayLabel = formatFieldLabel(fieldLabel);
+                  const fileUrl = answer.answer_file || (isFileAnswer(answer) ? answer.answer_text : null);
+                  const textValue = answer.answer_text;
+
+                  return (
+                    <div key={answer.id || idx} className="submitted-info-field">
+                      <div className="submitted-info-label">{displayLabel}</div>
+                      {fileUrl ? (
+                        <div className="submitted-info-file">
+                          <span style={{ fontSize: '16px', marginRight: '8px' }}>
+                            {fileUrl.toLowerCase().endsWith('.pdf') ? '📄' :
+                             /\.(jpg|jpeg|png|gif)$/i.test(fileUrl) ? '🖼️' : '📎'}
+                          </span>
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="submitted-info-download-link"
+                            aria-label={`Download ${displayLabel}`}
+                          >
+                            {fileUrl.split('/').pop() || 'Download File'}
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="submitted-info-value">
+                          {textValue && textValue.trim() !== '' ? textValue : (
+                            <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Not provided</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   // Mock navigation helper
   const renderNavItem = (id: ViewMode, label: string, icon: React.ReactNode, badge?: number) => (
@@ -522,6 +1344,7 @@ const StaffDashboard: React.FC = () => {
       onClick={() => {
         setCurrentView(id);
         if (id !== 'detail') setSelectedAppId(null);
+        setSidebarOpen(false); // Close sidebar on mobile after navigation
       }}
     >
       {icon} {label}
@@ -531,8 +1354,15 @@ const StaffDashboard: React.FC = () => {
 
   return (
     <div className="staff-portal-root">
+      {/* Mobile sidebar overlay */}
+      <div
+        className={`staff-sidebar-overlay ${sidebarOpen ? 'overlay-visible' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
+
       {/* Sidebar */}
-      <div className="staff-sidebar">
+      <div id="staff-sidebar" className={`staff-sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="staff-sidebar-header">
           <div className="staff-user-block">
             <div className="staff-user-name">{userData?.full_name || (role === 'director' ? 'Director' : 'Staff')}</div>
@@ -585,6 +1415,29 @@ const StaffDashboard: React.FC = () => {
       {/* Main Content */}
       <div className="staff-main">
         <header className="staff-topbar">
+          {/* Hamburger menu button — visible on mobile only */}
+          <button
+            className="staff-mobile-menu-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label={sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={sidebarOpen}
+            aria-controls="staff-sidebar"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              {sidebarOpen ? (
+                <>
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </>
+              ) : (
+                <>
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </>
+              )}
+            </svg>
+          </button>
           <div className="staff-view-title">
             {currentView === 'dashboard' && (role === 'director' ? 'Director Overview' : 'Admin Overview')}
             {currentView === 'applications' && 'All Applications'}
@@ -677,7 +1530,7 @@ const StaffDashboard: React.FC = () => {
                 </button>
               </div>
 
-              <div className="admin-kpi-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+              <div className="admin-kpi-row admin-kpi-row-4">
                 <div className="admin-kpi-card">
                   <div className="admin-kpi-val">{stats.totalApps}</div>
                   <div className="admin-kpi-label">TOTAL APPLICATIONS</div>
@@ -697,7 +1550,7 @@ const StaffDashboard: React.FC = () => {
               </div>
 
               {/* Insights Row - Standardized & Visible */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
+              <div className="admin-insights-row">
                 {/* Stream Split Card */}
                 <div className="admin-chart-card" style={{ marginBottom: 0, padding: '24px' }}>
                   <h3 style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>STREAM SPLIT</h3>
@@ -789,7 +1642,16 @@ const StaffDashboard: React.FC = () => {
                   </thead>
                   <tbody>
                     {applications.slice(0, 8).map(app => (
-                      <tr key={app.id} style={{ cursor: 'pointer' }} onClick={() => handleAppClick(app.id)}>
+                      <tr
+                        key={app.id}
+                        className="clickable-row"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => handleAppClick(app.id)}
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAppClick(app.id); } }}
+                        role="button"
+                        aria-label={`View application ${app.id} for ${app.student_details?.full_name || 'Anonymous Student'}`}
+                      >
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}># {app.id}</span></td>
                         <td><strong>{app.student_details?.full_name || 'Anonymous Student'}</strong></td>
                         <td style={{ fontSize: '12px' }}>{app.form_title || app.form?.title || 'General App'}</td>
@@ -809,20 +1671,39 @@ const StaffDashboard: React.FC = () => {
           {/* Applications View */}
           {currentView === 'applications' && (
             <div className="fade-in">
-              <div className="admin-filters" style={{ gridTemplateColumns: '1fr auto auto' }}>
+              <div className="admin-filters admin-filters-bar">
                 <div className="admin-search">
                   <input
                     type="text"
                     className="admin-input"
-                    placeholder="Search applicant, ref #, institution..."
+                    placeholder="Search by name, ID, email, or beneficiary number..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
-                <select className="admin-input" style={{ width: '160px' }}>
-                  <option>Status: All</option>
+                <select 
+                  className="admin-input" 
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                >
+                  <option value="all">Status: All</option>
+                  <option value="pending">Pending</option>
+                  <option value="reviewed">Reviewed</option>
+                  <option value="forwarded">Forwarded</option>
+                  <option value="accepted">Approved</option>
+                  <option value="rejected">Rejected</option>
                 </select>
-                <select className="admin-input" style={{ width: '160px' }}>
+                <select 
+                  className="admin-input" 
+                  value={fundingStreamFilter}
+                  onChange={(e) => setFundingStreamFilter(e.target.value)}
+                >
+                  <option value="all">Stream: All</option>
+                  <option value="PSSSP">PSSSP</option>
+                  <option value="UCEPP">UCEPP</option>
+                  <option value="DGGR">DGGR</option>
+                </select>
+                <select className="admin-input">
                   <option>Semester: All</option>
                 </select>
               </div>
@@ -871,19 +1752,58 @@ const StaffDashboard: React.FC = () => {
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>REF #</th>
-                      <th>APPLICANT</th>
-                      <th>INSTITUTION / PROGRAM</th>
-                      <th>SUBMITTED</th>
-                      <th>STATUS</th>
+                      <th 
+                        onClick={() => handleSort('id')} 
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        REF # {sortColumn === 'id' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th 
+                        onClick={() => handleSort('student_name')} 
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        APPLICANT {sortColumn === 'student_name' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th 
+                        onClick={() => handleSort('form_title')} 
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        INSTITUTION / PROGRAM {sortColumn === 'form_title' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th 
+                        onClick={() => handleSort('submitted_at')} 
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        SUBMITTED {sortColumn === 'submitted_at' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      </th>
+                      <th 
+                        onClick={() => handleSort('status')} 
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        STATUS {sortColumn === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      </th>
                       <th>VERIFICATION</th>
-                      <th>FUNDING $</th>
+                      <th 
+                        onClick={() => handleSort('amount')} 
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                      >
+                        FUNDING $ {sortColumn === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
+                      </th>
                       <th>ACTIONS</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredApps.map(app => (
-                      <tr key={app.id}>
+                    {paginatedApps.map(app => (
+                      <tr
+                        key={app.id}
+                        className="clickable-row"
+                        onClick={() => handleAppClick(app.id)}
+                        style={{ cursor: 'pointer' }}
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAppClick(app.id); } }}
+                        role="button"
+                        aria-label={`View application ${app.id} for ${app.student_details?.full_name || 'Student'}`}
+                      >
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}>{app.id}</span></td>
                         <td><strong>{app.student_details?.full_name}</strong></td>
                         <td style={{ fontSize: '12px' }}>{getFormDisplayName(app.form_title || app.form?.title)}</td>
@@ -924,6 +1844,34 @@ const StaffDashboard: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="pagination-container">
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
+                    Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredAndSortedApps.length)} of {filteredAndSortedApps.length} applications
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      className="pagination-btn"
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      disabled={currentPage === 1}
+                    >
+                      ← Previous
+                    </button>
+                    <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                      className="pagination-btn"
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -931,11 +1879,11 @@ const StaffDashboard: React.FC = () => {
           {((currentView === 'detail' || currentView === 'director-detail') && selectedAppId) && (
             <div className="fade-in">
               {/* Header Actions */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <div className="admin-detail-header">
                 <div style={{ fontSize: '11px', color: '#64748b' }}>
                   All Applications / <span style={{ fontWeight: '700', color: '#1e293b' }}>{selectedAppId}</span>
                 </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
+                <div className="admin-detail-actions">
                   <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }} onClick={handlePDFExport}>Export PDF</button>
                   <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }} onClick={handleShareView}>Share View</button>
                   <button className="admin-input" style={{ width: 'auto', fontSize: '11px', fontWeight: '700' }} onClick={handleRequestInfo}>REQUEST MORE INFO</button>
@@ -957,7 +1905,7 @@ const StaffDashboard: React.FC = () => {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
+              <div className="admin-detail-grid">
                 {/* Left: Detail Forms */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                   <div className="admin-chart-card">
@@ -995,7 +1943,7 @@ const StaffDashboard: React.FC = () => {
                         </div>
                         <div>
                           <label className="admin-kpi-label" style={{ fontSize: '9px' }}>STATUS</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => String(a.id) === String(selectedAppId))?.status.toUpperCase()}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{getStatusBadge(applications.find(a => String(a.id) === String(selectedAppId))?.status || 'pending')}</div>
                         </div>
                         <div>
                           <label className="admin-kpi-label" style={{ fontSize: '9px' }}>INSTITUTION</label>
@@ -1011,6 +1959,56 @@ const StaffDashboard: React.FC = () => {
                         </div>
                       </div>
                     </div>
+
+                    {/* Eligibility Determination Section */}
+                    <div style={{ marginTop: '32px' }}>
+                      {isEligibilityLoading && (
+                        <div className="admin-chart-card" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ width: '16px', height: '16px', border: '2px solid #e2e8f0', borderTopColor: 'var(--admin-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }}></div>
+                          <span style={{ fontSize: '13px', color: '#64748b' }}>Checking eligibility...</span>
+                        </div>
+                      )}
+                      {eligibilityError && !isEligibilityLoading && (
+                        <div className="admin-chart-card" style={{ marginBottom: '24px', background: '#fef2f2', border: '1px solid #fecaca' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '16px' }}>⚠️</span>
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: '700', color: '#b91c1c' }}>Eligibility Check Failed</div>
+                              <div style={{ fontSize: '12px', color: '#991b1b', marginTop: '2px' }}>{eligibilityError}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {renderEligibilityResult()}
+                    </div>
+
+                    {/* Duplicate Flag Section */}
+                    <div style={{ marginTop: '24px' }}>
+                      {isDuplicateLoading && (
+                        <div className="admin-chart-card" style={{ marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <div style={{ width: '16px', height: '16px', border: '2px solid #e2e8f0', borderTopColor: 'var(--admin-accent)', borderRadius: '50%', animation: 'spin 1s linear infinite', flexShrink: 0 }}></div>
+                          <span style={{ fontSize: '13px', color: '#64748b' }}>Checking for duplicates...</span>
+                        </div>
+                      )}
+                      {duplicateError && !isDuplicateLoading && (
+                        <div className="admin-chart-card" style={{ marginBottom: '24px', background: '#fef2f2', border: '1px solid #fecaca' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '16px' }}>⚠️</span>
+                            <div>
+                              <div style={{ fontSize: '13px', fontWeight: '700', color: '#b91c1c' }}>Duplicate Check Failed</div>
+                              <div style={{ fontSize: '12px', color: '#991b1b', marginTop: '2px' }}>{duplicateError}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {renderDuplicateStatus()}
+                    </div>
+
+                    {/* Submitted Information Section */}
+                    {renderSubmittedInformation()}
+
+                    {/* Funding Breakdown Section */}
+                    {renderFundingBreakdown()}
 
                     <div style={{ marginTop: '32px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
@@ -1114,41 +2112,28 @@ const StaffDashboard: React.FC = () => {
                   </div>
 
                   <div className="admin-chart-card">
-                    <h3 style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '20px', color: '#64748b' }}>AUDIT LOG</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                      <div style={{ position: 'relative', paddingLeft: '24px', borderLeft: '2px solid #e2e8f0' }}>
-                        <div style={{ position: 'absolute', left: '-6px', top: '0', width: '10px', height: '10px', background: '#1a6b3a', borderRadius: '50%' }}></div>
-                        <div style={{ fontSize: '12px', fontWeight: '700' }}>Application Received</div>
-                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>{selectedApp ? new Date(selectedApp.submitted_at).toLocaleString() : 'N/A'} via online portal</div>
-                      </div>
-                      {selectedApp?.ssw_submitted_at && (
-                        <div style={{ position: 'relative', paddingLeft: '24px', borderLeft: '2px solid #e2e8f0' }}>
-                           <div style={{ position: 'absolute', left: '-6px', top: '0', width: '10px', height: '10px', background: '#3a4aaa', borderRadius: '50%' }}></div>
-                           <div style={{ fontSize: '12px', fontWeight: '700' }}>SSW Review Completed</div>
-                           <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>{new Date(selectedApp.ssw_submitted_at).toLocaleString()}</div>
-                        </div>
-                      )}
-                      {selectedApp?.decision_at && (
-                        <div style={{ position: 'relative', paddingLeft: '24px' }}>
-                           <div style={{ position: 'absolute', left: '-6px', top: '0', width: '10px', height: '10px', background: selectedApp.status === 'accepted' ? '#1a6b3a' : '#c53030', borderRadius: '50%' }}></div>
-                           <div style={{ fontSize: '12px', fontWeight: '700' }}>Director Decision: {selectedApp.status.toUpperCase()}</div>
-                           <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>{new Date(selectedApp.decision_at).toLocaleString()} by {selectedApp.decision_by || 'Director'}</div>
-                        </div>
-                      )}
-                    </div>
+                    {renderAuditTrail()}
                   </div>
 
                   <div className="admin-chart-card">
-                    <h3 style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '20px', color: '#64748b' }}>STAFF NOTES (INTERNAL ONLY)</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                      <h3 style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#64748b', margin: 0 }}>STAFF NOTES (INTERNAL ONLY)</h3>
+                      {applications.find(a => Number(a.id) === Number(selectedAppId))?.notes?.length > 0 && (
+                        <span className="admin-badge" style={{ background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', fontSize: '9px' }}>
+                          {applications.find(a => Number(a.id) === Number(selectedAppId))!.notes.length} NOTE{applications.find(a => Number(a.id) === Number(selectedAppId))!.notes.length !== 1 ? 'S' : ''}
+                        </span>
+                      )}
+                    </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {/* Notes list */}
+                      <div className="staff-notes-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
                         {applications.find(a => Number(a.id) === Number(selectedAppId))?.notes?.length > 0 ? (
                           applications.find(a => Number(a.id) === Number(selectedAppId))!.notes.map((note: any) => (
-                            <div key={note.id} style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                            <div key={note.id} className="staff-note-item" style={{ background: '#fcfaf8', padding: '10px 12px', borderRadius: '8px', border: '1px solid #e5d5c0' }}>
                               <div style={{ fontSize: '12px', color: '#1e293b', lineHeight: '1.5' }}>{note.text}</div>
-                              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '6px', display: 'flex', justifyContent: 'space-between' }}>
-                                <span>{note.added_by_name || 'Staff Member'}</span>
-                                <span>{new Date(note.created_at).toLocaleDateString()}</span>
+                              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ fontWeight: '600' }}>{note.author_name || note.added_by_name || 'Staff Member'}</span>
+                                <span>{new Date(note.created_at).toLocaleString('en-CA', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                               </div>
                             </div>
                           ))
@@ -1158,22 +2143,47 @@ const StaffDashboard: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+
+                      {/* Error display */}
+                      {noteError && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', fontSize: '12px', color: '#991b1b' }}>
+                          <span>⚠️</span>
+                          <span>{noteError}</span>
+                          <button
+                            onClick={() => setNoteError(null)}
+                            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#991b1b', fontSize: '14px', lineHeight: 1 }}
+                            aria-label="Dismiss error"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Add note input */}
+                      <div style={{ background: '#fcfaf8', padding: '12px', borderRadius: '8px', border: '1px solid #e5d5c0' }}>
                         <textarea
                           className="admin-input"
-                          placeholder="Add internal note — not visible to student.."
+                          placeholder="Add internal note — not visible to student..."
                           style={{ fontSize: '12px', border: 'none', background: 'transparent', resize: 'none', padding: '0', width: '100%', minHeight: '60px' }}
                           value={staffNote}
-                          onChange={(e) => setStaffNote(e.target.value)}
+                          onChange={(e) => { setStaffNote(e.target.value); if (noteError) setNoteError(null); }}
+                          disabled={isAddingNote}
+                          aria-label="Internal staff note"
                         ></textarea>
                         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-                          <button 
-                            className="admin-badge badge-review" 
-                            style={{ cursor: 'pointer', border: 'none', opacity: !staffNote.trim() || isLoading ? 0.5 : 1 }}
+                          <button
+                            className="admin-badge badge-review"
+                            style={{ cursor: !staffNote.trim() || isAddingNote ? 'not-allowed' : 'pointer', border: 'none', opacity: !staffNote.trim() || isAddingNote ? 0.5 : 1, padding: '6px 14px' }}
                             onClick={handleAddNote}
-                            disabled={!staffNote.trim() || isLoading}
+                            disabled={!staffNote.trim() || isAddingNote}
+                            aria-label="Save internal note"
                           >
-                            {isLoading ? 'Posting...' : 'Save Note'}
+                            {isAddingNote ? (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ width: '10px', height: '10px', border: '2px solid #e2e8f0', borderTopColor: '#475569', borderRadius: '50%', display: 'inline-block', animation: 'spin 1s linear infinite' }}></span>
+                                Saving...
+                              </span>
+                            ) : 'Save Note'}
                           </button>
                         </div>
                       </div>
@@ -1530,7 +2540,7 @@ const StaffDashboard: React.FC = () => {
                 <h2 style={{ fontSize: '20px', fontWeight: '800' }}>APPROVAL QUEUE</h2>
                 <span style={{ fontSize: '11px', color: '#64748b' }}>{applications.filter(a => a.status === 'forwarded').length} awaiting decision</span>
               </div>
-              <div className="admin-kpi-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+              <div className="admin-kpi-row admin-kpi-row-4">
                 <div className="admin-kpi-card">
                   <div className="admin-kpi-val">{(backendStats?.submissions_by_status?.forwarded || 0)}</div>
                   <div className="admin-kpi-label">STANDARD</div>
@@ -1615,15 +2625,7 @@ const StaffDashboard: React.FC = () => {
                           <td style={{ fontSize: '11px' }}>{app.program || app.form_data?.program || 'N/A'}</td>
                           <td style={{ fontSize: '12px', fontWeight: '700' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
                           <td>
-                            {app.status === 'accepted' ? (
-                              <span style={{ color: '#1a6b3a', fontWeight: '700', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Approved
-                              </span>
-                            ) : (
-                              <span style={{ color: '#cc3333', fontWeight: '700', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Denied
-                              </span>
-                            )}
+                            {getStatusBadge(app.status)}
                           </td>
                           <td style={{ fontSize: '11px', color: '#64748b' }}>System</td>
                           <td style={{ fontSize: '11px', color: '#64748b' }}>{new Date(app.submitted_at || Date.now()).toLocaleDateString()}</td>
@@ -1643,7 +2645,7 @@ const StaffDashboard: React.FC = () => {
                 <span style={{ fontSize: '11px', color: '#64748b' }}>Approval Queue / <span style={{ fontWeight: '700', color: '#1e293b' }}>{selectedAppId}</span></span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px' }}>
+              <div className="admin-detail-grid">
                 {/* Left: Application Content */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                   <div className="admin-chart-card">
@@ -1700,7 +2702,7 @@ const StaffDashboard: React.FC = () => {
                             </div>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>STATUS</label>
-                              <div style={{ fontSize: '13px', fontWeight: '700', color: app?.status === 'forwarded' ? '#c2410c' : '#166534' }}>{app?.status.toUpperCase()}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{getStatusBadge(app?.status || 'pending')}</div>
                             </div>
                           </div>
                         );
@@ -1827,34 +2829,7 @@ const StaffDashboard: React.FC = () => {
                       <h3 style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' }}>AUDIT LOG</h3>
                     </div>
                     <div style={{ padding: '24px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                        {(() => {
-                           const app = applications.find(a => Number(a.id) === Number(selectedAppId));
-                           return (
-                             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                               <div style={{ position: 'relative', paddingLeft: '24px', borderLeft: '1px solid #e2e8f0' }}>
-                                 <div style={{ position: 'absolute', left: '-6px', top: '0', width: '10px', height: '10px', background: '#166534', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                 <div style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b' }}>Application Received</div>
-                                 <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>{app ? new Date(app.submitted_at).toLocaleString() : 'N/A'} via online portal</div>
-                               </div>
-                               {app?.ssw_submitted_at && (
-                                 <div style={{ position: 'relative', paddingLeft: '24px', borderLeft: '1px solid #e2e8f0' }}>
-                                   <div style={{ position: 'absolute', left: '-6px', top: '0', width: '10px', height: '10px', background: '#166534', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                   <div style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b' }}>Forwarded to Director</div>
-                                   <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>{new Date(app.ssw_submitted_at).toLocaleString()} by SSW</div>
-                                 </div>
-                               )}
-                               {app?.decision_at && (
-                                 <div style={{ position: 'relative', paddingLeft: '24px' }}>
-                                   <div style={{ position: 'absolute', left: '-6px', top: '0', width: '10px', height: '10px', background: app.status === 'accepted' ? '#166534' : '#c53030', borderRadius: '50%', border: '2px solid #fff' }}></div>
-                                   <div style={{ fontSize: '12px', fontWeight: '700', color: '#1e293b' }}>Final Decision: {app.status.toUpperCase()}</div>
-                                   <div style={{ fontSize: '10px', color: '#64748b', marginTop: '4px' }}>{new Date(app.decision_at).toLocaleString()} by {app.decision_by || 'Director'}</div>
-                                 </div>
-                               )}
-                             </div>
-                           );
-                        })()}
-                      </div>
+                      {renderAuditTrail()}
                     </div>
                   </div>
                 </div>
@@ -2012,7 +2987,16 @@ const StaffDashboard: React.FC = () => {
                   </thead>
                   <tbody>
                     {appeals.map((a: any) => (
-                      <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => handleAppClick(a.submission)}>
+                      <tr
+                        key={a.id}
+                        className="clickable-row"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => handleAppClick(a.submission)}
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAppClick(a.submission); } }}
+                        role="button"
+                        aria-label={`View appeal ${a.id} for ${a.student_details?.full_name || 'Student'}`}
+                      >
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}>APP-{a.id}</span></td>
                         <td><strong>{a.student_details?.full_name || 'Student'}</strong></td>
                         <td style={{ fontSize: '12px' }}>{a.submission_details?.form_title || 'Application'}</td>

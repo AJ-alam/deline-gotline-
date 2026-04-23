@@ -184,3 +184,27 @@ class ShareableLink(models.Model):
 
     def __str__(self):
         return f"Share link for {self.application.id} - {self.token}"
+
+
+class DuplicateDetectionLog(models.Model):
+    """Model for tracking duplicate detection activities with privacy protection."""
+    
+    submission = models.ForeignKey('forms.FormSubmission', on_delete=models.CASCADE, related_name='duplicate_logs', null=True, blank=True)
+    submission_id = models.IntegerField(db_index=True)  # FormSubmission ID
+    identifier_hash = models.CharField(max_length=64, db_index=True)  # SHA-256 hash (one-way)
+    is_flagged = models.BooleanField(default=False)
+    is_confirmed_duplicate = models.BooleanField(default=False)
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['identifier_hash', 'is_flagged']),
+            models.Index(fields=['submission_id']),
+        ]
+    
+    def __str__(self):
+        return f"Duplicate Check for Submission {self.submission_id}"

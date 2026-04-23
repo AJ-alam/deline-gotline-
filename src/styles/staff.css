@@ -215,9 +215,7 @@
   color: #334155;
 }
 
-.admin-table tr:hover td {
-  background: #fdfdfd;
-}
+/* Row hover handled by .admin-table tbody tr:hover td below */
 
 .admin-table.table-dense td, .admin-table.table-dense th {
   padding: 12px 16px;
@@ -241,7 +239,6 @@
 
 .badge-new { background: #dcfce7; color: #166534; }
 .badge-review { background: #fef9c3; color: #854d0e; }
-.badge-pending { background: #e0e7ff; color: #3730a3; }
 .badge-approved { background: #d1fae5; color: #065f46; }
 .badge-denied { background: #fee2e2; color: #991b1b; }
 .badge-override { background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; }
@@ -582,4 +579,859 @@
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+
+
+/* ── ENHANCED APPLICATIONS LIST VIEW STYLES ── */
+
+/* Sortable table headers */
+.admin-table th {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s, color 0.2s;
+  position: relative;
+}
+
+.admin-table th:hover {
+  background-color: #f1f5f9;
+  color: #1e293b;
+}
+
+/* Sort indicator styling */
+.admin-table th[style*="cursor: pointer"]::after {
+  content: '';
+  display: inline-block;
+  margin-left: 6px;
+  opacity: 0.3;
+}
+
+.admin-table th[style*="cursor: pointer"]:hover::after {
+  opacity: 0.6;
+}
+
+/* Pagination styles */
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 24px;
+  padding: 16px 20px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.pagination-btn {
+  padding: 8px 16px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--admin-accent);
+  color: #111;
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Status badge colors */
+.badge-pending { background: #fbbf24; color: #78350f; }
+.badge-reviewed { background: #3b82f6; color: #fff; }
+.badge-forwarded { background: #a855f7; color: #fff; }
+.badge-accepted { background: #10b981; color: #fff; }
+.badge-rejected { background: #ef4444; color: #fff; }
+
+/* Clickable table rows */
+.admin-table tbody tr {
+  cursor: pointer;
+  transition: background-color 0.18s ease, box-shadow 0.18s ease;
+  outline: none;
+}
+
+.admin-table tbody tr td {
+  transition: background-color 0.18s ease;
+}
+
+.admin-table tbody tr:hover td {
+  background-color: #fdf6ee;
+}
+
+.admin-table tbody tr:hover {
+  box-shadow: inset 3px 0 0 var(--admin-accent);
+}
+
+/* Active/pressed state */
+.admin-table tbody tr:active td {
+  background-color: #faecd8;
+}
+
+/* Keyboard focus state for accessibility */
+.admin-table tbody tr:focus td,
+.admin-table tbody tr:focus-visible td {
+  background-color: #fdf6ee;
+}
+
+.admin-table tbody tr:focus,
+.admin-table tbody tr:focus-visible {
+  outline: 2px solid var(--admin-accent);
+  outline-offset: -2px;
+  box-shadow: inset 3px 0 0 var(--admin-accent);
+}
+
+/* Timeline styles */
+.timeline-item {
+  position: relative;
+  padding-left: 24px;
+  margin-bottom: 20px;
+  border-left: 2px solid #e2e8f0;
+}
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  background: #1a6b3a;
+  border-radius: 50%;
+}
+
+/* Eligibility card */
+.eligibility-card {
+  background: #f0fdf4;
+  border: 1px solid #dcfce7;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+/* Duplicate flag card */
+.duplicate-flag-card {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+/* Banking details card */
+.banking-details-card {
+  background: #f0fdf4;
+  border: 1px solid #dcfce7;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 24px;
+}
+
+
+/* ── LAYOUT UTILITY CLASSES (responsive-aware) ── */
+
+/* KPI row: 4 columns on desktop, overridden by media queries */
+.admin-kpi-row-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* Dashboard insights: 2 columns on desktop */
+.admin-insights-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+/* Detail view: main + sidebar layout */
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 24px;
+}
+
+/* Detail view header: breadcrumb + actions */
+.admin-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Detail view action buttons group */
+.admin-detail-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Filter bar: search + selects */
+.admin-filters-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.admin-filters-bar .admin-search {
+  flex: 1;
+  min-width: 240px;
+}
+
+.admin-filters-bar select.admin-input {
+  width: 160px;
+  flex-shrink: 0;
+}
+
+/* ── RESPONSIVE DESIGN — MOBILE BREAKPOINTS ── */
+
+/* Hamburger menu button (hidden on desktop) */
+.staff-mobile-menu-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  color: #a0aec0;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Sidebar overlay for mobile */
+.staff-sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+}
+
+/* ── TABLET BREAKPOINT (max-width: 1024px) ── */
+@media (max-width: 1024px) {
+  .staff-sidebar {
+    width: 200px;
+  }
+
+  .staff-content {
+    padding: 24px;
+  }
+
+  .admin-kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ── MOBILE BREAKPOINT (max-width: 768px) ── */
+@media (max-width: 768px) {
+  /* Sidebar: hidden off-screen by default, slides in when open */
+  .staff-sidebar {
+    position: fixed;
+    left: -260px;
+    top: 0;
+    width: 240px;
+    height: 100vh;
+    z-index: 50;
+    transition: left 0.3s ease;
+  }
+
+  .staff-sidebar.sidebar-open {
+    left: 0;
+  }
+
+  /* Show overlay when sidebar is open */
+  .staff-sidebar-overlay.overlay-visible {
+    display: block;
+  }
+
+  /* Show hamburger button */
+  .staff-mobile-menu-btn {
+    display: flex;
+  }
+
+  /* Main content takes full width */
+  .staff-main {
+    width: 100%;
+  }
+
+  /* Topbar adjustments */
+  .staff-topbar {
+    padding: 0 16px;
+    gap: 12px;
+  }
+
+  .staff-view-title {
+    font-size: 13px;
+  }
+
+  /* Content padding */
+  .staff-content {
+    padding: 16px;
+  }
+
+  /* KPI cards: 2 columns on tablet, 1 on small mobile */
+  .admin-kpi-row,
+  .admin-kpi-row-4 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .admin-kpi-val {
+    font-size: 22px;
+  }
+
+  /* Dashboard insights: stack to single column */
+  .admin-insights-row {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  /* Detail view: stack to single column */
+  .admin-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Detail header: stack breadcrumb above actions */
+  .admin-detail-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-detail-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .admin-detail-actions button {
+    flex: 1 1 auto;
+    min-width: 120px;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* Filter bar: stack vertically */
+  .admin-filters-bar {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .admin-filters-bar .admin-search {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .admin-filters-bar select.admin-input {
+    width: 100%;
+  }
+
+  /* Table: horizontal scroll on mobile */
+  .admin-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-table {
+    min-width: 600px;
+  }
+
+  .admin-table th,
+  .admin-table td {
+    padding: 12px 14px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* Filter bar: stack vertically */
+  .admin-filters {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .admin-search {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .admin-input {
+    width: 100% !important;
+    box-sizing: border-box;
+  }
+
+  /* Policy tabs: horizontal scroll */
+  .policy-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    padding: 0 16px;
+  }
+
+  /* Pagination: stack on mobile */
+  .pagination-container {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+    text-align: center;
+    padding: 12px 16px;
+  }
+
+  .pagination-btn {
+    width: 100%;
+    padding: 10px 16px;
+  }
+
+  /* Status badges: ensure readable size */
+  .admin-badge {
+    font-size: 10px;
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+
+  /* Dashboard insight grid: single column */
+  .admin-chart-card {
+    padding: 16px;
+  }
+
+  /* Modal: full-width on mobile */
+  .modal-overlay {
+    padding: 12px;
+    align-items: flex-end;
+  }
+
+  .modal-card {
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+  }
+
+  /* Role switcher FAB: smaller on mobile */
+  .role-switcher-fab {
+    bottom: 16px;
+    right: 16px;
+    padding: 6px 12px;
+    gap: 8px;
+  }
+
+  /* Director action buttons: full width */
+  .director-main-btn {
+    padding: 12px;
+    font-size: 12px;
+  }
+}
+
+/* ── SMALL MOBILE BREAKPOINT (max-width: 480px) ── */
+@media (max-width: 480px) {
+  /* KPI cards: single column */
+  .admin-kpi-row,
+  .admin-kpi-row-4 {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-kpi-val {
+    font-size: 20px;
+  }
+
+  .admin-kpi-label {
+    font-size: 11px;
+  }
+
+  /* Topbar: tighter */
+  .staff-topbar {
+    padding: 0 12px;
+    height: 52px;
+  }
+
+  .staff-view-title {
+    font-size: 12px;
+  }
+
+  /* Content: minimal padding */
+  .staff-content {
+    padding: 12px;
+  }
+
+  /* Table: tighter cells */
+  .admin-table th,
+  .admin-table td {
+    padding: 10px 12px;
+    font-size: 11px;
+  }
+
+  /* Pagination: compact */
+  .pagination-container {
+    padding: 10px 12px;
+  }
+
+  /* Filter inputs: full width */
+  .admin-filters {
+    gap: 6px;
+  }
+
+  /* Banking details grid: single column */
+  .banking-details-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Policy settings grid: single column */
+  .policy-settings-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Chart cards: minimal padding */
+  .admin-chart-card {
+    padding: 12px;
+  }
+
+  /* Modal: full screen on very small devices */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .modal-card {
+    border-radius: 12px 12px 0 0;
+  }
+
+  /* Action buttons in table: icon-only or compact */
+  .admin-table .action-btn-text {
+    display: none;
+  }
+}
+
+/* ── PRINT MEDIA QUERY ── */
+@media print {
+  .staff-sidebar,
+  .staff-topbar,
+  .admin-filters,
+  .pagination-container,
+  .role-switcher-fab {
+    display: none !important;
+  }
+
+  .staff-main {
+    width: 100%;
+  }
+
+  .staff-content {
+    padding: 0;
+  }
+}
+
+/* ── SUBMITTED INFORMATION SECTION ── */
+
+.submitted-info-group {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.submitted-info-group-header {
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475569;
+  display: flex;
+  align-items: center;
+}
+
+.submitted-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0;
+}
+
+.submitted-info-field {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  border-right: 1px solid #f1f5f9;
+}
+
+.submitted-info-field:last-child {
+  border-bottom: none;
+}
+
+.submitted-info-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.submitted-info-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.submitted-info-file {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.submitted-info-download-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0369a1;
+  text-decoration: none;
+  word-break: break-all;
+  transition: color 0.2s;
+}
+
+.submitted-info-download-link:hover {
+  color: var(--admin-accent);
+  text-decoration: underline;
+}
+
+/* Responsive: single column on mobile */
+@media (max-width: 768px) {
+  .submitted-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .submitted-info-field {
+    border-right: none;
+  }
+}
+
+
+/* ── AUDIT TRAIL TIMELINE ── */
+
+.audit-trail-section {
+  /* Container for the full audit trail block */
+}
+
+/* Loading state */
+.audit-trail-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.audit-trail-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #e2e8f0;
+  border-top-color: var(--admin-accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Error state */
+.audit-trail-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #991b1b;
+  margin-bottom: 12px;
+}
+
+/* Empty state */
+.audit-trail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px dashed #e2e8f0;
+  text-align: center;
+}
+
+.audit-trail-empty-icon {
+  font-size: 28px;
+  margin-bottom: 10px;
+  opacity: 0.5;
+}
+
+.audit-trail-empty-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.audit-trail-empty-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* Timeline container */
+.audit-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+}
+
+/* Individual timeline item */
+.audit-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+  padding-bottom: 20px;
+}
+
+/* Vertical connecting line — drawn on the left side of the dot column */
+.audit-timeline-item::before {
+  content: '';
+  position: absolute;
+  left: 9px; /* center of the 20px dot column */
+  top: 20px; /* start below the dot */
+  bottom: 0;
+  width: 2px;
+  background: #e2e8f0;
+}
+
+/* Remove the line after the last item */
+.audit-timeline-item--last::before {
+  display: none;
+}
+
+/* Dot */
+.audit-timeline-dot {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px #e2e8f0;
+  flex-shrink: 0;
+  margin-top: 1px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Content block */
+.audit-timeline-content {
+  flex: 1;
+  padding-bottom: 4px;
+}
+
+/* Action row */
+.audit-timeline-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.audit-timeline-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.audit-timeline-action-text {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+/* Meta row: performer · timestamp */
+.audit-timeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.audit-timeline-performer {
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.audit-timeline-separator {
+  font-size: 11px;
+  color: #cbd5e1;
+}
+
+.audit-timeline-time {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+/* Responsive: tighten on mobile */
+@media (max-width: 768px) {
+  .audit-timeline-item {
+    gap: 12px;
+    padding-bottom: 16px;
+  }
+
+  .audit-timeline-dot {
+    width: 16px;
+    height: 16px;
+  }
+
+  .audit-timeline-item::before {
+    left: 7px;
+    top: 16px;
+  }
+
+  .audit-timeline-action-text {
+    font-size: 12px;
+  }
+
+  .audit-timeline-performer,
+  .audit-timeline-time {
+    font-size: 10px;
+  }
+}
+
+
+/* ── STAFF NOTES SECTION ── */
+
+.staff-notes-list {
+  scrollbar-width: thin;
+  scrollbar-color: #e5d5c0 transparent;
+}
+
+.staff-notes-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.staff-notes-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.staff-notes-list::-webkit-scrollbar-thumb {
+  background: #e5d5c0;
+  border-radius: 4px;
+}
+
+.staff-note-item {
+  transition: border-color 0.2s;
+}
+
+.staff-note-item:hover {
+  border-color: #e5a662 !important;
 }

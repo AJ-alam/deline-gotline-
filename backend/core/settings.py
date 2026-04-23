@@ -11,6 +11,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-default-fallback-key')
 DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,.vercel.app').split(',')
+if config('VERCEL_URL', default=None):
+    ALLOWED_HOSTS.append(config('VERCEL_URL'))
 
 # Application definition
 INSTALLED_APPS = [
@@ -120,10 +122,15 @@ CORS_ALLOWED_ORIGINS = [
     config('FRONTEND_URL', default='http://localhost:3000'),
     config('FRONTEND_URL_ALT', default='http://localhost:5173'),
 ]
+if config('VERCEL_URL', default=None):
+    CORS_ALLOWED_ORIGINS.append(f"https://{config('VERCEL_URL')}")
+
 CORS_ALLOW_CREDENTIALS = True
 
 # CSRF configuration
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='http://localhost:3000,http://localhost:5173').split(',')
+if config('VERCEL_URL', default=None):
+    CSRF_TRUSTED_ORIGINS.append(f"https://{config('VERCEL_URL')}")
 
 # Static and Media files
 STATIC_URL = '/static/'

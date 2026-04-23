@@ -2,6 +2,8 @@ from rest_framework import viewsets, permissions, status, decorators, parsers
 from forms.models import Form, FormSubmission, SubmissionNote
 from forms.serializers import FormSerializer, FormSubmissionSerializer, SubmissionNoteSerializer
 from api.services.form_service import FormService
+from api.services.eligibility_service import EligibilityService
+from api.services.duplicate_detection_service import DuplicateDetectionService
 from api.utils.responses import api_response
 from api.models import ShareableLink
 from users.permissions import IsAdminUser, IsOwnerOrAdmin
@@ -96,3 +98,123 @@ class SubmissionController(viewsets.ModelViewSet):
         )
         
         return api_response(True, { "token": token }, "Share link generated")
+
+    @decorators.action(detail=True, methods=['post'], url_path='check-eligibility')
+    def check_eligibility(self, request, pk=None):
+        """Check eligibility for a submission against all funding streams."""
+        submission = self.get_object()
+        
+        try:
+            eligibility_result = EligibilityService.check_eligibility(submission)
+            EligibilityService.log_eligibility_check(submission, eligibility_result, request.user)
+            
+            return api_response(
+                True,
+                eligibility_result,
+                "Eligibility determination completed",
+                status.HTTP_200_OK
+            )
+        except Exception as e:
+            return api_response(
+                False,
+                None,
+                f"Eligibility check failed: {str(e)}",
+                status.HTTP_400_BAD_REQUEST
+            )
+
+    @decorators.action(detail=True, methods=['post'], url_path='check-duplicates')
+    def check_duplicates(self, request, pk=None):
+        """Check for potential duplicate applicants."""
+        submission = self.get_object()
+        
+        try:
+            duplicate_result = DuplicateDetectionService.check_for_duplicates(submission)
+            
+            # Return only flagged status to staff, no detection method details
+            return api_response(
+                True,
+                {
+                    'is_flagged': duplicate_result['is_flagged'],
+                    'requires_review': duplicate_result['requires_review'],
+                    'message': duplicate_result['message']
+                },
+                "Duplicate check completed",
+                status.HTTP_200_OK
+            )
+        except Exception as e:
+            return api_response(
+                False,
+                None,
+                f"Duplicate check failed: {str(e)}",
+                status.HTTP_400_BAD_REQUEST
+            )
+
+    @decorators.action(detail=True, methods=['post'], url_path='mark-legitimate')
+    def mark_legitimate(self, request, pk=None):
+        """Mark a flagged submission as legitimate."""
+        submission = self.get_object()
+        notes = request.data.get('notes', '')
+        
+        try:
+            success = DuplicateDetectionService.mark_as_legitimate(
+                submission.id,
+                request.user,
+                notes
+            )
+            
+            if success:
+                return api_response(
+                    True,
+                    None,
+                    "Submission marked as legitimate",
+                    status.HTTP_200_OK
+                )
+            else:
+                return api_response(
+                    False,
+                    None,
+                    "Duplicate log not found",
+                    status.HTTP_404_NOT_FOUND
+                )
+        except Exception as e:
+            return api_response(
+                False,
+                None,
+                f"Failed to mark as legitimate: {str(e)}",
+                status.HTTP_400_BAD_REQUEST
+            )
+
+    @decorators.action(detail=True, methods=['post'], url_path='mark-duplicate')
+    def mark_duplicate(self, request, pk=None):
+        """Mark a flagged submission as a confirmed duplicate."""
+        submission = self.get_object()
+        notes = request.data.get('notes', '')
+        
+        try:
+            success = DuplicateDetectionService.mark_as_confirmed_duplicate(
+                submission.id,
+                request.user,
+                notes
+            )
+            
+            if success:
+                return api_response(
+                    True,
+                    None,
+                    "Submission marked as confirmed duplicate",
+                    status.HTTP_200_OK
+                )
+            else:
+                return api_response(
+                    False,
+                    None,
+                    "Duplicate log not found",
+                    status.HTTP_404_NOT_FOUND
+                )
+        except Exception as e:
+            return api_response(
+                False,
+                None,
+                f"Failed to mark as duplicate: {str(e)}",
+                status.HTTP_400_BAD_REQUEST
+            )

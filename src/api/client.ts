@@ -263,6 +263,31 @@ class API {
             answer_text: typeof value === 'object' ? JSON.stringify(value) : String(value)
         }));
     }
+
+    // Eligibility check
+    static checkEligibility(submissionId: number): Promise<any> {
+        return apiClient.post(`/forms/submissions/${submissionId}/check-eligibility/`, {});
+    }
+
+    // Duplicate detection
+    static checkDuplicates(submissionId: number): Promise<any> {
+        return apiClient.post(`/forms/submissions/${submissionId}/check-duplicates/`, {});
+    }
+
+    // Mark as legitimate
+    static markLegitimate(submissionId: number, notes: string): Promise<any> {
+        return apiClient.post(`/forms/submissions/${submissionId}/mark-legitimate/`, { notes });
+    }
+
+    // Mark as duplicate
+    static markDuplicate(submissionId: number, notes: string): Promise<any> {
+        return apiClient.post(`/forms/submissions/${submissionId}/mark-duplicate/`, { notes });
+    }
+
+    // Audit Logs
+    static getAuditLogs(params?: { submission?: number; application?: number }): Promise<any> {
+        return apiClient.get('/audit-logs/', { params });
+    }
 }
 
 export default API;
