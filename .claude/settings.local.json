@@ -14,7 +14,10 @@
       "Bash(curl -s http://localhost:8000/api/auth/login/ -X POST -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"admin@dgg.ca\\\\\",\\\\\"password\\\\\":\\\\\"Admin1234!\\\\\"}\")",
       "Bash(curl -s http://localhost:8000/api/auth/login/ -X POST -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"student@test.ca\\\\\",\\\\\"password\\\\\":\\\\\"Student1234!\\\\\"}\")",
       "Bash(curl -s http://localhost:8000/api/auth/login/ -X POST -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"director@dgg.ca\\\\\",\\\\\"password\\\\\":\\\\\"Director1234!\\\\\"}\")",
-      "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\notifications *)"
+      "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\notifications *)",
+      "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\src\\\\pages *)",
+      "Bash(dir \"E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\api\\\\management\")",
+      "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\api\\\\management\\\\commands *)"
     ]
   }
 }

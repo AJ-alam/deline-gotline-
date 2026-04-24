@@ -34,6 +34,12 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
     setSelectedFiles(prev => ({ ...prev, [label]: file }));
   };
 
+  const normalizeGender = (g: string | undefined | null): string => {
+    if (!g) return '';
+    const s = g.trim();
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  };
+
   // Form State for Preview Mapping
   const [formData, setFormData] = useState({
     firstName: profile?.full_name?.split(' ')[0] || '',
@@ -47,7 +53,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
     province: 'NT',
     postalCode: profile?.postal_code || '',
     sin: profile?.upi || '',
-    sex: profile?.gender || '',
+    sex: normalizeGender(profile?.gender),
     beneficiaryNo: profile?.beneficiary_number || '',
     studentId: profile?.student_id || '',
     institution: profile?.institute || profile?.institution_name || '',
@@ -88,7 +94,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         city: prev.city || profile.town_city || '',
         postalCode: prev.postalCode || profile.postal_code || '',
         sin: prev.sin || profile.upi || '',
-        sex: prev.sex || profile.gender || '',
+        sex: prev.sex || normalizeGender(profile.gender),
         beneficiaryNo: prev.beneficiaryNo || profile.beneficiary_number || '',
         institution: prev.institution || profile.institute || profile.institution_name || '',
         program: prev.program || profile.program_credential || '',
@@ -157,7 +163,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
 
       setIsSubmitted(true);
     } catch (err: any) {
-      setError(err.message || 'Failed to submit application. Please try again.');
+      console.error('Submission error:', err);
+      const detail = err.data ? JSON.stringify(err.data) : '';
+      setError((err.message || 'Failed to submit application.') + (detail ? ` Details: ${detail}` : ''));
     } finally {
       setIsLoading(false);
     }
@@ -325,7 +333,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td width="50%">
-                  <label className="field-label">Sex *</label>
+                  <label className="field-label">Gender *</label>
                   <select
                     className="field-input" style={{ width: '97%', height: '36px' }}
                     value={formData.sex} onChange={e => setFormData({ ...formData, sex: e.target.value })}
@@ -334,6 +342,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     <option>Female</option>
                     <option>Male</option>
                     <option>Non-binary</option>
+                    <option>Two-spirit</option>
                     <option>Prefer not to say</option>
                   </select>
                 </td>

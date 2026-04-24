@@ -27,7 +27,7 @@ const AdminIcons = {
   )
 };
 
-type ViewMode = 'dashboard' | 'applications' | 'detail' | 'policy' | 'reports' | 'director' | 'payments' | 'director-queue' | 'director-detail' | 'appeals';
+type ViewMode = 'dashboard' | 'applications' | 'detail' | 'policy' | 'reports' | 'director' | 'payments' | 'director-queue' | 'director-detail' | 'appeals' | 'notifications';
 
 const StaffDashboard: React.FC = () => {
   const [role, setRole] = useState<'ssw' | 'director'>(
@@ -332,6 +332,20 @@ const StaffDashboard: React.FC = () => {
     } finally {
       setIsAddingNote(false);
     }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      await API.markAllNotificationsRead();
+      setNotifications(notifications.map((n: any) => ({ ...n, is_read: true })));
+    } catch {}
+  };
+
+  const handleMarkNotificationRead = async (id: number) => {
+    try {
+      await API.markNotificationRead(id);
+      setNotifications(notifications.map((n: any) => n.id === id ? { ...n, is_read: true } : n));
+    } catch {}
   };
 
   const handleMarkLegitimate = async () => {
@@ -1593,7 +1607,7 @@ const StaffDashboard: React.FC = () => {
 
           <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
             {/* Notification Bell */}
-            <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setCurrentView('notifications' as any)}>
+            <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setCurrentView('notifications')}>
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#64748b' }}>
                 <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
                 <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
@@ -3241,6 +3255,57 @@ const StaffDashboard: React.FC = () => {
           )}
 
           {/* Appeals View */}
+          {currentView === 'notifications' && (
+            <div className="fade-in">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <h2 style={{ fontSize: '20px', fontWeight: '800' }}>NOTIFICATIONS</h2>
+                {notifications.some((n: any) => !n.is_read) && (
+                  <button
+                    onClick={handleMarkAllNotificationsRead}
+                    style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontSize: '13px', color: '#64748b' }}
+                  >
+                    Mark All Read
+                  </button>
+                )}
+              </div>
+              {notifications.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {notifications.map((notif: any) => (
+                    <div
+                      key={notif.id}
+                      onClick={() => handleMarkNotificationRead(notif.id)}
+                      style={{
+                        display: 'flex', gap: '16px', padding: '16px 20px',
+                        background: notif.is_read ? '#fff' : '#fffbeb',
+                        border: `1px solid ${notif.is_read ? '#e2e8f0' : '#fcd34d'}`,
+                        borderRadius: '10px', cursor: 'pointer',
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <AdminIcons.Dashboard />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: notif.is_read ? '500' : '700', fontSize: '14px', marginBottom: '2px' }}>{notif.title}</div>
+                        <div style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>{notif.message}</div>
+                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>
+                          {new Date(notif.created_at).toLocaleDateString()} {new Date(notif.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      {!notif.is_read && <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b', flexShrink: 0, marginTop: '6px' }} />}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
+                  <div style={{ fontSize: '40px', marginBottom: '12px' }}>🔔</div>
+                  <div style={{ fontSize: '16px', fontWeight: '600', marginBottom: '6px', color: '#64748b' }}>No Notifications</div>
+                  <div style={{ fontSize: '13px' }}>You're all caught up!</div>
+                </div>
+              )}
+            </div>
+          )}
+
           {currentView === 'appeals' && (
             <div className="fade-in">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>

@@ -185,7 +185,11 @@ class FormService:
             sem_start = answers.get('semester start') or answers.get('start date') or 'Not specified'
             sem_end = answers.get('semester end') or answers.get('end date') or 'Not specified'
             student_dob = str(getattr(student, 'dob', '') or '')
-            student_id = str(getattr(student, 'upi', '') or getattr(student, 'beneficiary_number', '') or '')
+            student_id = (
+                answers.get('student id') or answers.get('studentid') or
+                answers.get('student number') or answers.get('student #') or
+                str(getattr(student, 'upi', '') or getattr(student, 'beneficiary_number', '') or '')
+            )
 
             email_form_b_registrar(
                 registrar_email=registrar_email,

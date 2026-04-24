@@ -370,6 +370,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
               <div style={{ gridColumn: 'span 2' }}><label className="p-label">Mailing Address</label><textarea className="field-input" style={{ height: '60px' }} value={editData.mailing_address || ''} onChange={e => updateField('mailing_address', e.target.value)} /></div>
               <div><label className="p-label">Town / City</label><input className="field-input" type="text" value={editData.town_city || ''} onChange={e => updateField('town_city', e.target.value)} /></div>
               <div><label className="p-label">Postal Code</label><input className="field-input" type="text" value={editData.postal_code || ''} onChange={e => updateField('postal_code', e.target.value)} /></div>
+              <div><label className="p-label">Number of Dependents</label><input className="field-input" type="number" min="0" value={editData.num_dependents ?? ''} onChange={e => updateField('num_dependents', e.target.value === '' ? null : Number(e.target.value))} /></div>
             </div>
             <button className="btn-auth-primary" style={{ width: '100%' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Saving...' : 'Save Changes'}</button>
           </div>
