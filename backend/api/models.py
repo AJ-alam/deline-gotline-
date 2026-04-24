@@ -24,8 +24,11 @@ class Profile(models.Model):
     is_sfa_active = models.BooleanField(default=False)
     profile_completeness = models.IntegerField(default=0)
     
+    class Meta:
+        db_table = 'user_profiles'
+    
     def __str__(self):
-        return f"{self.user.username}'s Profile"
+        return f"{self.user.email}'s Profile"
 
 class Application(models.Model):
     class Status(models.TextChoices):
@@ -64,6 +67,9 @@ class Application(models.Model):
     decision_at = models.DateTimeField(blank=True, null=True)
     decision_notes = models.TextField(blank=True, null=True)
 
+    class Meta:
+        db_table = 'student_applications'
+
     def __str__(self):
         return f"{self.form_type} - {self.student.get_full_name() or self.student.username} ({self.created_at.strftime('%Y-%m-%d')})"
 
@@ -74,6 +80,9 @@ class Document(models.Model):
     is_verified = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        db_table = 'application_documents'
+
     def __str__(self):
         return f"{self.name} for {self.application.id}"
 
@@ -83,6 +92,9 @@ class UserDocument(models.Model):
     file = models.FileField(upload_to='user_documents/')
     category = models.CharField(max_length=100, blank=True, null=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'user_documents'
 
     def __str__(self):
         return f"{self.name} - {self.user.email}"
@@ -97,6 +109,7 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ['-timestamp']
+        db_table = 'audit_logs'
 
 class PolicySetting(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -104,7 +117,7 @@ class PolicySetting(models.Model):
     field_key = models.CharField(max_length=100)      # e.g. 'full_time_no_dependents'
     field_label = models.CharField(max_length=255)    # Human-readable label
     value = models.DecimalField(max_digits=10, decimal_places=2)
-    unit = models.CharField(max_length=50, blank=True)  # '$', '%', 'weeks', 'days'
+    unit = models.CharField(max_length=255, blank=True)  # '$', '%', 'weeks', 'days', or email for system_config
     last_updated_by = models.ForeignKey(
         User, # get_user_model() resolve to CustomUser
         null=True, blank=True,
@@ -114,6 +127,7 @@ class PolicySetting(models.Model):
 
     class Meta:
         unique_together = ('section', 'field_key')
+        db_table = 'policy_settings'
 
     def __str__(self):
         return f"{self.section} - {self.field_label}"
@@ -129,6 +143,7 @@ class PolicyHistory(models.Model):
 
     class Meta:
         ordering = ['-timestamp']
+        db_table = 'policy_history'
 
 class Payment(models.Model):
     class Status(models.TextChoices):
@@ -143,6 +158,9 @@ class Payment(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     date_issued = models.DateTimeField(auto_now_add=True)
     reference_number = models.CharField(max_length=100, unique=True, blank=True, null=True)
+
+    class Meta:
+        db_table = 'payments'
 
     def save(self, *args, **kwargs):
         if not self.reference_number:
@@ -167,6 +185,9 @@ class Appeal(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'appeals'
+
     def __str__(self):
         return f"Appeal for App {self.application.id} - {self.user.email}"
 
@@ -178,33 +199,36 @@ class ShareableLink(models.Model):
     expires_at = models.DateTimeField()
     is_active = models.BooleanField(default=True)
 
+    class Meta:
+        db_table = 'shareable_links'
+
     def is_valid(self):
         from django.utils import timezone
         return self.is_active and self.expires_at > timezone.now()
 
     def __str__(self):
-        return f"Share link for {self.application.id} - {self.token}"
+        ref = self.application_id or self.submission_id or 'unknown'
+        return f"Share link for {ref} - {self.token}"
 
 
 class DuplicateDetectionLog(models.Model):
     """Model for tracking duplicate detection activities with privacy protection."""
-    
+
     submission = models.ForeignKey('forms.FormSubmission', on_delete=models.CASCADE, related_name='duplicate_logs', null=True, blank=True)
-    submission_id = models.IntegerField(db_index=True)  # FormSubmission ID
-    identifier_hash = models.CharField(max_length=64, db_index=True)  # SHA-256 hash (one-way)
+    identifier_hash = models.CharField(max_length=64, db_index=True)
     is_flagged = models.BooleanField(default=False)
     is_confirmed_duplicate = models.BooleanField(default=False)
     reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     reviewed_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['identifier_hash', 'is_flagged']),
-            models.Index(fields=['submission_id']),
         ]
-    
+        db_table = 'duplicate_detection_logs'
+
     def __str__(self):
         return f"Duplicate Check for Submission {self.submission_id}"

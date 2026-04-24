@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude plugin *)",
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(npm install *)",
+      "Bash(xargs grep *)",
+      "Bash(python *)",
+      "Bash(pip install *)",
+      "Bash(ping *)",
+      "Bash(nslookup *)",
+      "Bash(curl -s http://localhost:8000/api/auth/login/ -X POST -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"admin@dgg.ca\\\\\",\\\\\"password\\\\\":\\\\\"Admin1234!\\\\\"}\")",
+      "Bash(curl -s http://localhost:8000/api/auth/login/ -X POST -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"student@test.ca\\\\\",\\\\\"password\\\\\":\\\\\"Student1234!\\\\\"}\")",
+      "Bash(curl -s http://localhost:8000/api/auth/login/ -X POST -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"director@dgg.ca\\\\\",\\\\\"password\\\\\":\\\\\"Director1234!\\\\\"}\")",
+      "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\notifications *)"
+    ]
+  }
+}

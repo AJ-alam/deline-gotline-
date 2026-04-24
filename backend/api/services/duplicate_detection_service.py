@@ -6,35 +6,11 @@ Uses SHA-256 hashing to ensure identifiers cannot be reversed.
 """
 
 import hashlib
-from datetime import datetime, timedelta
 from django.utils import timezone
-from django.db import models
-from api.models import AuditLog
+from api.models import AuditLog, DuplicateDetectionLog
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
-
-
-class DuplicateDetectionLog(models.Model):
-    """Model for tracking duplicate detection activities."""
-    
-    submission_id = models.IntegerField()  # FormSubmission ID
-    identifier_hash = models.CharField(max_length=64, db_index=True)  # SHA-256 hash
-    is_flagged = models.BooleanField(default=False)
-    is_confirmed_duplicate = models.BooleanField(default=False)
-    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
-    reviewed_at = models.DateTimeField(null=True, blank=True)
-    notes = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['identifier_hash', 'is_flagged']),
-        ]
-    
-    def __str__(self):
-        return f"Duplicate Check for Submission {self.submission_id}"
 
 
 class DuplicateDetectionService:
@@ -105,21 +81,20 @@ class DuplicateDetectionService:
             # Check for existing hashes
             existing_logs = DuplicateDetectionLog.objects.filter(
                 identifier_hash=identifier_hash,
-                is_confirmed_duplicate=False  # Don't count confirmed duplicates
-            ).exclude(submission_id=submission.id)
-            
+                is_confirmed_duplicate=False
+            ).exclude(submission=submission)
+
             duplicate_count = existing_logs.count()
-            
-            # Flag if duplicates found
+
             if duplicate_count > 0:
                 result['is_flagged'] = True
                 result['duplicate_count'] = duplicate_count
                 result['requires_review'] = True
-                result['message'] = f'This application has been flagged for review'
-            
+                result['message'] = 'This application has been flagged for review'
+
             # Create or update detection log
             log, created = DuplicateDetectionLog.objects.get_or_create(
-                submission_id=submission.id,
+                submission=submission,
                 defaults={
                     'identifier_hash': identifier_hash,
                     'is_flagged': result['is_flagged']
@@ -158,29 +133,18 @@ class DuplicateDetectionService:
             log.reviewed_at = timezone.now()
             log.notes = notes
             log.save()
-            
-            # Log in audit trail
             AuditLog.objects.create(
                 action=f"Duplicate flag cleared for submission {submission_id}",
                 performed_by=reviewed_by,
-                role=reviewed_by.role if hasattr(reviewed_by, 'role') else 'staff',
-                details=f"Notes: {notes}"
+                role=getattr(reviewed_by, 'role', 'staff'),
+                details=f"Submission {submission_id} — Notes: {notes}"
             )
-            
             return True
         except DuplicateDetectionLog.DoesNotExist:
             return False
 
     @staticmethod
     def mark_as_confirmed_duplicate(submission_id, reviewed_by, notes=''):
-        """
-        Mark a flagged submission as a confirmed duplicate.
-        
-        Args:
-            submission_id: FormSubmission ID
-            reviewed_by: User who reviewed the flag
-            notes: Optional notes about the review
-        """
         try:
             log = DuplicateDetectionLog.objects.get(submission_id=submission_id)
             log.is_flagged = True
@@ -189,15 +153,12 @@ class DuplicateDetectionService:
             log.reviewed_at = timezone.now()
             log.notes = notes
             log.save()
-            
-            # Log in audit trail
             AuditLog.objects.create(
                 action=f"Duplicate confirmed for submission {submission_id}",
                 performed_by=reviewed_by,
-                role=reviewed_by.role if hasattr(reviewed_by, 'role') else 'staff',
-                details=f"Notes: {notes}"
+                role=getattr(reviewed_by, 'role', 'staff'),
+                details=f"Submission {submission_id} — Notes: {notes}"
             )
-            
             return True
         except DuplicateDetectionLog.DoesNotExist:
             return False

@@ -10,11 +10,11 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(read_only=True)
-    
+
     class Meta:
         model = User
         fields = (
-            'id', 'username', 'email', 'full_name', 'role', 'profile',
+            'id', 'email', 'full_name', 'role', 'profile',
             'num_dependents', 'financial_assistance_status', 'enrollment_status',
             'institution_name', 'program_credential', 'current_semester',
             'course_load', 'institution_location', 'dob'
@@ -60,7 +60,7 @@ class PolicySettingSerializer(serializers.ModelSerializer):
 
     def get_last_updated_by_name(self, obj):
         if obj.last_updated_by:
-            return obj.last_updated_by.get_full_name() or obj.last_updated_by.username
+            return obj.last_updated_by.full_name or obj.last_updated_by.email
         return None
 
 class PaymentSerializer(serializers.ModelSerializer):

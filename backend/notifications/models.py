@@ -11,6 +11,7 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        db_table = 'notifications'
 
     def __str__(self):
         return f"Notification for {self.user.email}: {self.title}"

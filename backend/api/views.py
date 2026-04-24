@@ -5,14 +5,18 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 from .models import Profile, Application, Document, AuditLog, UserDocument, Payment, Appeal, ShareableLink
 from .serializers import (
-    UserSerializer, ProfileSerializer, ApplicationSerializer, 
+    UserSerializer, ProfileSerializer, ApplicationSerializer,
     DocumentSerializer, AuditLogSerializer, UserDocumentSerializer,
     PaymentSerializer, AppealSerializer, ShareableLinkSerializer
 )
 from notifications.utils import create_notification
+from users.permissions import IsAdminUser
 import uuid
 from django.utils import timezone
 from datetime import timedelta
+
+def _is_staff(user):
+    return user.is_authenticated and user.role in ('admin', 'director')
 
 class RegisterView(viewsets.GenericViewSet):
     permission_classes = [permissions.AllowAny]
@@ -57,7 +61,7 @@ class ApplicationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         # Staff/Director can see more, students only see their own
-        if user.is_staff:
+        if _is_staff(user):
             return self.queryset.all()
         return self.queryset.filter(student=user)
 
@@ -164,7 +168,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_staff:
+        if _is_staff(user):
             return self.queryset.all()
         return self.queryset.filter(user=user)
 
@@ -197,7 +201,7 @@ class AppealViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_staff:
+        if _is_staff(user):
             return self.queryset.all()
         return self.queryset.filter(user=user)
 
@@ -210,7 +214,7 @@ class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if self.request.user.is_staff:
+        if self.request._is_staff(user):
             return self.queryset.all()
         return self.queryset.filter(application__student=self.request.user)
 
@@ -220,7 +224,13 @@ class UserDocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return self.queryset.filter(user=self.request.user)
+        user = self.request.user
+        if _is_staff(user):
+            student_id = self.request.query_params.get('student_id')
+            if student_id:
+                return self.queryset.filter(user_id=student_id)
+            return self.queryset.all()
+        return self.queryset.filter(user=user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -228,4 +238,14 @@ class UserDocumentViewSet(viewsets.ModelViewSet):
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AuditLog.objects.all()
     serializer_class = AuditLogSerializer
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        qs = self.queryset
+        submission = self.request.query_params.get('submission')
+        application = self.request.query_params.get('application')
+        if submission:
+            qs = qs.filter(details__icontains=f'submission {submission}')
+        if application:
+            qs = qs.filter(application_id=application)
+        return qs

@@ -49,7 +49,7 @@ class FormController(viewsets.ModelViewSet):
         if serializer.is_valid():
             submission = serializer.save(form=form, student=request.user)
             FormService.send_submission_notifications(submission)
-            return api_response(True, serializer.data, "Form submitted successfully", status.HTTP_201_CREATED)
+            return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Form submitted successfully", status.HTTP_201_CREATED)
         return api_response(False, serializer.errors, "Submission failed", status.HTTP_400_BAD_REQUEST)
 
 class SubmissionController(viewsets.ModelViewSet):
@@ -57,7 +57,8 @@ class SubmissionController(viewsets.ModelViewSet):
     serializer_class = FormSubmissionSerializer
     
     def get_permissions(self):
-        if self.action in ['update_status', 'add_note', 'share']:
+        admin_only = ['update_status', 'add_note', 'share', 'check_eligibility', 'check_duplicates', 'mark_legitimate', 'mark_duplicate']
+        if self.action in admin_only:
             return [IsAdminUser()]
         return [IsOwnerOrAdmin()]
 
@@ -72,7 +73,14 @@ class SubmissionController(viewsets.ModelViewSet):
         submission = self.get_object()
         new_status = request.data.get('status')
         FormService.update_submission_status(submission, new_status, request.user, request.data)
-        return api_response(True, FormSubmissionSerializer(submission).data, "Submission updated")
+        from api.models import AuditLog
+        AuditLog.objects.create(
+            action=f"Submission {submission.id} status changed to {new_status}",
+            performed_by=request.user,
+            role=request.user.role,
+            details=f"Submission {submission.id} — changed to {new_status} by {request.user.full_name}"
+        )
+        return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Submission updated")
 
     @decorators.action(detail=True, methods=['post'], url_path='notes')
     def add_note(self, request, pk=None):

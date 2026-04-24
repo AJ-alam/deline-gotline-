@@ -47,7 +47,18 @@ class RegisterSerializer(serializers.ModelSerializer):
             'expected_graduation_date', 'years_in_program', 'institution_location'
         )
 
+    def validate_role(self, value):
+        # Only allow 'student' role via self-registration.
+        # Admin and Director accounts must be created by an existing admin.
+        if value in ('admin', 'director'):
+            raise serializers.ValidationError(
+                "You cannot register with an elevated role. Contact an administrator."
+            )
+        return value
+
     def create(self, validated_data):
+        # Default role to 'student' if not provided
+        validated_data.setdefault('role', 'student')
         # Pass ALL validated_data to create_user (handled by **extra_fields in CustomUserManager)
         user = User.objects.create_user(**validated_data)
         return user

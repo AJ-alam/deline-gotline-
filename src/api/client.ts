@@ -181,8 +181,15 @@ class API {
         return apiClient.get('/dashboard/stats/');
     }
 
-    static getReportStats(fundingType: string = 'all') {
-        return apiClient.get('/dashboard/stats/', { params: { funding_type: fundingType } });
+    static getReportStats(fundingType: string = 'all', filters?: { dateFrom?: string; dateTo?: string; status?: string }) {
+        return apiClient.get('/dashboard/stats/', {
+            params: {
+                funding_type: fundingType,
+                ...(filters?.dateFrom && { date_from: filters.dateFrom }),
+                ...(filters?.dateTo && { date_to: filters.dateTo }),
+                ...(filters?.status && filters.status !== 'all' && { status_filter: filters.status }),
+            }
+        });
     }
 
     static dispatchFinanceReport() {

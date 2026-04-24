@@ -16,11 +16,15 @@ class FormSerializer(serializers.ModelSerializer):
 
 class SubmissionAnswerSerializer(serializers.ModelSerializer):
     field_label = serializers.CharField(write_only=True, required=False)
-    
+    label = serializers.SerializerMethodField()
+
     class Meta:
         model = SubmissionAnswer
-        fields = ('id', 'field', 'field_label', 'answer_text', 'answer_file')
+        fields = ('id', 'field', 'field_label', 'label', 'answer_text', 'answer_file')
         extra_kwargs = {'field': {'required': False}}
+
+    def get_label(self, obj):
+        return obj.field.label if obj.field else None
 
 class FormSubmissionSerializer(serializers.ModelSerializer):
     answers = SubmissionAnswerSerializer(many=True, required=False)
@@ -40,23 +44,49 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
         read_only_fields = ('student', 'submitted_at')
 
     def get_student_details(self, obj):
-        if obj.student:
-            return {
-                'id': obj.student.id,
-                'full_name': obj.student.full_name,
-                'email': obj.student.email,
-                'phone': obj.student.phone,
-                'beneficiary_number': obj.student.beneficiary_number,
-                'treaty_number': obj.student.treaty_number,
-                'dob': obj.student.dob
-            }
-        return None
+        if not obj.student:
+            return None
+        s = obj.student
+        base = {
+            'id': s.id,
+            'full_name': s.full_name,
+            'email': s.email,
+            'phone': s.phone,
+            'beneficiary_number': s.beneficiary_number,
+            'treaty_number': s.treaty_number,
+            'dob': s.dob,
+            'gender': s.gender,
+            'pronouns': s.pronouns,
+            'mailing_address': s.mailing_address,
+            'num_dependents': s.num_dependents,
+            'disability_accommodation': s.disability_accommodation,
+            # Enrollment
+            'institution_name': s.institution_name,
+            'program_credential': s.program_credential,
+            'enrollment_status': s.enrollment_status,
+            'course_load': s.course_load,
+            'current_semester': s.current_semester,
+            'institution_location': s.institution_location,
+            'expected_graduation_date': s.expected_graduation_date,
+            'financial_assistance_status': s.financial_assistance_status,
+            # Banking (only for admin/director)
+            'bank_name': s.bank_name,
+            'transit_number': s.transit_number,
+            'inst_number': s.inst_number,
+            'account_number': s.account_number,
+            'account_holder_name': s.account_holder_name,
+            'account_type': s.account_type,
+        }
+        request = self.context.get('request')
+        if request and request.user.role not in ('admin', 'director'):
+            # Strip banking info for non-admin
+            for key in ('bank_name', 'transit_number', 'inst_number', 'account_number', 'account_holder_name', 'account_type'):
+                base.pop(key, None)
+        return base
 
     def get_notes(self, obj):
-        # Only admins should see notes? For now let's return them
-        # if the request user is staff.
         request = self.context.get('request')
-        if request and (request.user.is_staff or request.user.role in ['admin', 'director']):
+        if request and request.user.role in ('admin', 'director'):
             return SubmissionNoteSerializer(obj.notes.all(), many=True).data
         return []
 

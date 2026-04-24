@@ -20,6 +20,9 @@ class Form(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'forms'
+
     def __str__(self):
         return f"{self.title} ({self.purpose})"
 
@@ -45,6 +48,7 @@ class FormField(models.Model):
 
     class Meta:
         ordering = ['order']
+        db_table = 'form_fields'
 
     def __str__(self):
         return f"{self.label} ({self.field_type})"
@@ -54,6 +58,7 @@ class FormSubmission(models.Model):
         ('pending', 'Pending'),
         ('reviewed', 'Reviewed'),
         ('forwarded', 'Forwarded to Director'),
+        ('more_info_required', 'More Info Required'),
         ('accepted', 'Accepted'),
         ('rejected', 'Rejected'),
     )
@@ -85,6 +90,9 @@ class FormSubmission(models.Model):
     late_application_approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_late_submissions')
     late_application_approved_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        db_table = 'form_submissions'
+
     def __str__(self):
         return f"Submission for {self.form.title} by {self.student.email}"
 
@@ -93,6 +101,9 @@ class SubmissionAnswer(models.Model):
     field = models.ForeignKey(FormField, on_delete=models.CASCADE)
     answer_text = models.TextField(blank=True, null=True)
     answer_file = models.FileField(upload_to='submission_files/', blank=True, null=True)
+
+    class Meta:
+        db_table = 'submission_answers'
 
     def __str__(self):
         return f"Answer for {self.field.label}"
@@ -105,6 +116,7 @@ class SubmissionNote(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        db_table = 'submission_notes'
 
     def __str__(self):
         return f"Note by {self.author.email} on {self.submission.id}"
@@ -141,6 +153,7 @@ class MidSemesterChange(models.Model):
     
     class Meta:
         ordering = ['-submitted_at']
+        db_table = 'mid_semester_changes'
     
     def __str__(self):
         return f"{self.get_change_type_display()} for Submission {self.submission.id}"
@@ -167,6 +180,7 @@ class ApplicationDeadline(models.Model):
     class Meta:
         ordering = ['-deadline_date']
         unique_together = ('funding_stream', 'semester')
+        db_table = 'application_deadlines'
     
     def __str__(self):
         return f"{self.get_funding_stream_display()} - {self.semester}"

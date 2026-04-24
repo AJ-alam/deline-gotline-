@@ -58,6 +58,7 @@ class Migration(migrations.Migration):
             field=models.DecimalField(decimal_places=2, default=0, max_digits=12),
             preserve_default=False,
         ),
+        # id is already UUIDField from migration 0004 - this is a safe no-op
         migrations.AlterField(
             model_name='policysetting',
             name='id',

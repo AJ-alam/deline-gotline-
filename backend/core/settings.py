@@ -70,13 +70,21 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 # Database
 # Auto-switches between SQLite (local) and PostgreSQL (production via DATABASE_URL)
+_db_url = config('DATABASE_URL', default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('DATABASE_URL', default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
-        conn_max_age=600,
-        ssl_require=not DEBUG
+        default=_db_url,
+        # conn_max_age=0 is required for Supabase Transaction Pooler.
+        # The pooler resets connection state after each transaction,
+        # so Django must NOT hold connections open across requests.
+        conn_max_age=0,
+        ssl_require=not _db_url.startswith('sqlite'),
     )
 }
+# Required for Supabase Transaction Pooler (port 6543).
+# Named / server-side cursors are not supported in transaction-mode pooling.
+if not _db_url.startswith('sqlite'):
+    DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 
 # Custom User Model
 AUTH_USER_MODEL = 'users.CustomUser'
@@ -164,4 +172,14 @@ USE_I18N = True
 USE_TZ = True
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ── EMAIL CONFIGURATION (Task 9.1) ──
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='DGG Student Funding <noreply@deline.ca>')
+EMAIL_SUBJECT_PREFIX = '[DGG Funding] '
 
