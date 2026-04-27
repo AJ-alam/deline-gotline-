@@ -26,7 +26,7 @@ class FormService:
                 user=student,
                 title="Application Received",
                 message=f"Your application for '{form.title}' has been successfully submitted.",
-                link="/dashboard"
+                link=None
             )
             # Task 9.3: Email notification
             if student.email:
@@ -43,7 +43,7 @@ class FormService:
                 user=admin,
                 title="New Application Received",
                 message=f"A new submission for '{form.title}' from {student.full_name if student else 'Guest'}.",
-                link="/staff/applications"
+                link=None
             )
 
     @staticmethod
@@ -118,7 +118,7 @@ class FormService:
             user=submission.student,
             title=title,
             message=msg,
-            link="/dashboard"
+            link=None
         )
 
         student = submission.student

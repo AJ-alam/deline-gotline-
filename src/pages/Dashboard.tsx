@@ -20,13 +20,14 @@ type DashboardView =
   | 'notifications' 
   | 'help' 
   | 'profile'
-  | 'formA' 
-  | 'formC' 
-  | 'formD' 
-  | 'formE' 
-  | 'formF' 
-  | 'formG' 
-  | 'formH' 
+  | 'application-detail'
+  | 'admission' 
+  | 'continuing-funding' 
+  | 'information-update' 
+  | 'travel-claim' 
+  | 'practicum-report' 
+  | 'graduation-award' 
+  | 'appeal-request' 
   | 'scholarship';
 
 // SVG Icons for professional look
@@ -70,18 +71,6 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [currentView, setCurrentView] = useState<DashboardView>('dashboard');
-
-  // Sync currentView with URL path
-  useEffect(() => {
-    const segments = location.pathname.split('/').filter(Boolean);
-    if (segments.length > 1) {
-      const view = segments[1] as DashboardView;
-      setCurrentView(view);
-    } else {
-      setCurrentView('dashboard');
-    }
-  }, [location.pathname]);
-
   const [showToast, setShowToast] = useState<string | null>(null);
   const [errorPopup, setErrorPopup] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -92,19 +81,98 @@ const Dashboard: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [documents, setDocuments] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [selectedApplication, setSelectedApplication] = useState<any>(null);
 
+  // Sync currentView with URL path and handle deep links
+  useEffect(() => {
+    const segments = location.pathname.split('/').filter(Boolean);
+    if (segments.length > 1) {
+      const view = segments[1] as DashboardView;
+      setCurrentView(view);
 
+      // Handle deep-linking for application details via ?id=
+      const params = new URLSearchParams(location.search);
+      const appId = params.get('id');
+      if (view === 'application-detail' && appId && applications.length > 0) {
+        const targetApp = applications.find(a => a.id.toString() === appId);
+        if (targetApp) {
+          setSelectedApplication(targetApp);
+        }
+      }
+    } else if (segments.length === 1 && segments[0] === 'dashboard') {
+      setCurrentView('dashboard');
+    }
+  }, [location.pathname, location.search, applications.length]);
+
+  const handleViewApplication = (app: any) => {
+    setSelectedApplication(app);
+    setCurrentView('application-detail');
+  };
+
+  const renderAnswerText = (text: string) => {
+    if (!text) return 'N/A';
+    
+    // Check if it's a JSON array (like Expense List)
+    if (text.startsWith('[') && text.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Check if it's the specific expense list structure
+          if (parsed[0].description && parsed[0].amount) {
+            return (
+              <div className="json-answer-table-wrap" style={{ marginTop: '8px', background: '#f8fafc', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #cbd5e1', textAlign: 'left', color: '#64748b' }}>
+                      <th style={{ padding: '6px 0', fontWeight: '600' }}>Item Description</th>
+                      <th style={{ padding: '6px 0', textAlign: 'right', fontWeight: '600' }}>Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsed.map((item: any, idx: number) => (
+                      <tr key={idx} style={{ borderBottom: idx === parsed.length - 1 ? 'none' : '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '8px 0', color: '#1e293b' }}>{item.description}</td>
+                        <td style={{ padding: '8px 0', textAlign: 'right', fontWeight: '600', color: '#1e293b' }}>${parseFloat(item.amount).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+        }
+      } catch (e) {
+        // Not valid JSON, just return text
+      }
+    }
+    
+    return text;
+  };
   const fetchDashboardData = async () => {
-    try {
-      const resp = await API.getSubmissions();
-      setApplications(Array.isArray(resp) ? resp : []);
-      
-      const userResp = await API.getMe();
-      setProfile(userResp);
+    // Start all requests in parallel
+    const subsPromise = API.getSubmissions().then((resp: any) => {
+      console.log('Submissions loaded:', resp);
+      if (Array.isArray(resp)) {
+        setApplications(resp);
+      } else if (resp && resp.results && Array.isArray(resp.results)) {
+        setApplications(resp.results);
+      } else {
+        setApplications([]);
+      }
+    });
 
-      
-      const notifsResp = await API.getNotifications();
-      setNotifications(Array.isArray(notifsResp) ? notifsResp : []);
+    const userPromise = API.getMe().then((resp: any) => {
+      setProfile(resp);
+    });
+
+    const notifsPromise = API.getNotifications().then((resp: any) => {
+      setNotifications(Array.isArray(resp) ? resp : []);
+    });
+
+    try {
+      // Wait for at least the essential profile/submissions to finish the loading state
+      // but let them all run in parallel
+      await Promise.allSettled([subsPromise, userPromise, notifsPromise]);
     } catch (err: any) {
       console.error('Failed to fetch dashboard data:', err);
       if (err.status === 401) {
@@ -118,7 +186,7 @@ const Dashboard: React.FC = () => {
   // ── POLLING FOR REAL-TIME UPDATES ──
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 5000); // 5-second polling
+    const interval = setInterval(fetchDashboardData, 15000); // 15-second polling
     return () => clearInterval(interval);
   }, []);
 
@@ -243,8 +311,17 @@ const Dashboard: React.FC = () => {
   };
 
   const handleNavClick = (view: DashboardView) => {
-    navigate(`/dashboard/${view}`);
+    console.log('Navigating to:', view);
     setIsMobileMenuOpen(false);
+    
+    // Always clear selected application when moving to a non-detail view
+    if (view !== 'application-detail') {
+      setSelectedApplication(null);
+    }
+    
+    navigate(`/dashboard/${view}`);
+    // Immediately update currentView for responsiveness
+    setCurrentView(view);
   };
 
   const renderSidebarNav = (id: DashboardView, label: string, icon: React.ReactNode) => (
@@ -284,17 +361,17 @@ const Dashboard: React.FC = () => {
         <div className="sidebar-divider"></div>
 
         <div className="sidebar-section-title">Applications</div>
-        {renderSidebarNav('formA', 'Admission Application', <Icons.Files />)}
-        {renderSidebarNav('formC', 'Continuing Funding', <Icons.Files />)}
-        {renderSidebarNav('formD', 'Information Update', <Icons.Files />)}
+        {renderSidebarNav('admission', 'Admission Application', <Icons.Files />)}
+        {renderSidebarNav('continuing-funding', 'Continuing Funding', <Icons.Files />)}
+        {renderSidebarNav('information-update', 'Information Update', <Icons.Files />)}
 
         <div className="sidebar-divider"></div>
 
         <div className="sidebar-section-title">Claims</div>
-        {renderSidebarNav('formE', 'Travel Claim', <Icons.Files />)}
-        {renderSidebarNav('formF', 'Practicum Report', <Icons.Files />)}
-        {renderSidebarNav('formG', 'Graduation Award', <Icons.Files />)}
-        {renderSidebarNav('formH', 'Appeal Request', <Icons.Files />)}
+        {renderSidebarNav('travel-claim', 'Travel Claim', <Icons.Files />)}
+        {renderSidebarNav('practicum-report', 'Practicum Report', <Icons.Files />)}
+        {renderSidebarNav('graduation-award', 'Graduation Award', <Icons.Files />)}
+        {renderSidebarNav('appeal-request', 'Appeal Request', <Icons.Files />)}
 
         <div className="sidebar-divider"></div>
 
@@ -321,10 +398,10 @@ const Dashboard: React.FC = () => {
             <div className="top-nav-brand">Délı̨nę Got'ı̨nę Government — Student Portal</div>
           </div>
           <div className="round-menu-bar desktop-only">
-            <span className="top-nav-link" onClick={() => setCurrentView('dashboard')}>Home</span>
-            <span className="top-nav-link" onClick={() => setCurrentView('applications')}>My Applications</span>
-            <span className="top-nav-link" onClick={() => setCurrentView('payments')}>Payments</span>
-            <span className="top-nav-link" onClick={() => setCurrentView('notifications')}>
+            <span className="top-nav-link" onClick={() => handleNavClick('dashboard')}>Home</span>
+            <span className="top-nav-link" onClick={() => handleNavClick('applications')}>My Applications</span>
+            <span className="top-nav-link" onClick={() => handleNavClick('payments')}>Payments</span>
+            <span className="top-nav-link" onClick={() => handleNavClick('notifications')}>
               Notifications {unreadCount > 0 && <span className="nav-badge">{unreadCount}</span>}
             </span>
           </div>
@@ -346,22 +423,24 @@ const Dashboard: React.FC = () => {
                 <div className="view-content fade-in">
                   <div className="view-header">
                     <div className="view-title">Dashboard</div>
-                    <button className="btn-primary" onClick={() => setCurrentView('formA')}>+ Start Your Application</button>
+                    <button className="btn-primary" onClick={() => handleNavClick('admission')}>+ Start Your Application</button>
                   </div>
                   <div className="view-body">
-                    <div className="welcome-alert">
-                      <div className="welcome-alert-main">
-                        <div className="welcome-icon-wrap"><Icons.Info /></div>
-                        <div className="welcome-text">
-                          <div className="welcome-title">Welcome to the DGG Student Portal</div>
-                          <div className="welcome-desc">To begin, please establish your student file by completing the <strong>Admission Application</strong> below. If your information has changed, please report it immediately.</div>
+                    {applications.length === 0 && (
+                      <div className="welcome-alert">
+                        <div className="welcome-alert-main">
+                          <div className="welcome-icon-wrap"><Icons.Info /></div>
+                          <div className="welcome-text">
+                            <div className="welcome-title">Welcome to the DGG Student Portal</div>
+                            <div className="welcome-desc">To begin, please establish your student file by completing the <strong>Admission Application</strong> below. If your information has changed, please report it immediately.</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                          <button className="btn-primary welcome-btn" onClick={() => handleNavClick('admission')}>Get Started</button>
+                          <button className="btn-ghost welcome-btn" style={{ borderColor: '#bee3f8', color: '#2b6cb0', fontWeight: '700' }} onClick={() => handleNavClick('information-update')}>Report a Change</button>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '12px' }}>
-                        <button className="btn-primary welcome-btn" onClick={() => setCurrentView('formA')}>Get Started</button>
-                        <button className="btn-ghost welcome-btn" style={{ borderColor: '#bee3f8', color: '#2b6cb0', fontWeight: '700' }} onClick={() => setCurrentView('formD')}>Report a Change</button>
-                      </div>
-                    </div>
+                    )}
 
 
                     <div className="journey-progress-bar fade-in">
@@ -393,16 +472,39 @@ const Dashboard: React.FC = () => {
                         </div>
                       </div>
                       <div className="form-cards-grid">
-                        <div className="form-card primary-card active-step" onClick={() => setCurrentView('formA')}>
+                        <div 
+                          className={`form-card primary-card ${!applications.some(a => a.form_title?.toLowerCase().includes('admission')) ? 'active-step' : ''}`} 
+                          onClick={() => {
+                            const admissionApp = applications.find(a => a.form_title?.toLowerCase().includes('admission'));
+                            if (admissionApp) {
+                              handleViewApplication(admissionApp);
+                            } else {
+                              handleNavClick('admission');
+                            }
+                          }}
+                        >
                           <div className="form-card-inner">
                             <div className="form-card-header">
                               <span className="form-tag">New File</span>
-                              <span className="recommended-tag"><Icons.Star /> RECOMMENDED NEXT STEP</span>
+                              {!applications.some(a => a.form_title?.toLowerCase().includes('admission')) && (
+                                <span className="recommended-tag"><Icons.Star /> RECOMMENDED NEXT STEP</span>
+                              )}
+                              {applications.some(a => a.form_title?.toLowerCase().includes('admission')) && (
+                                <span className="form-tag" style={{ background: '#f0fdf4', color: '#166534', borderColor: '#bbf7d0' }}>✓ SUBMITTED</span>
+                              )}
                             </div>
                             <div className="form-card-title">Admission Application</div>
-                            <div className="form-card-desc">Your gateway to all DGG funding. Complete this first to map your eligibility.</div>
+                            <div className="form-card-desc">
+                              {applications.some(a => a.form_title?.toLowerCase().includes('admission')) 
+                                ? 'Your admission application has been received and is currently being processed by staff.' 
+                                : 'Your gateway to all DGG funding. Complete this first to map your eligibility.'}
+                            </div>
                             <div style={{ fontSize: '9px', color: '#718096', marginBottom: '12px' }}>Required once per program · Establishes your stream</div>
-                            <button className="btn-auth-primary form-btn">Start Application &nbsp;<Icons.ChevronRight /></button>
+                            {applications.some(a => a.form_title?.toLowerCase().includes('admission')) ? (
+                              <button className="btn-ghost form-btn" style={{ background: '#fff', borderColor: '#e2e8f0' }}>View Application &nbsp;<Icons.ChevronRight /></button>
+                            ) : (
+                              <button className="btn-auth-primary form-btn">Start Application &nbsp;<Icons.ChevronRight /></button>
+                            )}
                           </div>
                         </div>
                         <div className="form-card" style={{ borderLeft: '3px solid #3182ce', opacity: 0.9 }}>
@@ -414,12 +516,67 @@ const Dashboard: React.FC = () => {
                             <div className="form-card-title">Enrolment Verification</div>
                             <div className="form-card-desc">Registrar verification. Generated automatically after your application is submitted.</div>
                             <div style={{ fontSize: '9px', color: '#718096', marginBottom: '12px' }}>Auto-generated from application · Sent to Registrar</div>
-                            <button className="btn-ghost form-btn">Manage Tracking &nbsp;<Icons.ChevronRight /></button>
+                            <button className="btn-ghost form-btn" onClick={() => handleNavClick('applications')}>Manage Tracking &nbsp;<Icons.ChevronRight /></button>
                           </div>
                         </div>
                       </div>
                     </div>
 
+                    <div className="journey-section">
+                      <div className="journey-header">
+                        <div className="journey-num">02</div>
+                        <div>
+                          <div className="journey-title">My Recent Activity</div>
+                          <div className="journey-sub">Track your latest submissions and status updates</div>
+                        </div>
+                      </div>
+                      {applications.length > 0 ? (
+                        <div className="activity-list" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
+                          {applications.slice(0, 3).map(app => (
+                            <div 
+                              key={app.id} 
+                              className="activity-item" 
+                              onClick={() => handleViewApplication(app)}
+                              style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '16px', 
+                                background: '#fff', 
+                                padding: '16px', 
+                                borderRadius: '12px', 
+                                border: '1px solid #e2e8f0',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                            >
+                              <div className="activity-icon" style={{ background: '#f8fafc', padding: '10px', borderRadius: '10px', color: '#64748b' }}>
+                                <Icons.Files />
+                              </div>
+                              <div className="activity-info" style={{ flex: 1 }}>
+                                <div className="activity-name" style={{ fontWeight: '600', color: '#1e293b' }}>{app.form_title}</div>
+                                <div className="activity-meta" style={{ fontSize: '12px', color: '#64748b' }}>
+                                  Submitted on {new Date(app.submitted_at).toLocaleDateString()} · 
+                                  <span style={{ 
+                                    marginLeft: '8px',
+                                    color: app.status === 'accepted' ? '#166534' : app.status === 'rejected' ? '#991b1b' : '#075985',
+                                    fontWeight: '700'
+                                  }}>
+                                    {app.status.toUpperCase()}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="activity-link" style={{ fontSize: '12px', color: '#3182ce', fontWeight: '600' }}>View Details →</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="empty-state" style={{ padding: '40px 0', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                          <Icons.Files />
+                          <div className="empty-title">No Recent Activity</div>
+                          <div className="empty-desc">Once you submit an application, it will appear here for quick tracking.</div>
+                        </div>
+                      )}
+                    </div>
                     <div className="paper-forms-alert fade-in">
                       <div className="paper-icon">🖨️</div>
                       <div className="paper-text">
@@ -445,7 +602,7 @@ const Dashboard: React.FC = () => {
                 <div className="view-content fade-in">
                   <div className="view-header">
                     <div className="view-title">My Applications</div>
-                    <button className="btn-primary" onClick={() => setCurrentView('formA')}>+ New Application</button>
+                    <button className="btn-primary" onClick={() => handleNavClick('admission')}>+ New Application</button>
                   </div>
                   <div className="view-body">
                     <div className="sec-card">
@@ -462,6 +619,7 @@ const Dashboard: React.FC = () => {
                                 <th>Form Type</th>
                                 <th>Status</th>
                                 <th>Decision</th>
+                                <th>Action</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -486,6 +644,15 @@ const Dashboard: React.FC = () => {
                                   <td style={{ fontSize: '10px', color: '#64748b' }}>
                                     {app.status === 'pending' ? 'Under Review' : app.status === 'accepted' ? 'Funds Authorized' : app.status === 'reviewed' ? 'SSW Reviewed' : 'Policy Non-Compliance'}
                                   </td>
+                                  <td>
+                                    <button 
+                                      className="btn-ghost" 
+                                      style={{ padding: '4px 8px', fontSize: '10px' }}
+                                      onClick={() => handleViewApplication(app)}
+                                    >
+                                      View Details
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -496,7 +663,7 @@ const Dashboard: React.FC = () => {
                           <Icons.Files />
                           <div className="empty-title">No Submissions Yet</div>
                           <div className="empty-desc">Once you submit a form, you can track its progress and approval status here.</div>
-                          <button className="btn-primary" onClick={() => setCurrentView('dashboard')}>Browse Forms</button>
+                          <button className="btn-primary" onClick={() => handleNavClick('dashboard')}>Browse Forms</button>
                         </div>
                       )}
                     </div>
@@ -572,9 +739,7 @@ const Dashboard: React.FC = () => {
                             <div className="notif-time">
                               {new Date(notif.created_at).toLocaleDateString()} {new Date(notif.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
-                            {!notif.is_read && notif.link && (
-                              <div className="notif-action" onClick={() => setCurrentView('dashboard')}>View Details →</div>
-                            )}
+                            {/* No action links */}
                           </div>
                           {!notif.is_read && <div className="unread-pip"></div>}
                         </div>
@@ -584,6 +749,97 @@ const Dashboard: React.FC = () => {
                         <Icons.Bell />
                         <div className="empty-title">No Notifications</div>
                         <div className="empty-desc">You're all caught up! New alerts will appear here.</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {currentView === 'application-detail' && selectedApplication && (
+                <div className="view-content fade-in">
+                  <div className="view-header">
+                    <button className="btn-ghost" onClick={() => handleNavClick('applications')}>← Back to Applications</button>
+                    <div className="view-title">Application Details</div>
+                  </div>
+                  <div className="view-body">
+                    <div className="sec-card">
+                      <div className="sec-head">
+                        <span className="sec-title">Submission Summary</span>
+                        <span style={{ 
+                          padding: '4px 10px', 
+                          borderRadius: '4px', 
+                          fontSize: '11px', 
+                          fontWeight: '800',
+                          marginLeft: '12px',
+                          background: selectedApplication.status === 'accepted' ? '#f0fdf4' : selectedApplication.status === 'rejected' ? '#fef2f2' : '#f0f9ff',
+                          color: selectedApplication.status === 'accepted' ? '#166534' : selectedApplication.status === 'rejected' ? '#991b1b' : '#075985',
+                        }}>
+                          {selectedApplication.status.toUpperCase()}
+                        </span>
+                      </div>
+                      <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+                        <div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Reference Number</div>
+                          <div style={{ fontWeight: '600' }}>#{selectedApplication.id.toString().padStart(6, '0')}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Form Type</div>
+                          <div style={{ fontWeight: '600' }}>{selectedApplication.form_title}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Submission Date</div>
+                          <div style={{ fontWeight: '600' }}>{new Date(selectedApplication.submitted_at).toLocaleDateString()}</div>
+                        </div>
+                        {selectedApplication.amount && (
+                          <div>
+                            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Authorized Amount</div>
+                            <div style={{ fontWeight: '700', color: '#166534' }}>${parseFloat(selectedApplication.amount).toLocaleString()}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="sec-card">
+                      <div className="sec-head"><span className="sec-title">Application Content</span></div>
+                      <div style={{ padding: '0 20px 20px' }}>
+                        {selectedApplication.answers && selectedApplication.answers.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            {selectedApplication.answers.map((ans: any) => (
+                              <div key={ans.id} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                                <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '6px', fontWeight: '500' }}>
+                                  {ans.label || ans.field_label}
+                                </div>
+                                <div style={{ fontSize: '14px', color: '#1e293b', lineHeight: '1.5' }}>
+                                  {ans.answer_text ? renderAnswerText(ans.answer_text) : (ans.answer_file ? 'Attachment Provided' : 'N/A')}
+                                  {ans.answer_file && (
+                                    <div style={{ marginTop: '8px' }}>
+                                      <a 
+                                        href={ans.answer_file} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="btn-ghost"
+                                        style={{ fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                      >
+                                        View Attachment
+                                      </a>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>No answer data found for this submission.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedApplication.decision_notes && (
+                      <div className="sec-card" style={{ borderLeft: '4px solid #3b82f6' }}>
+                        <div className="sec-head"><span className="sec-title">Decision Notes from Staff</span></div>
+                        <div style={{ padding: '0 20px 20px', fontSize: '14px', color: '#1e293b', fontStyle: 'italic' }}>
+                          "{selectedApplication.decision_notes}"
+                        </div>
                       </div>
                     )}
                   </div>
@@ -711,7 +967,7 @@ const Dashboard: React.FC = () => {
               )}
 
               {/* ── ADMISSION APPLICATION VIEW ── */}
-              {currentView === 'formA' && (
+              {currentView === 'admission' && (
                 <FormA 
                   profile={profile}
                   onBack={() => setCurrentView('dashboard')} 
@@ -720,7 +976,7 @@ const Dashboard: React.FC = () => {
               )}
 
               {/* ── CONTINUING FUNDING VIEW ── */}
-              {currentView === 'formC' && (
+              {currentView === 'continuing-funding' && (
                 <FormC 
                   profile={profile}
                   onBack={() => setCurrentView('dashboard')} 
@@ -729,7 +985,7 @@ const Dashboard: React.FC = () => {
               )}
 
               {/* ── INFORMATION UPDATE VIEW ── */}
-              {currentView === 'formD' && (
+              {currentView === 'information-update' && (
                 <FormD 
                   profile={profile}
                   onBack={() => setCurrentView('dashboard')} 
@@ -739,7 +995,7 @@ const Dashboard: React.FC = () => {
               )}
 
               {/* ── TRAVEL CLAIM VIEW ── */}
-              {currentView === 'formE' && (
+              {currentView === 'travel-claim' && (
                 <FormE 
                   profile={profile}
                   onBack={() => setCurrentView('dashboard')} 
@@ -748,7 +1004,7 @@ const Dashboard: React.FC = () => {
               )}
 
               {/* ── PRACTICUM REPORT VIEW ── */}
-              {currentView === 'formF' && (
+              {currentView === 'practicum-report' && (
                 <FormF 
                   profile={profile}
                   onBack={() => setCurrentView('dashboard')} 
@@ -757,7 +1013,7 @@ const Dashboard: React.FC = () => {
               )}
 
               {/* ── GRADUATION AWARD VIEW ── */}
-              {currentView === 'formG' && (
+              {currentView === 'graduation-award' && (
                 <FormG 
                   profile={profile}
                   onBack={() => setCurrentView('dashboard')} 
@@ -766,7 +1022,7 @@ const Dashboard: React.FC = () => {
               )}
 
               {/* ── APPEAL REQUEST VIEW ── */}
-              {currentView === 'formH' && (
+              {currentView === 'appeal-request' && (
                 <FormH 
                   profile={profile}
                   onBack={() => setCurrentView('dashboard')} 

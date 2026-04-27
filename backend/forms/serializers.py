@@ -28,7 +28,7 @@ class SubmissionAnswerSerializer(serializers.ModelSerializer):
 
 class FormSubmissionSerializer(serializers.ModelSerializer):
     answers = SubmissionAnswerSerializer(many=True, required=False)
-    form_title = serializers.CharField(source='form.title', read_only=True)
+    form_title = serializers.SerializerMethodField()
     student_name = serializers.CharField(source='student.full_name', read_only=True)
     student_details = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
@@ -42,6 +42,45 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             'decided_at', 'decided_by', 'decision_reason', 'office_use_data'
         )
         read_only_fields = ('student', 'submitted_at')
+    
+    def get_form_title(self, obj):
+        # Try to find a specific purpose or category in the answers
+        # This makes the dashboard much more descriptive (e.g. "Dropped / Added Courses" vs "Form D")
+        answers = obj.answers.all()
+        
+        # Look for "Change Categories" (Form D)
+        category_ans = next((a for a in answers if a.field and "Change Categories" in a.field.label), None)
+        if not category_ans:
+             # Fallback check for labels without field relationship (robustness for direct submissions)
+             category_ans = next((a for a in answers if "Change Categories" in (getattr(a, 'field_label', '') or '')), None)
+
+        if category_ans and category_ans.answer_text:
+            # Map internal keys just in case old data exists
+            mapping = {
+                'drop': 'Dropped / Added Courses',
+                'withdraw': 'Program Withdrawal',
+                'school': 'Changed Schools / Programs',
+                'dependents': 'Dependent Update',
+                'contact': 'Contact Info Update',
+                'sfa': 'SFA Status Update',
+                'other': 'Other Change'
+            }
+            text = category_ans.answer_text
+            if text in mapping:
+                return mapping[text]
+            return text
+
+        # Fallback to Form title but strip generic prefixes (Form A: , Form B -, FormA , etc.)
+        import re
+        title = obj.form.title if obj.form else "Application"
+        
+        # Specific overrides for legacy/technical names
+        if "PSSSP" in title:
+            return "Admission Application"
+            
+        # Matches "Form" + Letter + any separator chars like :, -, dash, or mangled chars
+        title = re.sub(r'^Form\s*[A-Z].*?[:\-\u2014\u2013\ufffd\s]+\s*', '', title)
+        return title
 
     def get_student_details(self, obj):
         if not obj.student:

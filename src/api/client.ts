@@ -24,7 +24,11 @@ apiClient.interceptors.request.use(
         // Content-Type so the browser can set it automatically with the correct
         // multipart boundary string. Without this, file uploads fail.
         if (config.data instanceof FormData) {
-            delete config.headers['Content-Type'];
+            if (config.headers.delete) {
+                config.headers.delete('Content-Type');
+            } else {
+                delete config.headers['Content-Type'];
+            }
         }
         
         return config;
@@ -44,6 +48,10 @@ apiClient.interceptors.response.use(
                     message: response.data.message || 'Action failed',
                     data: response.data.data
                 });
+            }
+            // If the wrapped data has results, return them directly (DRF pagination pattern)
+            if (response.data.data && response.data.data.hasOwnProperty('results') && Array.isArray(response.data.data.results)) {
+                return response.data.data.results;
             }
             return response.data.data;
         }

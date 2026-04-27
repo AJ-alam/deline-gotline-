@@ -97,7 +97,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
       // HANDLE REDIRECTIONS
       // Priority 1: Changed schools or programs -> New Application
       if (categories.school) {
-        onNavigate('formA');
+        onNavigate('admission');
         return;
       }
       
@@ -135,8 +135,23 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
     try {
       const submissionData = new FormData();
       
+      const categoryLabels: Record<string, string> = {
+        drop: 'Dropped / Added Courses',
+        withdraw: 'Program Withdrawal',
+        school: 'Changed Schools / Programs',
+        dependents: 'Dependent Update',
+        contact: 'Contact Info Update',
+        sfa: 'SFA Status Update',
+        other: 'Other Change'
+      };
+
+      const selectedLabels = Object.entries(categories)
+        .filter(([_, v]) => v)
+        .map(([k]) => categoryLabels[k] || k)
+        .join(', ');
+      
       const answers = [
-        { field_label: 'Change Categories', answer_text: Object.entries(categories).filter(([_, v]) => v).map(([k]) => k).join(', ') },
+        { field_label: 'Change Categories', answer_text: selectedLabels },
         { field_label: 'Effective Date', answer_text: details.effDate },
         { field_label: 'Reason for Change', answer_text: details.reason },
         { field_label: 'New Status', answer_text: details.status },

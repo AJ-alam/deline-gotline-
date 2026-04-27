@@ -9,10 +9,15 @@ from users.permissions import IsAdminUser
 
 User = get_user_model()
 
+import time
+import logging
+logger = logging.getLogger(__name__)
+
 class DashboardStatsView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
+        start_time = time.time()
         from django.db.models import Sum, Count, Q
         from api.models import Payment
 
@@ -45,50 +50,57 @@ class DashboardStatsView(APIView):
         if status_filter in valid_statuses:
             submissions = submissions.filter(status=status_filter)
             
-        accepted_submissions = submissions.filter(status='accepted')
-        
-        # Breakdown by status
-        status_counts = submissions.values('status').annotate(total=Count('id'))
-        status_dict = {
-            'pending': 0, 'reviewed': 0, 'forwarded': 0, 'accepted': 0, 'rejected': 0
-        }
-        for s in status_counts:
-            status_dict[s['status']] = s['total']
+        # Consolidated Aggregation for better performance
+        # Task: Optimize multiple DB hits into one
+        base_agg = submissions.aggregate(
+            total_count=Count('id'),
+            accepted_count=Count('id', filter=Q(status='accepted')),
+            pending_count=Count('id', filter=Q(status='pending')),
+            reviewed_count=Count('id', filter=Q(status='reviewed')),
+            forwarded_count=Count('id', filter=Q(status='forwarded')),
+            rejected_count=Count('id', filter=Q(status='rejected')),
+            total_funding=Sum('amount', filter=Q(status='accepted')),
+            pending_funding=Sum('amount', filter=Q(status='forwarded')),
+            pending_payments=Count('id', filter=Q(status='accepted', amount__gt=0))
+        )
 
-        # Calculation of totals
-        total_subs_count = submissions.count()
-        total_funding = accepted_submissions.aggregate(total=Sum('amount'))['total'] or 0
+        total_subs_count = base_agg['total_count'] or 0
+        total_funding = base_agg['total_funding'] or 0
         
+        status_dict = {
+            'pending': base_agg['pending_count'],
+            'reviewed': base_agg['reviewed_count'],
+            'forwarded': base_agg['forwarded_count'],
+            'accepted': base_agg['accepted_count'],
+            'rejected': base_agg['rejected_count']
+        }
+
         # Approval Rate
-        approval_rate = (accepted_submissions.count() / total_subs_count * 100) if total_subs_count > 0 else 0
+        approval_rate = (base_agg['accepted_count'] / total_subs_count * 100) if total_subs_count > 0 else 0
         
-        # Quarters (Fiscal or Calendar - using Calendar for now as per plan)
-        # 1: Jan-Mar, 2: Apr-Jun, 3: Jul-Sep, 4: Oct-Dec
+        # Quarters (Optimized loop)
         quarterly_data = []
         for q in range(1, 5):
             months = range((q-1)*3 + 1, q*3 + 1)
-            q_subs = accepted_submissions.filter(submitted_at__month__in=months)
+            q_agg = submissions.filter(status='accepted', submitted_at__month__in=months).aggregate(
+                amount=Sum('amount'),
+                count=Count('id')
+            )
             quarterly_data.append({
                 'quarter': f'Q{q}',
-                'amount': q_subs.aggregate(total=Sum('amount'))['total'] or 0,
-                'count': q_subs.count()
+                'amount': q_agg['amount'] or 0,
+                'count': q_agg['count'] or 0
             })
 
-        # Recent payouts for reports view
-        recent_payouts = accepted_submissions.order_by('-decided_at')[:20].values(
+        # Recent payouts (Limit to essential fields for speed)
+        recent_payouts_list = list(submissions.filter(status='accepted').order_by('-decided_at')[:20].values(
             'id', 'amount', 'form__title', 'student__full_name', 'decided_at', 'status'
-        )
-        recent_payouts_list = [
-            {
-                'id': p['id'],
-                'amount': str(p['amount'] or 0),
-                'payment_type': p['form__title'] or 'General',
-                'user_name': p['student__full_name'] or 'Student',
-                'date': p['decided_at'].isoformat() if p['decided_at'] else None,
-                'status': p['status'],
-            }
-            for p in recent_payouts
-        ]
+        ))
+        
+        # Recent submissions
+        recent_submissions = list(submissions.order_by('-submitted_at')[:10].values(
+            'id', 'form__title', 'student__full_name', 'status', 'submitted_at'
+        ))
 
         stats = {
             "total_students": User.objects.filter(role='student').count() if funding_type == 'all' else submissions.values('student').distinct().count(),
@@ -97,32 +109,35 @@ class DashboardStatsView(APIView):
             "approval_rate": round(approval_rate, 1),
             "quarterly_report": quarterly_data,
             "submissions_by_status": status_dict,
-            "pending_payments_count": submissions.filter(status='accepted', amount__gt=0).count(),
-            "pending_funding_total": submissions.filter(status='forwarded').aggregate(total=Sum('amount'))['total'] or 0,
-            "recent_submissions": list(submissions.order_by('-submitted_at')[:10].values(
-                'id', 'form__title', 'student__full_name', 'status', 'submitted_at'
-            )),
+            "pending_payments_count": base_agg['pending_payments'],
+            "pending_funding_total": base_agg['pending_funding'] or 0,
+            "recent_submissions": recent_submissions,
             "recent_payouts": recent_payouts_list,
         }
         
-        # If funding_type is 'all', add the stream split for the main dashboard
         if funding_type == 'all':
-            cdfn_q = FormSubmission.objects.filter(mapping['cdfn'])
-            dggr_q = FormSubmission.objects.filter(mapping['dggr'])
-            ucepp_q = FormSubmission.objects.filter(mapping['ucepp'])
+            stream_agg = FormSubmission.objects.aggregate(
+                pssp_count=Count('id', filter=mapping['cdfn']),
+                dggr_count=Count('id', filter=mapping['dggr']),
+                ucepp_count=Count('id', filter=mapping['ucepp']),
+                pssp_total=Sum('amount', filter=mapping['cdfn'] & Q(status='accepted')),
+                dggr_total=Sum('amount', filter=mapping['dggr'] & Q(status='accepted')),
+                ucepp_total=Sum('amount', filter=mapping['ucepp'] & Q(status='accepted'))
+            )
             
             stats["stream_split"] = {
-                'pssp': cdfn_q.count(),
-                'dggr': dggr_q.count(),
-                'ucepp': ucepp_q.count(),
-                'pssp_percent': (cdfn_q.count() / total_subs_count * 100) if total_subs_count > 0 else 0,
-                'dggr_percent': (dggr_q.count() / total_subs_count * 100) if total_subs_count > 0 else 0,
-                'ucepp_percent': (ucepp_q.count() / total_subs_count * 100) if total_subs_count > 0 else 0,
+                'pssp': stream_agg['pssp_count'],
+                'dggr': stream_agg['dggr_count'],
+                'ucepp': stream_agg['ucepp_count'],
+                'pssp_percent': (stream_agg['pssp_count'] / total_subs_count * 100) if total_subs_count > 0 else 0,
+                'dggr_percent': (stream_agg['dggr_count'] / total_subs_count * 100) if total_subs_count > 0 else 0,
+                'ucepp_percent': (stream_agg['ucepp_count'] / total_subs_count * 100) if total_subs_count > 0 else 0,
             }
             stats["stream_totals"] = {
-                'pssp': cdfn_q.filter(status='accepted').aggregate(total=Sum('amount'))['total'] or 0,
-                'dggr': dggr_q.filter(status='accepted').aggregate(total=Sum('amount'))['total'] or 0,
-                'ucepp': ucepp_q.filter(status='accepted').aggregate(total=Sum('amount'))['total'] or 0,
+                'pssp': stream_agg['pssp_total'] or 0,
+                'dggr': stream_agg['dggr_total'] or 0,
+                'ucepp': stream_agg['ucepp_total'] or 0,
             }
 
+        logger.info(f"Dashboard stats calculated in {time.time() - start_time:.4f} seconds")
         return api_response(True, stats, "Dashboard stats retrieved successfully")

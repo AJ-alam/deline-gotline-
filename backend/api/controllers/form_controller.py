@@ -1,4 +1,6 @@
+import logging
 from rest_framework import viewsets, permissions, status, decorators, parsers
+
 from forms.models import Form, FormSubmission, SubmissionNote
 from forms.serializers import FormSerializer, FormSubmissionSerializer, SubmissionNoteSerializer
 from api.services.form_service import FormService
@@ -10,7 +12,10 @@ from users.permissions import IsAdminUser, IsOwnerOrAdmin
 from django.utils import timezone
 import uuid
 
+logger = logging.getLogger(__name__)
+
 class FormController(viewsets.ModelViewSet):
+
     queryset = Form.objects.all()
     serializer_class = FormSerializer
     parser_classes = (parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser)
@@ -45,12 +50,22 @@ class FormController(viewsets.ModelViewSet):
                 i += 1
             data['answers'] = answers
 
+        logger.debug(f"Form submission attempt for form {form.id} by user {request.user.email}")
         serializer = FormSubmissionSerializer(data=data, context={'request': request})
         if serializer.is_valid():
-            submission = serializer.save(form=form, student=request.user)
-            FormService.send_submission_notifications(submission)
-            return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Form submitted successfully", status.HTTP_201_CREATED)
+            try:
+                submission = serializer.save(form=form, student=request.user)
+                logger.info(f"Successfully created submission {submission.id} for user {request.user.email}")
+                FormService.send_submission_notifications(submission)
+                return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Form submitted successfully", status.HTTP_201_CREATED)
+            except Exception as e:
+                logger.error(f"Error during submission save/notify: {str(e)}", exc_info=True)
+                return api_response(False, str(e), "Internal error during submission", status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        logger.warning(f"Submission validation failed for user {request.user.email}: {serializer.errors}")
+        logger.debug(f"Failed data: {data}")
         return api_response(False, serializer.errors, "Submission failed", status.HTTP_400_BAD_REQUEST)
+
 
 class SubmissionController(viewsets.ModelViewSet):
     queryset = FormSubmission.objects.all()

@@ -76,7 +76,7 @@ class Application(models.Model):
 class Document(models.Model):
     application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name='documents')
     name = models.CharField(max_length=255)
-    file = models.FileField(upload_to='application_docs/')
+    file = models.FileField(upload_to='application_docs/', max_length=255)
     is_verified = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
@@ -89,7 +89,7 @@ class Document(models.Model):
 class UserDocument(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_documents')
     name = models.CharField(max_length=255)
-    file = models.FileField(upload_to='user_documents/')
+    file = models.FileField(upload_to='user_documents/', max_length=255)
     category = models.CharField(max_length=100, blank=True, null=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 

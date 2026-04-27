@@ -214,9 +214,10 @@ class DocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if self.request._is_staff(user):
+        user = self.request.user
+        if _is_staff(user):
             return self.queryset.all()
-        return self.queryset.filter(application__student=self.request.user)
+        return self.queryset.filter(application__student=user)
 
 class UserDocumentViewSet(viewsets.ModelViewSet):
     queryset = UserDocument.objects.all()

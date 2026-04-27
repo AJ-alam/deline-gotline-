@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import API from '../api/client';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
@@ -48,6 +48,25 @@ const StaffDashboard: React.FC = () => {
   const [financeEmail, setFinanceEmail] = useState('finance@organization.com');
   const [isExporting, setIsExporting] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Sync currentView with URL path and handle deep links
+  useEffect(() => {
+    const segments = location.pathname.split('/').filter(Boolean);
+    if (segments.length > 1) {
+      const view = segments[1] as ViewMode;
+      if (view !== currentView) {
+        setCurrentView(view);
+      }
+
+      // Handle deep-linking for application details via ?id=
+      const params = new URLSearchParams(location.search);
+      const appId = params.get('id');
+      if (appId) {
+        setSelectedAppId(appId);
+      }
+    }
+  }, [location.pathname, location.search]);
 
   const [applications, setApplications] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -58,20 +77,28 @@ const StaffDashboard: React.FC = () => {
   const [userData, setUserData] = useState<any>(null);
 
   const fetchApplications = async () => {
-    try {
-      const resp = await API.getSubmissions() as any;
-      setApplications(Array.isArray(resp) ? resp : []);
-      
-      const stats = await API.getDashboardStats() as any;
-      setBackendStats(stats || null);
+    // Start all requests in parallel
+    const subsPromise = API.getSubmissions().then((resp: any) => {
+      if (Array.isArray(resp)) {
+        setApplications(resp);
+      } else if (resp && resp.results && Array.isArray(resp.results)) {
+        setApplications(resp.results);
+      } else {
+        setApplications([]);
+      }
+    });
 
-      const notifs = await API.getNotifications() as any;
-      setNotifications(Array.isArray(notifs) ? notifs : []);
+    const statsPromise = API.getDashboardStats().then((resp: any) => {
+      setBackendStats(resp || null);
+    });
 
-      // Verify role from profile to ensure absolute sync
-      const me = await API.getMe() as any;
-      setUserData(me);
-      const mappedRole = me.role?.toLowerCase();
+    const notifsPromise = API.getNotifications().then((resp: any) => {
+      setNotifications(Array.isArray(resp) ? resp : []);
+    });
+
+    const mePromise = API.getMe().then((meResp: any) => {
+      setUserData(meResp);
+      const mappedRole = meResp.role?.toLowerCase();
 
       if (mappedRole === 'director' && role !== 'director') {
         setRole('director');
@@ -80,9 +107,13 @@ const StaffDashboard: React.FC = () => {
         setRole('ssw');
         localStorage.setItem('dgg_role', 'admin');
       }
+    });
+
+    try {
+      // Wait for all to complete but display each as it arrives
+      await Promise.allSettled([subsPromise, statsPromise, notifsPromise, mePromise]);
     } catch (err: any) {
       console.error('Data sync failed:', err);
-      // If it's a 401, the Axios interceptor will handle redirect
       setError(err.message || 'Failed to sync with database');
     } finally {
       setIsLoading(false);
@@ -100,7 +131,7 @@ const StaffDashboard: React.FC = () => {
   // ── POLLING FOR REAL-TIME UPDATES ──
   useEffect(() => {
     fetchApplications();
-    const interval = setInterval(fetchApplications, 5000); // 5-second polling
+    const interval = setInterval(fetchApplications, 10000); // 10-second polling
     return () => clearInterval(interval);
   }, [reportFundingType]); // Re-fetch when funding type filter changes
 
@@ -1345,6 +1376,46 @@ const StaffDashboard: React.FC = () => {
     return formatted.trim();
   };
 
+  const renderAnswerText = (text: string) => {
+    if (!text) return 'N/A';
+    
+    // Check if it's a JSON array (like Expense List)
+    if (text.startsWith('[') && text.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Check if it's the specific expense list structure
+          if (parsed[0].description && parsed[0].amount) {
+            return (
+              <div className="json-answer-table-wrap" style={{ marginTop: '8px', background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+                <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #cbd5e1', textAlign: 'left', color: '#64748b' }}>
+                      <th style={{ padding: '4px 0', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.02em' }}>Item</th>
+                      <th style={{ padding: '4px 0', textAlign: 'right', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.02em' }}>Amt</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsed.map((item: any, idx: number) => (
+                      <tr key={idx} style={{ borderBottom: idx === parsed.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '6px 0', color: '#1e293b' }}>{item.description}</td>
+                        <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>${parseFloat(item.amount).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+        }
+      } catch (e) {
+        // Not valid JSON, just return text
+      }
+    }
+    
+    return text;
+  };
+
   // Determine if an answer is a file upload (URL pointing to a file)
   const isFileAnswer = (answer: any): boolean => {
     if (answer.answer_file) return true;
@@ -1461,7 +1532,7 @@ const StaffDashboard: React.FC = () => {
                         </div>
                       ) : (
                         <div className="submitted-info-value">
-                          {textValue && textValue.trim() !== '' ? textValue : (
+                          {textValue && textValue.trim() !== '' ? renderAnswerText(textValue) : (
                             <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Not provided</span>
                           )}
                         </div>

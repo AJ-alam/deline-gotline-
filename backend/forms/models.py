@@ -100,7 +100,7 @@ class SubmissionAnswer(models.Model):
     submission = models.ForeignKey(FormSubmission, on_delete=models.CASCADE, related_name='answers')
     field = models.ForeignKey(FormField, on_delete=models.CASCADE)
     answer_text = models.TextField(blank=True, null=True)
-    answer_file = models.FileField(upload_to='submission_files/', blank=True, null=True)
+    answer_file = models.FileField(upload_to='submission_files/', blank=True, null=True, max_length=255)
 
     class Meta:
         db_table = 'submission_answers'
