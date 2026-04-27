@@ -32,16 +32,30 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student.full_name', read_only=True)
     student_details = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
-    
+    reviewed_by_name = serializers.SerializerMethodField()
+    forwarded_by_name = serializers.SerializerMethodField()
+    decided_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = FormSubmission
         fields = (
             'id', 'form', 'form_title', 'student', 'student_name', 'student_details',
             'submitted_at', 'status', 'amount', 'answers', 'notes',
-            'reviewed_at', 'reviewed_by', 'forwarded_at', 'forwarded_by',
-            'decided_at', 'decided_by', 'decision_reason', 'office_use_data'
+            'reviewed_at', 'reviewed_by', 'reviewed_by_name',
+            'forwarded_at', 'forwarded_by', 'forwarded_by_name',
+            'decided_at', 'decided_by', 'decided_by_name',
+            'decision_reason', 'office_use_data'
         )
         read_only_fields = ('student', 'submitted_at')
+
+    def get_reviewed_by_name(self, obj):
+        return obj.reviewed_by.full_name if obj.reviewed_by else None
+
+    def get_forwarded_by_name(self, obj):
+        return obj.forwarded_by.full_name if obj.forwarded_by else None
+
+    def get_decided_by_name(self, obj):
+        return obj.decided_by.full_name if obj.decided_by else None
     
     def get_form_title(self, obj):
         answers = obj.answers.all()  # uses prefetch_related cache when set
@@ -106,6 +120,11 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             'institution_location': s.institution_location,
             'expected_graduation_date': s.expected_graduation_date,
             'financial_assistance_status': s.financial_assistance_status,
+            'is_indian_act_registered': s.is_indian_act_registered,
+            'is_deline_beneficiary': s.is_deline_beneficiary,
+            'province_of_residence': s.province_of_residence,
+            'primary_stream': s.primary_stream,
+            'secondary_stream': s.secondary_stream,
             # Banking (only for admin/director)
             'bank_name': s.bank_name,
             'transit_number': s.transit_number,

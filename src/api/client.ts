@@ -108,6 +108,9 @@ class API {
             financial_assistance_status: data.financial_assistance_status || '',
             num_dependents: data.num_dependents || 0,
             dependent_ages: data.dependent_ages || '',
+            is_indian_act_registered: data.is_indian_act_registered ?? null,
+            is_deline_beneficiary: data.is_deline_beneficiary ?? null,
+            province_of_residence: data.province_of_residence || '',
         };
         return apiClient.post('/auth/register/', payload);
     }
@@ -207,6 +210,13 @@ class API {
 
     static dispatchFinanceReport() {
         return apiClient.post('/payments/dispatch_report/');
+    }
+
+    static exportApprovedCSV(params?: { funding_type?: string; date_from?: string; date_to?: string }) {
+        return apiClient.get('/payments/export-csv/', {
+            params,
+            responseType: 'blob',
+        });
     }
 
     // New API Methods

@@ -32,6 +32,7 @@ class UserSerializer(serializers.ModelSerializer):
             'enrollment_status', 'course_load', 'program_type',
             'expected_graduation_date', 'years_in_program', 'institution_location',
             'town_city', 'postal_code', 'institute',
+            'is_indian_act_registered', 'is_deline_beneficiary', 'province_of_residence',
         )
         # profile_picture is ImageField — sending a URL string back in PUT fails validation.
         # Keep read_only so display works but JSON PUT can't accidentally break it.
@@ -78,16 +79,17 @@ class RegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (
-            'email', 'full_name', 'password', 'phone', 'role', 
-            'beneficiary_number', 'treaty_number', 'dob', 
-            'bank_name', 'transit_number', 'inst_number', 'account_number', 
-            'primary_stream', 'secondary_stream', 'preferred_name', 'gender', 
-            'pronouns', 'alternate_phone', 'mailing_address', 'num_dependents', 
-            'dependent_ages', 'disability_accommodation', 'upi', 
-            'financial_assistance_status', 'account_holder_name', 'account_type', 
-            'institution_name', 'program_credential', 'current_semester', 
-            'enrollment_status', 'course_load', 'program_type', 
-            'expected_graduation_date', 'years_in_program', 'institution_location'
+            'email', 'full_name', 'password', 'phone', 'role',
+            'beneficiary_number', 'treaty_number', 'dob',
+            'bank_name', 'transit_number', 'inst_number', 'account_number',
+            'primary_stream', 'secondary_stream', 'preferred_name', 'gender',
+            'pronouns', 'alternate_phone', 'mailing_address', 'num_dependents',
+            'dependent_ages', 'disability_accommodation', 'upi',
+            'financial_assistance_status', 'account_holder_name', 'account_type',
+            'institution_name', 'program_credential', 'current_semester',
+            'enrollment_status', 'course_load', 'program_type',
+            'expected_graduation_date', 'years_in_program', 'institution_location',
+            'is_indian_act_registered', 'is_deline_beneficiary', 'province_of_residence',
         )
 
     def validate_role(self, value):

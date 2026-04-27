@@ -45,7 +45,7 @@ const StaffDashboard: React.FC = () => {
   const [reportDateTo, setReportDateTo] = useState('');
   const [reportStatusFilter, setReportStatusFilter] = useState('all');
   const [showFinanceModal, setShowFinanceModal] = useState(false);
-  const [financeEmail, setFinanceEmail] = useState('finance@organization.com');
+  const [financeEmail, setFinanceEmail] = useState('finance@deline.ca');
   const [isExporting, setIsExporting] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -142,7 +142,7 @@ const StaffDashboard: React.FC = () => {
         // all_settings returns grouped dict: { section: [fields] }
         const sysConfig: any[] = settings?.system_config || [];
         const config = sysConfig.find((s: any) => s.field_key === 'finance_email');
-        if (config) setFinanceEmail(config.unit || 'finance@organization.com');
+        if (config) setFinanceEmail(config.unit || 'finance@deline.ca');
       } catch (e) { }
     };
     fetchFinanceConfig();
@@ -151,20 +151,24 @@ const StaffDashboard: React.FC = () => {
   const handleExcelExport = () => {
     setIsExporting(true);
     try {
-      const exportData = payments.map(p => ({
-        'Student ID': `DGG-${p.user.toString().padStart(5, '0')}`,
-        'Student Full Name': userData?.full_name || 'Student',
-        'Funding Type': (p.payment_type || '').includes('DGGR') ? 'DGGR' : ((p.payment_type || '').includes('UCEPP') ? 'UCEPP' : 'CDFN'),
-        'Approved Amount': parseFloat(p.amount),
-        'Approval Date': new Date(p.date_issued).toLocaleDateString(),
-        'Quarter': `Q${Math.floor(new Date(p.date_issued).getMonth() / 3) + 1}`,
-        'Payment Status': p.status.toUpperCase()
+      const approved = applications.filter((a: any) => a.status === 'accepted');
+      const exportData = approved.map((a: any) => ({
+        'Submission ID': a.id,
+        'Student Name': a.student_details?.full_name || a.student_name || '',
+        'Student Email': a.student_details?.email || '',
+        'Beneficiary #': a.student_details?.beneficiary_number || '',
+        'Form': a.form_title || '',
+        'Stream': a.student_details?.primary_stream || '',
+        'Approved Amount ($)': parseFloat(a.amount || 0),
+        'Submitted Date': a.submitted_at ? new Date(a.submitted_at).toLocaleDateString() : '',
+        'Decision Date': a.decided_at ? new Date(a.decided_at).toLocaleDateString() : '',
+        'Decided By': a.decided_by_name || '',
       }));
 
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Approved Payments");
-      XLSX.writeFile(workbook, `Approved_Payments_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Approved Applications");
+      XLSX.writeFile(workbook, `Approved_Applications_${new Date().toISOString().split('T')[0]}.xlsx`);
       setShowFinanceModal(true);
     } catch (err) {
       alert("Export failed");
@@ -211,35 +215,41 @@ const StaffDashboard: React.FC = () => {
     }
   };
 
-  // ── REPORT CSV EXPORT (Task 10.8) ──
-  const handleReportCSVExport = () => {
+  // ── REPORT CSV EXPORT — downloads approved applications from backend ──
+  const handleReportCSVExport = async () => {
     try {
-      const stats = reportStats || backendStats;
-      const rows: string[][] = [
-        ['#', 'Student Name', 'Program', 'Status', 'Amount', 'Submitted'],
-      ];
-      applications.forEach(app => {
-        rows.push([
-          String(app.id),
-          app.student_details?.full_name || '',
-          app.form_title || '',
-          app.status || '',
-          app.amount ? `$${parseFloat(app.amount).toFixed(2)}` : '$0.00',
-          app.submitted_at ? new Date(app.submitted_at).toLocaleDateString() : '',
-        ]);
-      });
-      const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      setIsExporting(true);
+      const blob = await API.exportApprovedCSV({
+        funding_type: reportFundingType,
+        ...(reportDateFrom && { date_from: reportDateFrom }),
+        ...(reportDateTo && { date_to: reportDateTo }),
+      }) as any;
+      const url = URL.createObjectURL(new Blob([blob], { type: 'text/csv;charset=utf-8;' }));
       const link = document.createElement('a');
       link.href = url;
-      link.download = `DGG_Report_${reportFundingType}_${new Date().toISOString().split('T')[0]}.csv`;
+      link.download = `DGG_Approved_${reportFundingType}_${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      alert('CSV export failed: ' + err.message);
+      alert('CSV export failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // ── DISPATCH APPROVED CSV TO FINANCE EMAIL ──
+  const [isDispatching, setIsDispatching] = useState(false);
+  const handleDispatchFinanceReport = async () => {
+    try {
+      setIsDispatching(true);
+      const resp = await API.dispatchFinanceReport() as any;
+      alert(`Report sent to ${resp?.recipient || financeEmail}`);
+    } catch (err: any) {
+      alert('Dispatch failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsDispatching(false);
     }
   };
 
@@ -299,9 +309,12 @@ const StaffDashboard: React.FC = () => {
     if (!selectedAppId) return;
     try {
       const resp = await API.generateShareLink(Number(selectedAppId)) as any;
-      const url = `${window.location.origin}/shared/${resp.token}`;
+      const url = resp.url || `${window.location.origin}/shared/${resp.token}`;
       await navigator.clipboard.writeText(url);
-      alert('Secure share link (valid for 7 days) copied to clipboard!');
+      const days = resp.expires_at
+        ? Math.round((new Date(resp.expires_at).getTime() - Date.now()) / 86400000)
+        : 7;
+      alert(`Secure share link (valid for ${days} days) copied to clipboard!`);
     } catch (err: any) {
       alert('Share failed: ' + err.message);
     }
@@ -341,7 +354,7 @@ const StaffDashboard: React.FC = () => {
       doc.text('------------------------------------------------', 20, 80);
       doc.text('Decision Details:', 20, 90);
       doc.text(`Authorized Amount: $${app.amount || 0}`, 20, 100);
-      doc.text(`Notes: ${app.decision_notes || 'None'}`, 20, 110);
+      doc.text(`Notes: ${app.decision_reason || 'None'}`, 20, 110);
 
       doc.save(`Application_${app.id}.pdf`);
     } catch (err: any) {
@@ -847,8 +860,7 @@ const StaffDashboard: React.FC = () => {
       }
     }
 
-    // Hardcoded Book Allowance Replacement
-    const bookAllowance = getPolicySetting('eligibility_rules', 'min_program_weeks') > 0 ? 500 : 0; // Simplified for now, or use a specific field
+    const bookAllowance = getPolicySetting('system_config', 'book_allowance') || 500;
 
     return {
       tuition: {
@@ -863,14 +875,14 @@ const StaffDashboard: React.FC = () => {
         rule: `$${livingRate}/mo for ${months} mons`
       },
       books: {
-        system: 500, // Move to system_config later if requested
-        rule: '$500 per semester standard allowance'
+        system: bookAllowance,
+        rule: `$${bookAllowance} per semester standard allowance`
       },
       special: {
         system: specialAwards,
         rule: specialNote
       },
-      total: finalTuition + totalLiving + extraAmount + 500 + specialAwards,
+      total: finalTuition + totalLiving + extraAmount + bookAllowance + specialAwards,
       stream
     };
   };
@@ -1033,7 +1045,7 @@ const StaffDashboard: React.FC = () => {
 
     const tuitionAmount = autoSuggested.tuition?.system ?? 0;
     const livingAmount = autoSuggested.living?.system ?? 0;
-    const booksAmount = autoSuggested.books?.system ?? 500;
+    const booksAmount = autoSuggested.books?.system ?? getPolicySetting('system_config', 'book_allowance') ?? 500;
     const specialAmount = autoSuggested.special?.system ?? 0;
     const totalAmount = autoSuggested.total ?? 0;
 
@@ -1595,7 +1607,7 @@ const StaffDashboard: React.FC = () => {
                 <div className="staff-nav-title">Governance</div>
                 {renderNavItem('reports', 'Reports', <AdminIcons.Reports />)}
                 {renderNavItem('policy', 'Policy Settings', <AdminIcons.Policy />)}
-                {renderNavItem('appeals', 'Appeals', <AdminIcons.Apps />, 1)}
+                {renderNavItem('appeals', 'Appeals', <AdminIcons.Apps />, appeals.filter((a: any) => a.status === 'pending').length || undefined)}
               </div>
             </>
           ) : (
@@ -2128,56 +2140,69 @@ const StaffDashboard: React.FC = () => {
                 {/* Left: Detail Forms */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                   <div className="admin-chart-card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>{selectedAppId}</div>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800' }}>{applications.find(a => String(a.id) === String(selectedAppId))?.name} — Post-Secondary Application</h2>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>Submitted Mar 3, 2025 · Admission Application</div>
-                      </div>
-                      <button className="admin-badge badge-review" style={{ height: 'fit-content' }}>UNDER REVIEW</button>
-                    </div>
+                    {(() => {
+                      const app = applications.find(a => String(a.id) === String(selectedAppId));
+                      const sd = app?.student_details || {};
+                      const getAns = (lbl: string) => (app?.answers || []).find((a: any) =>
+                        (a.label || a.field_label || '').toLowerCase().includes(lbl.toLowerCase())
+                      )?.answer_text;
+                      return (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>#{selectedAppId}</div>
+                              <h2 style={{ fontSize: '20px', fontWeight: '800' }}>{sd.full_name || 'Student'} — {app?.form_title || 'Application'}</h2>
+                              <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                Submitted {app?.submitted_at ? new Date(app.submitted_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                              </div>
+                            </div>
+                            {getStatusBadge(app?.status || 'pending')}
+                          </div>
 
-                    <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px' }}>
-                      <div className="admin-nav-title" style={{ marginBottom: '16px', padding: '0' }}>STUDENT & PROGRAM</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>NAME</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => String(a.id) === String(selectedAppId))?.student_details?.full_name}</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>BENEFICIARY #</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => String(a.id) === String(selectedAppId))?.student_details?.beneficiary_number || 'None'}</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>DOB</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => String(a.id) === String(selectedAppId))?.student_details?.dob || 'Not Provided'}</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>PHONE</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => String(a.id) === String(selectedAppId))?.student_details?.phone || 'None'}</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>ENROLLMENT</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => String(a.id) === String(selectedAppId))?.form_title || 'Application'}</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>STATUS</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{getStatusBadge(applications.find(a => String(a.id) === String(selectedAppId))?.status || 'pending')}</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>INSTITUTION</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>U of Calgary</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>PROGRAM</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>Nursing Yr 2</div>
-                        </div>
-                        <div>
-                          <label className="admin-kpi-label" style={{ fontSize: '9px' }}>SEMESTER</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>Fall 2025</div>
-                        </div>
-                      </div>
-                    </div>
+                          <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px' }}>
+                            <div className="admin-nav-title" style={{ marginBottom: '16px', padding: '0' }}>STUDENT & PROGRAM</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>NAME</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.full_name || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>BENEFICIARY #</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.beneficiary_number || 'None'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>DOB</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.dob || 'Not Provided'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>PHONE</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.phone || 'None'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>ENROLLMENT</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.enrollment_status || getAns('enrollment') || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>FUNDING STREAM</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.primary_stream || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>INSTITUTION</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.institution_name || getAns('institution') || getAns('school') || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>PROGRAM</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.program_credential || getAns('program') || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label className="admin-kpi-label" style={{ fontSize: '9px' }}>SEMESTER</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{sd.current_semester || getAns('semester') || 'N/A'}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
 
                     {/* Eligibility Determination Section */}
                     <div style={{ marginTop: '32px' }}>
@@ -2248,24 +2273,24 @@ const StaffDashboard: React.FC = () => {
                           <tbody>
                             <tr>
                               <td style={{ fontSize: '12px' }}>Tuition Award</td>
-                              <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#dcfce7', color: '#166534' }}>{autoSuggested?.stream || 'DGGR'}</span></td>
+                              <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#dcfce7', color: '#166534' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>
                               <td style={{ fontSize: '11px', color: '#64748b' }}>{autoSuggested?.tuition?.rule}</td>
-                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${autoSuggested?.tuition?.system.toLocaleString()}</td>
-                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.tuition?.system} style={{ width: '100px', padding: '4px 8px' }} /></td>
+                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.tuition?.system ?? 0).toLocaleString()}</td>
+                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.tuition?.system ?? 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
                             </tr>
                             <tr>
                               <td style={{ fontSize: '12px' }}>Living Allowance</td>
-                              <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#e0e7ff', color: '#3730a3' }}>PSSSP</span></td>
+                              <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#e0e7ff', color: '#3730a3' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>
                               <td style={{ fontSize: '11px', color: '#64748b' }}>{autoSuggested?.living?.rule}</td>
-                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${autoSuggested?.living?.system.toLocaleString()}</td>
-                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.living?.system} style={{ width: '100px', padding: '4px 8px' }} /></td>
+                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.living?.system ?? 0).toLocaleString()}</td>
+                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.living?.system ?? 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
                             </tr>
                             <tr>
                               <td style={{ fontSize: '12px' }}>Books & Supplies</td>
-                              <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#fff7ed', color: '#c2410c' }}>DGGR</span></td>
+                              <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#fff7ed', color: '#c2410c' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>
                               <td style={{ fontSize: '11px', color: '#64748b' }}>{autoSuggested?.books?.rule}</td>
-                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${autoSuggested?.books?.system.toLocaleString()}</td>
-                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.books?.system} style={{ width: '100px', padding: '4px 8px' }} /></td>
+                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.books?.system ?? 500).toLocaleString()}</td>
+                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.books?.system ?? 500} style={{ width: '100px', padding: '4px 8px' }} /></td>
                             </tr>
                           </tbody>
                           <tfoot>
@@ -2326,8 +2351,8 @@ const StaffDashboard: React.FC = () => {
                 {/* Right: Sidebar Actions & Logs */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                   <div className="admin-chart-card" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={() => alert('Download receipt coming soon')}>DOWNLOAD RECEIPT</button>
-                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={() => alert('Message student coming soon')}>MESSAGE STUDENT</button>
+                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={handlePDFExport}>EXPORT PDF</button>
+                    <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', textAlign: 'center', padding: '8px' }} onClick={handleShareView}>SHARE LINK</button>
                   </div>
 
                   {/* Banking Details — Director only (Task 2.7) */}
@@ -2481,7 +2506,9 @@ const StaffDashboard: React.FC = () => {
                   { id: 'dggr_hardship', title: 'DGGR — Hardship Bursary', desc: 'Emergency funding caps for students in financial distress.' },
                   { id: 'eligibility_rules', title: 'Eligibility Rules', desc: 'Global rules for program length and minimum course loads.' },
                   { id: 'misconduct_rules', title: 'Misconduct Rules', desc: 'Suspension rules for academic or financial misconduct.' },
-                  { id: 'payment_schedule', title: 'Payment Schedule', desc: 'Processing times and standard payment dates.' }
+                  { id: 'payment_schedule', title: 'Payment Schedule', desc: 'Processing times and standard payment dates.' },
+                  { id: 'application_deadlines', title: 'Application Deadlines', desc: 'Month numbers for semester application deadlines (1=Jan, 8=Aug, 12=Dec).' },
+                  { id: 'system_config', title: 'System Configuration', desc: 'Contact info, email addresses, book allowance, and system defaults.' }
                 ].map((section) => {
                   const items = policySettings[section.id] || [];
                   const isSectionExpanded = expandedSections[section.id];
@@ -2619,8 +2646,11 @@ const StaffDashboard: React.FC = () => {
                   <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportPDFExport}>
                     <span style={{ marginRight: '8px' }}>📄</span> Export PDF
                   </button>
-                  <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportCSVExport}>
-                    <span style={{ marginRight: '8px' }}>📊</span> Export CSV
+                  <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportCSVExport} disabled={isExporting}>
+                    <span style={{ marginRight: '8px' }}>📊</span> {isExporting ? 'Exporting...' : 'Export CSV'}
+                  </button>
+                  <button className="admin-badge badge-approved" style={{ border: 'none', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={() => setShowFinanceModal(true)}>
+                    <span style={{ marginRight: '8px' }}>📧</span> Email to Finance
                   </button>
                 </div>
               </div>
@@ -2756,7 +2786,8 @@ const StaffDashboard: React.FC = () => {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           {['CDFN', 'DGGR', 'UCEPP'].map(stream => {
                             const stats = (reportStats || backendStats);
-                            const count = stats?.submissions_by_form?.[stream] || 0;
+                            const streamKeyMap: Record<string, string> = { 'CDFN': 'pssp', 'DGGR': 'dggr', 'UCEPP': 'ucepp' };
+                            const count = stats?.stream_split?.[streamKeyMap[stream]] || 0;
                             const total = stats?.total_submissions || 1;
                             const percent = (count / total) * 100;
                             const color = stream === 'CDFN' ? '#0369a1' : stream === 'DGGR' ? '#15803d' : '#b45309';
@@ -2856,8 +2887,20 @@ const StaffDashboard: React.FC = () => {
                             >
                               Review →
                             </button>
-                            <button className="director-decision-icon-btn approve"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></button>
-                            <button className="director-decision-icon-btn deny"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
+                            <button
+                              className="director-decision-icon-btn approve"
+                              title="Quick Approve"
+                              onClick={() => { setSelectedAppId(String(app.id)); setShowConfirmModal(true); }}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                            </button>
+                            <button
+                              className="director-decision-icon-btn deny"
+                              title="Quick Deny"
+                              onClick={() => { setSelectedAppId(String(app.id)); setShowRejectModal(true); }}
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -2883,16 +2926,14 @@ const StaffDashboard: React.FC = () => {
                     </thead>
                     <tbody>
                       {applications.filter(a => a.status === 'accepted' || a.status === 'rejected').map(app => (
-                        <tr key={app.id}>
+                        <tr key={app.id} style={{ cursor: 'pointer' }} onClick={() => { setSelectedAppId(String(app.id)); setCurrentView('director-detail'); }}>
                           <td><span style={{ fontSize: '10px', color: '#64748b' }}>{app.id}</span></td>
-                          <td><strong>{app.student_details?.full_name || app.name}</strong></td>
-                          <td style={{ fontSize: '11px' }}>{app.program || app.form_data?.program || 'N/A'}</td>
+                          <td><strong>{app.student_details?.full_name || 'Student'}</strong></td>
+                          <td style={{ fontSize: '11px' }}>{app.form_title || 'N/A'}</td>
                           <td style={{ fontSize: '12px', fontWeight: '700' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
-                          <td>
-                            {getStatusBadge(app.status)}
-                          </td>
-                          <td style={{ fontSize: '11px', color: '#64748b' }}>System</td>
-                          <td style={{ fontSize: '11px', color: '#64748b' }}>{new Date(app.submitted_at || Date.now()).toLocaleDateString()}</td>
+                          <td>{getStatusBadge(app.status)}</td>
+                          <td style={{ fontSize: '11px', color: '#64748b' }}>{app.decided_by_name || 'Director'}</td>
+                          <td style={{ fontSize: '11px', color: '#64748b' }}>{app.decided_at ? new Date(app.decided_at).toLocaleDateString() : new Date(app.submitted_at || Date.now()).toLocaleDateString()}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -2917,7 +2958,7 @@ const StaffDashboard: React.FC = () => {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <div style={{ fontSize: '11px', color: '#64748b' }}>{selectedAppId}</div>
                         <h2 style={{ fontSize: '20px', fontWeight: '800' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.full_name} — Post-Secondary Application</h2>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>SSW forwarded {new Date(applications.find(a => Number(a.id) === Number(selectedAppId))?.submitted_at).toLocaleDateString()}</div>
+                        {(() => { const app = applications.find(a => Number(a.id) === Number(selectedAppId)); const ts = app?.forwarded_at || app?.submitted_at; return <div style={{ fontSize: '11px', color: '#64748b' }}>{app?.forwarded_at ? 'SSW forwarded' : 'Submitted'} {ts ? new Date(ts).toLocaleDateString() : 'N/A'}</div>; })()}
                       </div>
                       {applications.find(a => Number(a.id) === Number(selectedAppId))?.flags?.map((f: string) => (
                         <span key={f} className={`admin-badge badge-${f.toLowerCase()}`} style={{ fontSize: '9px', padding: '4px 10px' }}>{f}</span>
@@ -2937,7 +2978,7 @@ const StaffDashboard: React.FC = () => {
                         </div>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SFA STATUS</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.is_sfa_active ? 'Yes' : 'No'}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.financial_assistance_status || 'N/A'}</div>
                         </div>
                       </div>
                       {(() => {
@@ -3013,20 +3054,24 @@ const StaffDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    <div style={{ background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: '10px', padding: '20px', marginBottom: '32px' }}>
-                      <h4 style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af', textTransform: 'uppercase', marginBottom: '8px' }}>SSW RECOMMENDATION</h4>
-                      <p style={{ fontSize: '13px', color: '#1e3a8a', lineHeight: '1.5' }}>
-                        Recommend Approval — amounts as calculated. Tuition confirmed at $5,000 per institutional invoice.
-                      </p>
-                      <div style={{ marginTop: '12px', fontSize: '11px', color: '#3b82f6' }}>— J. Villeneuve · Today · 9:45am</div>
-                    </div>
-
-                    <div style={{ background: '#fff9f2', border: '1px solid #fef3c7', borderRadius: '10px', padding: '20px', marginBottom: '32px' }}>
-                      <h4 style={{ fontSize: '11px', fontWeight: '800', color: '#92400e', textTransform: 'uppercase', marginBottom: '8px' }}>⚠️ EXCEPTION / OVERRIDE DETAILS</h4>
-                      <p style={{ fontSize: '13px', color: '#854d0e', lineHeight: '1.5' }}>
-                        Tuition Award overridden by SSW: actual tuition invoice confirmed at $5,000. System calculated $4,800 based on prior year data.
-                      </p>
-                    </div>
+                    {(() => {
+                      const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+                      const notes: any[] = app?.notes || [];
+                      if (notes.length === 0) return null;
+                      return (
+                        <div style={{ background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: '10px', padding: '20px', marginBottom: '32px' }}>
+                          <h4 style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af', textTransform: 'uppercase', marginBottom: '12px' }}>SSW NOTES</h4>
+                          {notes.map((note: any, i: number) => (
+                            <div key={note.id || i} style={{ marginBottom: i < notes.length - 1 ? '12px' : 0 }}>
+                              <p style={{ fontSize: '13px', color: '#1e3a8a', lineHeight: '1.5', margin: 0 }}>{note.text}</p>
+                              <div style={{ marginTop: '6px', fontSize: '11px', color: '#3b82f6' }}>
+                                — {note.author_name || 'Staff'} · {note.created_at ? new Date(note.created_at).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
 
                     <div>
                       <h4 style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '16px' }}>DOCUMENTS</h4>
@@ -3064,43 +3109,52 @@ const StaffDashboard: React.FC = () => {
                       <h3 style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase' }}>DIRECTOR DECISION</h3>
                     </div>
                     <div style={{ padding: '20px' }}>
-                      <div style={{ marginBottom: '20px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '8px' }}>DECISION</label>
-                        <select className="admin-input" style={{ fontSize: '13px' }}>
-                          <option>— Select —</option>
-                          <option>Approve</option>
-                          <option>Deny</option>
-                          <option>Defer / Info Needed</option>
-                        </select>
-                      </div>
                       <div style={{ marginBottom: '24px' }}>
-                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '8px' }}>REASON / NOTES</label>
+                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '8px' }}>NOTES (OPTIONAL)</label>
                         <textarea
                           className="admin-input"
-                          placeholder="Enter reason, exception justification, or notes for the record.."
+                          placeholder="Enter justification, exception details, or notes for the record..."
                           style={{ height: '120px', resize: 'none', fontSize: '13px', lineHeight: '1.5' }}
                           value={decisionNotes}
                           onChange={(e) => setDecisionNotes(e.target.value)}
                         ></textarea>
-                        <div style={{ fontSize: '10px', color: '#cc3333', marginTop: '8px' }}>A written reason is required for exceptions, denials, and deferrals.</div>
+                        <div style={{ fontSize: '10px', color: '#cc3333', marginTop: '8px' }}>A written reason is required for all denials and deferrals.</div>
                       </div>
-                      {/* Duplicate confirmed block (Task 4.6) */}
                       {duplicateStatus?.is_confirmed && (
                         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '12px', color: '#991b1b', fontWeight: '600' }}>
                           🚫 Confirmed duplicate — approval blocked.
                         </div>
                       )}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        <button
-                          className="director-main-btn approve"
-                          disabled={!!duplicateStatus?.is_confirmed}
-                          style={{ opacity: duplicateStatus?.is_confirmed ? 0.5 : 1, cursor: duplicateStatus?.is_confirmed ? 'not-allowed' : 'pointer' }}
-                          onClick={() => setShowConfirmModal(true)}
-                        >
-                          ✓ APPROVE APPLICATION
-                        </button>
-                        <button className="director-main-btn deny" onClick={() => setShowRejectModal(true)}>✕ DENY APPLICATION</button>
-                      </div>
+                      {(() => {
+                        const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+                        const isDecided = app?.status === 'accepted' || app?.status === 'rejected';
+                        if (isDecided) {
+                          return (
+                            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '14px', fontSize: '13px', color: '#166534', fontWeight: '600', textAlign: 'center' }}>
+                              ✓ Decision already recorded: {(app?.status || '').toUpperCase()}
+                            </div>
+                          );
+                        }
+                        return (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <button
+                              className="director-main-btn approve"
+                              disabled={!!duplicateStatus?.is_confirmed}
+                              style={{ opacity: duplicateStatus?.is_confirmed ? 0.5 : 1, cursor: duplicateStatus?.is_confirmed ? 'not-allowed' : 'pointer' }}
+                              onClick={() => setShowConfirmModal(true)}
+                            >
+                              ✓ APPROVE APPLICATION
+                            </button>
+                            <button className="director-main-btn deny" onClick={() => setShowRejectModal(true)}>✕ DENY APPLICATION</button>
+                            <button
+                              style={{ background: '#f8fafc', border: '1px solid #e2e8f0', color: '#475569', borderRadius: '8px', padding: '10px', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}
+                              onClick={handleRequestInfo}
+                            >
+                              ↩ REQUEST MORE INFO
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -3205,13 +3259,23 @@ const StaffDashboard: React.FC = () => {
                   <h2 style={{ fontSize: '20px', fontWeight: '800' }}>PAYMENT RECORDS</h2>
                   <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Records are automatically generated upon application approval.</p>
                 </div>
-                <button
-                  className="admin-badge badge-approved"
-                  onClick={handleExcelExport}
-                  style={{ border: 'none', cursor: 'pointer', padding: '10px 20px', fontWeight: '800' }}
-                >
-                  {isExporting ? 'GENERATING...' : 'EXPORT APPROVED PAYMENTS'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    className="admin-badge badge-approved"
+                    onClick={handleReportCSVExport}
+                    style={{ border: 'none', cursor: 'pointer', padding: '10px 20px', fontWeight: '800' }}
+                    disabled={isExporting}
+                  >
+                    {isExporting ? 'EXPORTING...' : 'EXPORT CSV'}
+                  </button>
+                  <button
+                    className="admin-badge"
+                    onClick={() => setShowFinanceModal(true)}
+                    style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '800' }}
+                  >
+                    EMAIL TO FINANCE
+                  </button>
+                </div>
               </div>
               <div className="admin-table-wrap">
                 <table className="admin-table">
@@ -3228,14 +3292,16 @@ const StaffDashboard: React.FC = () => {
                   <tbody>
                     {payments.map((p: any) => (
                       <tr key={p.id}>
-                        <td><span style={{ fontSize: '11px', color: '#64748b' }}>PAY-{p.id}</span></td>
-                        <td><strong>{p.student_details?.full_name || 'Student'}</strong></td>
-                        <td style={{ fontSize: '12px' }}>{p.payment_type || p.category}</td>
-                        <td style={{ fontSize: '13px', fontWeight: '700' }}>${p.amount.toLocaleString()}</td>
+                        <td><span style={{ fontSize: '11px', color: '#64748b' }}>{p.reference_number || `PAY-${p.id}`}</span></td>
+                        <td><strong>{p.user_name || p.student_details?.full_name || `Student #${p.user}`}</strong></td>
+                        <td style={{ fontSize: '12px' }}>{p.payment_type || '—'}</td>
+                        <td style={{ fontSize: '13px', fontWeight: '700' }}>${parseFloat(p.amount || 0).toLocaleString()}</td>
                         <td>
-                          <span className="admin-badge badge-approved" style={{ fontSize: '9px' }}>APPROVED</span>
+                          <span className={`admin-badge ${p.status === 'issued' ? 'badge-approved' : p.status === 'cancelled' ? 'badge-rejected' : 'badge-pending'}`} style={{ fontSize: '9px' }}>
+                            {(p.status || 'pending').toUpperCase()}
+                          </span>
                         </td>
-                        <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(p.date_issued || p.created_at).toLocaleDateString()}</td>
+                        <td style={{ fontSize: '12px', color: '#64748b' }}>{p.date_issued ? new Date(p.date_issued).toLocaleDateString() : '—'}</td>
                       </tr>
                     ))}
                     {payments.length === 0 && (
@@ -3264,22 +3330,14 @@ const StaffDashboard: React.FC = () => {
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <button
                       className="admin-input"
-                      style={{ background: 'var(--admin-accent)', color: '#111', fontWeight: '800', border: 'none', cursor: isExporting ? 'not-allowed' : 'pointer' }}
-                      disabled={isExporting}
+                      style={{ background: 'var(--admin-accent)', color: '#111', fontWeight: '800', border: 'none', cursor: isDispatching ? 'not-allowed' : 'pointer' }}
+                      disabled={isDispatching}
                       onClick={async () => {
-                        setIsExporting(true);
-                        try {
-                          await API.dispatchFinanceReport();
-                          setShowFinanceModal(false);
-                          alert(`Report successfully dispatched to ${financeEmail}`);
-                        } catch (err: any) {
-                          alert("Failed to dispatch report. Please check server connection.");
-                        } finally {
-                          setIsExporting(false);
-                        }
+                        setShowFinanceModal(false);
+                        await handleDispatchFinanceReport();
                       }}
                     >
-                      {isExporting ? 'SENDING...' : 'SEND EMAIL'}
+                      {isDispatching ? 'SENDING...' : 'SEND EMAIL'}
                     </button>
                     <button
                       className="admin-input"

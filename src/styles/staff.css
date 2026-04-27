@@ -1,17 +1,20 @@
 /* Staff Dashboard Design System - Refined for DGG Portal */
 
 :root {
-  --admin-sidebar: #000;
+  --admin-sidebar: #0a0a0a;
   --admin-topbar: #000;
-  --admin-bg: #f8fafc;
+  --admin-bg: #eef1f6;
   --admin-accent: #e5a662;
   --admin-success: #1a6b3a;
   --admin-warning: #dd6b20;
   --admin-danger: #e53e3e;
   --admin-info: #3182ce;
   --admin-card-radius: 12px;
-  --admin-glass-bg: rgba(255, 255, 255, 0.8);
-  --admin-glass-border: rgba(255, 255, 255, 0.2);
+  --admin-glass-bg: rgba(255, 255, 255, 0.75);
+  --admin-glass-border: rgba(255, 255, 255, 0.45);
+  --admin-sidebar-radius: 16px;
+  --admin-topbar-radius: 14px;
+  --admin-layout-gap: 12px;
 }
 
 .staff-portal-root {
@@ -20,25 +23,41 @@
   background: var(--admin-bg);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   color: #1e293b;
+  padding: var(--admin-layout-gap);
+  gap: var(--admin-layout-gap);
+  box-sizing: border-box;
 }
 
 /* Sidebar */
 .staff-sidebar {
   width: 240px;
+  min-width: 240px;
   background: var(--admin-sidebar);
   color: #fff;
   display: flex;
   flex-direction: column;
   position: sticky;
-  top: 0;
-  height: 100vh;
+  top: var(--admin-layout-gap);
+  height: calc(100vh - var(--admin-layout-gap) * 2);
   z-index: 50;
-  box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+  border-radius: var(--admin-sidebar-radius);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.28),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  backdrop-filter: blur(2px);
+}
+
+.staff-sidebar::-webkit-scrollbar {
+  display: none;
 }
 
 .staff-sidebar-header {
   padding: 24px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(135deg, rgba(229, 166, 98, 0.08) 0%, transparent 60%);
 }
 
 .staff-user-block {
@@ -82,25 +101,26 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 10px 16px;
+  margin: 1px 8px;
   font-size: 13px;
   color: #a0aec0;
-  border-left: 3px solid transparent;
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.18s ease;
   text-decoration: none;
 }
 
 .staff-nav-item:hover {
-  background: #1a1a1a;
+  background: rgba(255, 255, 255, 0.07);
   color: #fff;
 }
 
 .staff-nav-item.active {
-  background: #1a1a1a;
-  border-left: 3px solid var(--admin-accent);
+  background: rgba(229, 166, 98, 0.15);
   color: #fff;
   font-weight: 600;
+  box-shadow: 0 0 0 1px rgba(229, 166, 98, 0.25) inset;
 }
 
 .staff-nav-badge {
@@ -119,19 +139,26 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  gap: var(--admin-layout-gap);
 }
 
 .staff-topbar {
   height: 60px;
-  background: #000;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  background: rgba(10, 10, 10, 0.82);
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--admin-topbar-radius);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
   position: sticky;
-  top: 0;
+  top: var(--admin-layout-gap);
   z-index: 100;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.06) inset;
 }
 
 .staff-view-title {
@@ -142,7 +169,7 @@
 }
 
 .staff-content {
-  padding: 32px;
+  padding: 28px 32px 40px;
   flex: 1;
 }
 

@@ -125,21 +125,25 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def share(self, request, pk=None):
+        from api.models import PolicySetting
+        from django.conf import settings as django_settings
         application = self.get_object()
-        # Generate a 7-day share link by default
+
+        expiry_config = PolicySetting.objects.filter(section='system_config', field_key='share_link_expiry_days').first()
+        expiry_days = int(expiry_config.value) if expiry_config else 7
+
         token = uuid.uuid4().hex
-        expires_at = timezone.now() + timedelta(days=7)
-        
+        expires_at = timezone.now() + timedelta(days=expiry_days)
+
         share_link = ShareableLink.objects.create(
             application=application,
             token=token,
             expires_at=expires_at
         )
-        
-        # In a real app, you'd use a site-wide config for the base URL
-        base_url = "http://localhost:5173/shared" 
-        full_url = f"{base_url}/{token}"
-        
+
+        base_url = getattr(django_settings, 'SITE_URL', request.build_absolute_uri('/').rstrip('/'))
+        full_url = f"{base_url}/shared/{token}"
+
         return Response({
             'token': token,
             'url': full_url,
@@ -172,27 +176,128 @@ class PaymentViewSet(viewsets.ModelViewSet):
             return self.queryset.all()
         return self.queryset.filter(user=user)
 
+    @action(detail=False, methods=['get'], url_path='export-csv')
+    def export_csv(self, request):
+        """Return CSV of all approved FormSubmission records."""
+        import csv
+        import io
+        from django.http import HttpResponse
+        from forms.models import FormSubmission
+        from django.db.models import Q
+
+        funding_type = request.query_params.get('funding_type', 'all').lower()
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+
+        qs = FormSubmission.objects.filter(status='accepted').select_related('student', 'form', 'decided_by')
+
+        mapping = {
+            'cdfn': Q(form__title__icontains='FormA') | Q(form__title__icontains='FormC'),
+            'dggr': Q(form__title__icontains='DGGR') | Q(form__title__icontains='Scholarship') | Q(form__title__icontains='Hardship') | Q(form__title__icontains='Form D') | Q(form__title__icontains='Form F') | Q(form__title__icontains='Form G'),
+            'ucepp': Q(form__title__icontains='UCEPP') | Q(form__title__icontains='Upgrading'),
+        }
+        if funding_type in mapping:
+            qs = qs.filter(mapping[funding_type])
+        if date_from:
+            qs = qs.filter(submitted_at__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(submitted_at__date__lte=date_to)
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'Submission ID', 'Student Name', 'Student Email', 'Beneficiary #',
+            'Form', 'Stream', 'Status', 'Approved Amount ($)',
+            'Submitted Date', 'Decision Date', 'Decided By'
+        ])
+        for sub in qs.order_by('-decided_at'):
+            student = sub.student
+            stream = ''
+            if student:
+                stream = student.primary_stream or ''
+            writer.writerow([
+                sub.id,
+                student.full_name if student else '',
+                student.email if student else '',
+                student.beneficiary_number if student else '',
+                sub.form.title if sub.form else '',
+                stream,
+                sub.status,
+                sub.amount,
+                sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '',
+                sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '',
+                sub.decided_by.full_name if sub.decided_by else '',
+            ])
+
+        response = HttpResponse(output.getvalue(), content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="approved_applications.csv"'
+        AuditLog.objects.create(
+            action="Approved Applications CSV Exported",
+            performed_by=request.user,
+            role=request.user.role,
+        )
+        return response
+
     @action(detail=False, methods=['post'])
     def dispatch_report(self, request):
+        import csv
+        import io
+        from django.core.mail import EmailMessage
+        from forms.models import FormSubmission
         from api.models import PolicySetting, AuditLog
-        
-        # Get the finance email from config
+
         email_config = PolicySetting.objects.filter(section='system_config', field_key='finance_email').first()
-        recipient = email_config.unit if email_config else "finance@organization.com"
-        
-        # In a real production environment, this would trigger a Celery task to send an actual email
-        # For now, we log the event and simulate success
-        AuditLog.objects.create(
-            action=f"Finance Report Dispatched to {recipient}",
-            performed_by=request.user,
-            details=f"Report included {Payment.objects.filter(status='released').count()} released payments."
-        )
-        
-        return Response({
-            'status': 'success',
-            'recipient': recipient,
-            'message': f"Report successfully dispatched to {recipient}"
-        })
+        recipient = email_config.unit if email_config else "finance@deline.ca"
+
+        # Build CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'Submission ID', 'Student Name', 'Student Email', 'Beneficiary #',
+            'Form', 'Stream', 'Status', 'Approved Amount ($)',
+            'Submitted Date', 'Decision Date', 'Decided By'
+        ])
+        qs = FormSubmission.objects.filter(status='accepted').select_related('student', 'form', 'decided_by').order_by('-decided_at')
+        for sub in qs:
+            student = sub.student
+            writer.writerow([
+                sub.id,
+                student.full_name if student else '',
+                student.email if student else '',
+                student.beneficiary_number if student else '',
+                sub.form.title if sub.form else '',
+                student.primary_stream if student else '',
+                sub.status,
+                sub.amount,
+                sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '',
+                sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '',
+                sub.decided_by.full_name if sub.decided_by else '',
+            ])
+
+        csv_bytes = output.getvalue().encode('utf-8')
+        count = qs.count()
+
+        try:
+            email = EmailMessage(
+                subject='[DGG Funding] Approved Applications Report',
+                body=(
+                    f"Please find attached the approved applications export.\n\n"
+                    f"Total approved: {count}\n"
+                    f"Dispatched by: {request.user.full_name or request.user.email}\n"
+                ),
+                to=[recipient],
+            )
+            email.attach('approved_applications.csv', csv_bytes, 'text/csv')
+            email.send()
+            AuditLog.objects.create(
+                action=f"Finance Report Emailed to {recipient} ({count} records)",
+                performed_by=request.user,
+                role=request.user.role,
+            )
+            return Response({'status': 'success', 'recipient': recipient, 'count': count,
+                             'message': f'Report with {count} records sent to {recipient}'})
+        except Exception as e:
+            return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class AppealViewSet(viewsets.ModelViewSet):
     queryset = Appeal.objects.all()

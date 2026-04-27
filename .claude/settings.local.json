@@ -17,7 +17,9 @@
       "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\notifications *)",
       "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\src\\\\pages *)",
       "Bash(dir \"E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\api\\\\management\")",
-      "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\api\\\\management\\\\commands *)"
+      "Bash(dir E:\\\\Projects\\\\DGG\\\\Application\\\\deline-gotline-\\\\backend\\\\api\\\\management\\\\commands *)",
+      "Bash(grep -n \"badge={1}\\\\|appeals.*1\\\\\\), appeals\\\\|, 1}\" src/pages/StaffDashboard.tsx)",
+      "Bash(xargs ls *)"
     ]
   }
 }

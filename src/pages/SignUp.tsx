@@ -62,62 +62,68 @@ const SignUp: React.FC = () => {
     let isApproved = false;
     let sfaNote = false;
 
-    // Rule out dealbreakers first
+    // ── Q5: Accredited institution gate (can short-circuit immediately) ──
     if (q5 === 'no') {
       style = 'error';
-      title = 'Intake Stopped - Institution Not Accredited';
-      desc = 'Based on your answers, you do not qualify for DGG funding support at this time. DGG funding requires enrollment at an Accredited Institution. Please contact the DGG Education Department if you have questions.';
+      title = 'Intake Stopped — Institution Not Accredited';
+      desc = 'Based on your answers, you do not qualify for DGG funding support at this time. DGG funding requires enrollment at an Accredited Institution. Please contact the DGG Education Department if you have questions or believe you should still qualify.';
+
+    // ── Q6: 12-week program gate ──
     } else if (q6 === 'no') {
       style = 'error';
-      title = 'Intake Stopped - Program Requirements';
+      title = 'Intake Stopped — Program Requirements Not Met';
       desc = (q1 === 'yes' || q2 === 'yes')
         ? 'Based on your answers, you are not eligible for any funding administered by the DGG Education Department. You may wish to contact the Sahtu Dene Council to ask about other funding programs.'
-        : 'Based on your answers, you do not qualify for DGG funding support at this time. Please contact the DGG Education Department if you have questions.';
-    } else if (q1 === 'no' && q2 === 'no') {
-      style = 'error';
-      title = 'Intake Stopped';
-      desc = 'Based on your answers, you do not qualify for DGG funding support at this time. Only registered Deline First Nation members or Deline Beneficiaries are eligible for these streams.';
+        : 'Based on your answers, you do not qualify for DGG funding support at this time. Please contact the DGG Education Department if you have questions or believe you should still qualify.';
+
+    // ── All 6 answered — run full routing ──
     } else if (q1 && q2 && q3 && q4 && q5 === 'yes' && q6 === 'yes') {
-      // Run advanced routing
-      isApproved = true;
-      if (q4 === 'nwt') {
-        if (q2 === 'yes') {
-          style = 'success';
-          title = 'Action Required: DGGR Top-Up Funding';
-          desc = 'Based on your status as an NWT resident and Délı̨nę Beneficiary, you qualify for **DGGR Top-Up Funding**. Your primary funding must be requested through GNWT SFA first.';
-          if (q3 === 'no') sfaNote = true;
+
+      // Derived stream eligibility (location-agnostic per spec)
+      const pssspEligible = q1 === 'yes' && q3 !== 'yes'; // Q1=yes AND not receiving SFA
+      const dggrEligible  = q2 === 'yes';                 // Q2=yes (Beneficiary), Q3 does NOT block DGGR
+
+      // ── No streams at all ──
+      if (!pssspEligible && !dggrEligible) {
+        style = 'error';
+        isApproved = false;
+
+        if (q1 === 'no' && q2 === 'no') {
+          title = 'Intake Stopped — Not Eligible';
+          desc = 'Based on your answers, you do not qualify for DGG funding support at this time. Only persons registered under the Indian Act with Délı̨nę First Nation affiliation, or enrolled Délı̨nę Beneficiaries, are eligible. Please contact the DGG Education Department if you have questions or believe you should still qualify.';
+        } else if (q1 === 'yes' && q2 === 'no' && q3 === 'yes') {
+          // Registered Indian Act, receiving SFA, not a beneficiary → no streams
+          title = 'Intake Stopped — SFA Active, No DGGR Eligibility';
+          desc = 'Because you are currently receiving GNWT Student Financial Assistance (SFA), you do not qualify for CDFN PSSSP or UCEPP. Because you are not a Délı̨nę Beneficiary, you are also not eligible for the DGGR bursary. Please contact the DGG Education Department if you have questions or believe you should still qualify.';
         } else {
-          style = 'error';
           title = 'Intake Stopped';
-          desc = 'Based on your answers, you do not qualify for DGG funding support at this time. Residents of the NWT who are not beneficiaries are generally expected to use GNWT SFA exclusively.';
-          isApproved = false;
+          desc = 'Based on your answers, you do not qualify for DGG funding support at this time. Please contact the DGG Education Department if you have questions or believe you should still qualify.';
         }
-      } else if (q4 === 'other' || q4 === 'outside') {
-        if (q1 === 'yes' && q3 !== 'yes') {
-          style = 'success';
+
+      // ── One or more streams available ──
+      } else {
+        isApproved = true;
+        style = 'success';
+
+        // SFA proof note: required whenever Q3=no and applicant looks PSSSP-eligible
+        // NWT residents who say no SFA must prove denial; others prove residency outside NWT
+        if (pssspEligible && q3 === 'no') {
+          sfaNote = true;
+        }
+
+        if (pssspEligible && dggrEligible) {
+          title = 'Eligible: CDFN PSSSP / UCEPP + DGGR Bursary';
+          desc = 'You are registered under the Indian Act with Délı̨nę First Nation affiliation and are a Délı̨nę Beneficiary not currently receiving SFA. You qualify for **CDFN PSSSP / UCEPP** and the **DGGR Bursary**. You will be required to upload proof that you are not receiving or were denied SFA.';
+        } else if (pssspEligible) {
+          // Q1=yes, Q2=no, Q3=no
           title = 'Eligible: CDFN PSSSP / UCEPP Funding';
-          desc = `Because you live outside the NWT and are registered with the Délı̨nę First Nation, you qualify for the **CDFN Post-Secondary Student Support Program (PSSSP)**. ${q2 === 'yes' ? 'You have also qualified for the DGGR Top-Up.' : ''}`;
-        } else if (q1 === 'yes' && q3 === 'yes') {
-          // SFA blocks PSSSP/UCEPP but DGGR still possible
-          if (q2 === 'yes') {
-            style = 'success';
-            title = 'Eligible: DGGR Top-Up Only (SFA Blocks PSSSP)';
-            desc = 'Because you are currently receiving SFA, you do not qualify for CDFN PSSSP or UCEPP. However, as a Délı̨nę Beneficiary, you qualify for **DGGR Top-Up Funding**.';
-          } else {
-            style = 'error';
-            title = 'Intake Stopped — SFA Active';
-            desc = 'Because you are registered under the Indian Act but are currently receiving GNWT SFA, you do not qualify for CDFN PSSSP or UCEPP. As you are not a Délı̨nę Beneficiary, you are not eligible for DGGR. Please contact the DGG Education Department if you have questions.';
-            isApproved = false;
-          }
-        } else if (q2 === 'yes') {
-          style = 'success';
-          title = 'Eligible: DGGR Top-Up Only';
-          desc = 'Because you are not registered with the Délı̨nę First Nation (Indian Act), you do not qualify for CDFN PSSSP. However, as a Délı̨nę Beneficiary, you qualify for **DGGR Top-Up Funding**.';
+          desc = 'You are registered under the Indian Act with Délı̨nę First Nation affiliation and are not currently receiving SFA. You qualify for **CDFN PSSSP / UCEPP**. You will be required to upload proof that you are not receiving or were denied SFA (e.g. denial letter, or proof of permanent residency outside NWT).';
         } else {
-          style = 'error';
-          title = 'Intake Stopped';
-          desc = 'Based on your answers, you do not qualify for DGG funding support at this time.';
-          isApproved = false;
+          // dggrEligible only (q2=yes, either q3=yes blocks PSSSP or q1=no)
+          const sfaBlockMsg = q3 === 'yes' ? ' You are currently receiving SFA, which means CDFN PSSSP and UCEPP are not available to you.' : '';
+          const q1BlockMsg  = q1 === 'no'  ? ' You are not registered under the Indian Act with Délı̨nę First Nation affiliation, so CDFN PSSSP and UCEPP are not available.' : '';
+          title = 'Eligible: DGGR Bursary';
+          desc = `As a Délı̨nę Beneficiary, you qualify for the **DGGR Bursary**.${sfaBlockMsg}${q1BlockMsg}`;
         }
       }
     }
@@ -184,19 +190,19 @@ const SignUp: React.FC = () => {
         dob: normalizeDate(formData.dob)
       };
 
-      // Map eligibility answers to user fields
+      // Map eligibility answers to user fields (location-agnostic per spec)
       const { q1, q2, q3, q4 } = eligibility;
+      const pssspEligible = q1 === 'yes' && q3 !== 'yes';
+      const dggrEligible  = q2 === 'yes';
       let primary_stream = '';
       let secondary_stream = '';
-      if (q4 === 'nwt') {
+      if (pssspEligible && dggrEligible) {
+        primary_stream = 'PSSSP';
+        secondary_stream = 'DGGR';
+      } else if (pssspEligible) {
+        primary_stream = 'PSSSP';
+      } else if (dggrEligible) {
         primary_stream = 'DGGR';
-      } else if (q4 === 'other' || q4 === 'outside') {
-        if (q1 === 'yes' && q3 !== 'yes') {
-          primary_stream = 'PSSSP';
-          secondary_stream = q2 === 'yes' ? 'DGGR' : '';
-        } else if (q2 === 'yes') {
-          primary_stream = 'DGGR';
-        }
       }
       const financial_assistance_status = q3 === 'yes' ? 'SFA Active' : 'No SFA';
 
@@ -212,6 +218,9 @@ const SignUp: React.FC = () => {
         financial_assistance_status,
         num_dependents: dependents.length,
         dependent_ages,
+        is_indian_act_registered: q1 === 'yes',
+        is_deline_beneficiary: q2 === 'yes',
+        province_of_residence: q4,
         eligibility
       });
       navigate('/signin');
@@ -300,7 +309,7 @@ const SignUp: React.FC = () => {
                 </div>
                 {showSFANote && (
                   <div className="policy-note info animate-fade-in" style={{ fontSize: '9.5px', marginTop: '6px', borderLeftColor: '#3182ce' }}>
-                    <strong>Note:</strong> As an NWT resident, you are expected to apply for GNWT SFA first. Since you are not receiving SFA, you will be required to upload proof of denial or context later.
+                    <strong>Note:</strong> Since you are not receiving SFA, you will be required to upload proof of SFA denial or ineligibility when you submit your application.
                   </div>
                 )}
               </div>

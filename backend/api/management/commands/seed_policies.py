@@ -110,6 +110,16 @@ class Command(BaseCommand):
             ('payment_schedule', 'tuition_payment_weeks_after_deadline', 'Tuition Payment — Weeks After Deadline', 4, 'weeks'),
             ('payment_schedule', 'living_payment_day_of_month', 'Monthly Living — Payment Day of Month', 1, 'day'),
             ('payment_schedule', 'other_bursary_max_processing_days', 'Other Bursaries — Max Processing (business days)', 15, 'days'),
+
+            # SECTION: system_config (stored as value=0, unit=actual string for text fields)
+            # finance_email: value unused, unit holds the email string
+            ('system_config', 'finance_email', 'Finance Email Address', 0, 'finance@deline.ca'),
+            ('system_config', 'contact_email', 'Public Contact Email', 0, 'education.support@gov.deline.ca'),
+            ('system_config', 'contact_phone', 'Public Contact Phone', 0, '(867) 589-3515 ext. 1110'),
+            ('system_config', 'contact_address', 'Mailing Address', 0, 'P.O. Box 156, Délı̨nę, NT X0E 0G0'),
+            ('system_config', 'travel_claim_days', 'Travel Claim Window (days)', 30, 'days'),
+            ('system_config', 'share_link_expiry_days', 'Share Link Expiry (days)', 7, 'days'),
+            ('system_config', 'book_allowance', 'Books & Supplies Allowance Per Semester', 500, '$'),
         ]
 
         count = 0

@@ -1,3 +1,4 @@
+import logging
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -5,6 +6,8 @@ from api.utils.responses import api_response
 from api.models import PolicySetting, AuditLog
 from api.serializers import PolicySettingSerializer
 from users.permissions import IsAdminUser, IsDirectorUser
+
+logger = logging.getLogger(__name__)
 
 class PolicyViewSet(viewsets.ModelViewSet):
     queryset = PolicySetting.objects.all().order_by('section', 'field_key')

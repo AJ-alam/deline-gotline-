@@ -102,6 +102,28 @@ class DashboardStatsView(APIView):
             'id', 'form__title', 'student__full_name', 'status', 'submitted_at'
         ))
 
+        # Per-form counts (used by KPIs and report allocation bars)
+        from django.db.models import Q as Q2
+        form_key_map = [
+            ('FormA', Q2(form__title__icontains='FormA')),
+            ('FormB', Q2(form__title__icontains='FormB')),
+            ('FormC', Q2(form__title__icontains='FormC')),
+            ('FormD', Q2(form__title__icontains='FormD')),
+            ('FormE', Q2(form__title__icontains='FormE')),
+            ('FormF', Q2(form__title__icontains='FormF')),
+            ('FormG', Q2(form__title__icontains='FormG')),
+            ('FormH', Q2(form__title__icontains='FormH')),
+            ('scholarship', Q2(form__title__icontains='scholarship')),
+        ]
+        form_b_pending = FormSubmission.objects.filter(
+            Q2(form__title__icontains='FormB')
+        ).exclude(status__in=['accepted', 'rejected']).count()
+
+        agg_filters = {k: v for k, v in form_key_map}
+        submissions_by_form = {}
+        for key, q in form_key_map:
+            submissions_by_form[key] = FormSubmission.objects.filter(q).count()
+
         stats = {
             "total_students": User.objects.filter(role='student').count() if funding_type == 'all' else submissions.values('student').distinct().count(),
             "total_submissions": total_subs_count,
@@ -113,6 +135,8 @@ class DashboardStatsView(APIView):
             "pending_funding_total": base_agg['pending_funding'] or 0,
             "recent_submissions": recent_submissions,
             "recent_payouts": recent_payouts_list,
+            "submissions_by_form": submissions_by_form,
+            "form_b_stats": {"awaiting": form_b_pending},
         }
         
         if funding_type == 'all':

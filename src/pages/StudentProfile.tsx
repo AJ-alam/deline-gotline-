@@ -200,25 +200,104 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           </div>
         </div>
         <div className="info-bar">
-          These fields are verified by DGG staff against official registries. Do not alter them without uploading supporting documentation; changes larger than once per year require DFN authorization.
+          These fields are derived from your signup eligibility answers and verified by DGG staff. Do not alter without uploading supporting documentation.
         </div>
         <div className="profile-grid-4">
+
+          {/* Q1 — Indian Act registration */}
+          <div className="profile-field">
+            <div className="p-label">Indian Act Registration (Q1)</div>
+            <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {profile.is_indian_act_registered === null || profile.is_indian_act_registered === undefined
+                ? <span className="p-val muted">Not answered</span>
+                : profile.is_indian_act_registered
+                  ? <><span style={{ color: '#166534', fontWeight: 700 }}>Yes — Registered</span><span className="status-pill verified">✓</span></>
+                  : <span style={{ color: '#991b1b', fontWeight: 700 }}>No — Not registered</span>
+              }
+            </div>
+          </div>
+
+          {/* Q2 — Délınę Beneficiary */}
+          <div className="profile-field">
+            <div className="p-label">Délı̨nę Beneficiary Status (Q2)</div>
+            <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {profile.is_deline_beneficiary === null || profile.is_deline_beneficiary === undefined
+                ? <span className="p-val muted">Not answered</span>
+                : profile.is_deline_beneficiary
+                  ? <><span style={{ color: '#166534', fontWeight: 700 }}>Yes — Beneficiary</span><span className="status-pill verified">✓</span></>
+                  : <span style={{ color: '#991b1b', fontWeight: 700 }}>No — Not a beneficiary</span>
+              }
+            </div>
+          </div>
+
+          {/* Q3 — SFA status */}
+          <div className="profile-field">
+            <div className="p-label">GNWT Student Financial Assistance (Q3)</div>
+            <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {!profile.financial_assistance_status
+                ? <span className="p-val muted">Not answered</span>
+                : profile.financial_assistance_status === 'SFA Active'
+                  ? <><span style={{ color: '#92400e', fontWeight: 700 }}>Yes — Receiving SFA</span><span className="status-pill" style={{ background: '#fef3c7', color: '#92400e' }}>ACTIVE</span></>
+                  : <><span style={{ color: '#166534', fontWeight: 700 }}>No — Not receiving SFA</span><span className="status-pill verified">✓</span></>
+              }
+            </div>
+          </div>
+
+          {/* Q4 — Residence */}
+          <div className="profile-field">
+            <div className="p-label">Province / Territory of Residence (Q4)</div>
+            <div className="p-val">
+              {!profile.province_of_residence
+                ? <span className="p-val muted">Not answered</span>
+                : profile.province_of_residence === 'nwt'
+                  ? 'Northwest Territories'
+                  : profile.province_of_residence === 'other'
+                    ? 'Other Canadian Province / Territory'
+                    : 'Outside Canada'
+              }
+            </div>
+          </div>
+
+          {/* Beneficiary # */}
           <div className="profile-field">
             <div className="p-label">Deline Beneficiary #</div>
             <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {profile.beneficiary_number || 'PENDING'}
+              {profile.beneficiary_number || <span className="p-val muted">PENDING</span>}
               {profile.beneficiary_number && <span className="status-pill verified">✓ VERIFIED</span>}
             </div>
           </div>
+
+          {/* Treaty # */}
           <div className="profile-field">
             <div className="p-label">Indian Status / Treaty #</div>
             <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {profile.treaty_number || 'PENDING'}
+              {profile.treaty_number || <span className="p-val muted">PENDING</span>}
               {profile.treaty_number && <span className="status-pill verified">✓ VERIFIED</span>}
             </div>
           </div>
-          {renderField('Primary Funding Source', profile.primary_stream, 2)}
-          
+
+          {/* Funding streams */}
+          <div className="profile-field">
+            <div className="p-label">Primary Funding Stream</div>
+            <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {profile.primary_stream
+                ? <><span style={{ fontWeight: 700 }}>{profile.primary_stream}</span><span className="status-pill verified">ASSIGNED</span></>
+                : <span className="p-val muted">Not determined</span>
+              }
+            </div>
+          </div>
+
+          <div className="profile-field">
+            <div className="p-label">Secondary Funding Stream</div>
+            <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {profile.secondary_stream
+                ? <><span style={{ fontWeight: 700 }}>{profile.secondary_stream}</span><span className="status-pill verified">ASSIGNED</span></>
+                : <span className="p-val muted">None</span>
+              }
+            </div>
+          </div>
+
+          {/* UPi */}
           <div className="profile-field span-2">
             <div className="p-label">Unique Personal Identifier (UPi)</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -230,7 +309,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
               </button>
             </div>
           </div>
-          {renderField('Replacement Financial Assistance', profile.financial_assistance_status, 2)}
+
         </div>
       </div>
 
@@ -421,13 +500,22 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           <div className="modal" onClick={e => e.stopPropagation()}>
             <button className="modal-close" onClick={closeModal}>✕</button>
             <h3>Eligibility Identifiers</h3>
-            <p className="modal-sub">Government identity and program eligibility markers.</p>
+            <p className="modal-sub">Signup answers are read-only. Beneficiary # and Treaty # can be updated with documentation.</p>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '12px', marginBottom: '16px', fontSize: '11px', color: '#64748b' }}>
+              <strong>From signup answers (read-only):</strong>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
+                <div><span style={{ fontWeight: 600 }}>Q1 — Indian Act:</span> {editData.is_indian_act_registered === true ? 'Yes' : editData.is_indian_act_registered === false ? 'No' : 'Not answered'}</div>
+                <div><span style={{ fontWeight: 600 }}>Q2 — Beneficiary:</span> {editData.is_deline_beneficiary === true ? 'Yes' : editData.is_deline_beneficiary === false ? 'No' : 'Not answered'}</div>
+                <div><span style={{ fontWeight: 600 }}>Q3 — SFA:</span> {editData.financial_assistance_status || 'Not answered'}</div>
+                <div><span style={{ fontWeight: 600 }}>Q4 — Residence:</span> {editData.province_of_residence === 'nwt' ? 'NWT' : editData.province_of_residence === 'other' ? 'Other Province/Territory' : editData.province_of_residence === 'outside' ? 'Outside Canada' : 'Not answered'}</div>
+                <div><span style={{ fontWeight: 600 }}>Primary Stream:</span> {editData.primary_stream || 'Not determined'}</div>
+                <div><span style={{ fontWeight: 600 }}>Secondary Stream:</span> {editData.secondary_stream || 'None'}</div>
+              </div>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-              <div><label className="p-label">Beneficiary #</label><input className="field-input" type="text" value={editData.beneficiary_number || ''} onChange={e => updateField('beneficiary_number', e.target.value)} /></div>
-              <div><label className="p-label">Treaty #</label><input className="field-input" type="text" value={editData.treaty_number || ''} onChange={e => updateField('treaty_number', e.target.value)} /></div>
-              <div><label className="p-label">UPi</label><input className="field-input" type="text" value={editData.upi || ''} onChange={e => updateField('upi', e.target.value)} /></div>
-              <div><label className="p-label">Primary Funding Source</label><input className="field-input" type="text" value={editData.primary_stream || ''} onChange={e => updateField('primary_stream', e.target.value)} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Financial Asst. Status</label><input className="field-input" type="text" value={editData.financial_assistance_status || ''} onChange={e => updateField('financial_assistance_status', e.target.value)} /></div>
+              <div><label className="p-label">Beneficiary # <span style={{ color: '#64748b', fontWeight: 400 }}>(editable)</span></label><input className="field-input" type="text" value={editData.beneficiary_number || ''} onChange={e => updateField('beneficiary_number', e.target.value)} /></div>
+              <div><label className="p-label">Treaty # <span style={{ color: '#64748b', fontWeight: 400 }}>(editable)</span></label><input className="field-input" type="text" value={editData.treaty_number || ''} onChange={e => updateField('treaty_number', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label">UPi <span style={{ color: '#64748b', fontWeight: 400 }}>(staff-issued)</span></label><input className="field-input" type="text" value={editData.upi || ''} onChange={e => updateField('upi', e.target.value)} /></div>
             </div>
             <button className="btn-auth-primary" style={{ width: '100%' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Saving...' : 'Save Identifiers'}</button>
           </div>

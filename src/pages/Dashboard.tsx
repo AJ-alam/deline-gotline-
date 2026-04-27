@@ -77,6 +77,9 @@ const Dashboard: React.FC = () => {
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [deadlineSettings, setDeadlineSettings] = useState<Record<string, number>>({});
+  const [sysConfig, setSysConfig] = useState<Record<string, string>>({});
   const [profile, setProfile] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [documents, setDocuments] = useState<any[]>([]);
@@ -169,10 +172,31 @@ const Dashboard: React.FC = () => {
       setNotifications(Array.isArray(resp) ? resp : []);
     });
 
+    const paymentsPromise = API.getPayments().then((resp: any) => {
+      const list = Array.isArray(resp) ? resp : (resp?.results || []);
+      setPayments(list);
+    }).catch(() => {});
+
+    const policyPromise = API.getPolicySettings().then((resp: any) => {
+      const deadlines = (resp?.application_deadlines || []) as any[];
+      const dlMap: Record<string, number> = {};
+      for (const item of deadlines) {
+        dlMap[item.field_key] = Number(item.value);
+      }
+      setDeadlineSettings(dlMap);
+
+      const sysItems = (resp?.system_config || []) as any[];
+      const cfgMap: Record<string, string> = {};
+      for (const item of sysItems) {
+        cfgMap[item.field_key] = item.unit || String(item.value);
+      }
+      setSysConfig(cfgMap);
+    }).catch(() => {});
+
     try {
       // Wait for at least the essential profile/submissions to finish the loading state
       // but let them all run in parallel
-      await Promise.allSettled([subsPromise, userPromise, notifsPromise]);
+      await Promise.allSettled([subsPromise, userPromise, notifsPromise, paymentsPromise, policyPromise]);
     } catch (err: any) {
       console.error('Failed to fetch dashboard data:', err);
       if (err.status === 401) {
@@ -409,11 +433,28 @@ const Dashboard: React.FC = () => {
 
         <div className="main-content">
           <div className="deadline-bar">
-            <span className="dl-item"><span className="dl-label">Fall deadline</span><span className="dl-date">Aug 1</span></span>
-            <span className="dl-sep">·</span>
-            <span className="dl-item"><span className="dl-label">Winter</span><span className="dl-date">Dec 1</span></span>
-            <span className="dl-sep">·</span>
-            <span className="dl-item"><span className="dl-label">Travel claims</span><span className="dl-urgent">within 30 days of travel</span></span>
+            {(() => {
+              const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+              const fallMonth = deadlineSettings['fall_deadline'];
+              const winterMonth = deadlineSettings['winter_deadline'];
+              return (
+                <>
+                  {fallMonth ? (
+                    <span className="dl-item"><span className="dl-label">Fall deadline</span><span className="dl-date">{monthNames[fallMonth]} 1</span></span>
+                  ) : (
+                    <span className="dl-item"><span className="dl-label">Fall deadline</span><span className="dl-date">Aug 1</span></span>
+                  )}
+                  <span className="dl-sep">·</span>
+                  {winterMonth ? (
+                    <span className="dl-item"><span className="dl-label">Winter</span><span className="dl-date">{monthNames[winterMonth]} 1</span></span>
+                  ) : (
+                    <span className="dl-item"><span className="dl-label">Winter</span><span className="dl-date">Dec 1</span></span>
+                  )}
+                  <span className="dl-sep">·</span>
+                  <span className="dl-item"><span className="dl-label">Travel claims</span><span className="dl-urgent">within {sysConfig['travel_claim_days'] || '30'} days of travel</span></span>
+                </>
+              );
+            })()}
           </div>
 
           <div className="view-container">
@@ -473,39 +514,47 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div className="form-cards-grid">
                       <div
-                        className={`form-card primary-card ${!applications.some(a => a.form_title?.toLowerCase().includes('admission')) ? 'active-step' : ''}`}
+                        className={`form-card primary-card ${(() => { const a = applications.find((a: any) => a.form_title?.toLowerCase().includes('admission')); return !a || a.status === 'rejected' ? 'active-step' : ''; })()}`}
                         onClick={() => {
-                          const admissionApp = applications.find(a => a.form_title?.toLowerCase().includes('admission'));
-                          if (admissionApp) {
+                          const admissionApp = applications.find((a: any) => a.form_title?.toLowerCase().includes('admission'));
+                          if (admissionApp && admissionApp.status !== 'rejected') {
                             handleViewApplication(admissionApp);
                           } else {
                             handleNavClick('admission');
                           }
                         }}
                       >
+                        {(() => {
+                          const admissionApp = applications.find((a: any) => a.form_title?.toLowerCase().includes('admission'));
+                          const isRejected = admissionApp?.status === 'rejected';
+                          const isActive = admissionApp && !isRejected;
+                          return (
                         <div className="form-card-inner">
                           <div className="form-card-header">
                             <span className="form-tag">New File</span>
-                            {!applications.some(a => a.form_title?.toLowerCase().includes('admission')) && (
-                              <span className="recommended-tag"><Icons.Star /> RECOMMENDED NEXT STEP</span>
-                            )}
-                            {applications.some(a => a.form_title?.toLowerCase().includes('admission')) && (
-                              <span className="form-tag" style={{ background: '#f0fdf4', color: '#166534', borderColor: '#bbf7d0' }}>✓ SUBMITTED</span>
-                            )}
+                            {!admissionApp && <span className="recommended-tag"><Icons.Star /> RECOMMENDED NEXT STEP</span>}
+                            {isActive && <span className="form-tag" style={{ background: '#f0fdf4', color: '#166534', borderColor: '#bbf7d0' }}>✓ SUBMITTED</span>}
+                            {isRejected && <span className="form-tag" style={{ background: '#fef2f2', color: '#991b1b', borderColor: '#fecaca' }}>✕ REJECTED — REAPPLY</span>}
                           </div>
                           <div className="form-card-title">Admission Application</div>
                           <div className="form-card-desc">
-                            {applications.some(a => a.form_title?.toLowerCase().includes('admission'))
+                            {isActive
                               ? 'Your admission application has been received and is currently being processed by staff.'
-                              : 'Your gateway to all DGG funding. Complete this first to map your eligibility.'}
+                              : isRejected
+                                ? 'Your previous application was rejected. You may submit a new application.'
+                                : 'Your gateway to all DGG funding. Complete this first to map your eligibility.'}
                           </div>
                           <div style={{ fontSize: '9px', color: '#718096', marginBottom: '12px' }}>Required once per program · Establishes your stream</div>
-                          {applications.some(a => a.form_title?.toLowerCase().includes('admission')) ? (
+                          {isActive ? (
                             <button className="btn-ghost form-btn" style={{ background: '#fff', borderColor: '#e2e8f0' }}>View Application &nbsp;<Icons.ChevronRight /></button>
+                          ) : isRejected ? (
+                            <button className="btn-auth-primary form-btn" style={{ background: '#dc2626' }}>Reapply Now &nbsp;<Icons.ChevronRight /></button>
                           ) : (
                             <button className="btn-auth-primary form-btn">Start Application &nbsp;<Icons.ChevronRight /></button>
                           )}
                         </div>
+                          );
+                        })()}
                       </div>
                       <div className="form-card" style={{ borderLeft: '3px solid #3182ce', opacity: 0.9 }}>
                         <div className="form-card-inner">
@@ -699,20 +748,61 @@ const Dashboard: React.FC = () => {
                   <div className="view-title">My Payments</div>
                 </div>
                 <div className="view-body">
-                  <div className="kpi-row">
-                    <div className="kpi-card"><div className="kpi-val">${getApprovedTotal().toLocaleString()}</div><div className="kpi-label">Authorized Total</div></div>
-                    <div className="kpi-card"><div className="kpi-val">${getApprovedTotal().toLocaleString()}</div><div className="kpi-label">Paid To Date</div></div>
-                    <div className="kpi-card"><div className="kpi-val">$0</div><div className="kpi-label">Remaining Balance</div></div>
-                    <div className="kpi-card"><div className="kpi-val">$0</div><div className="kpi-label">Upcoming Scheduled</div></div>
-                  </div>
-                  <div className="sec-card">
-                    <div className="sec-head"><span className="sec-title">Payment History & Schedule</span></div>
-                    <div className="empty-state">
-                      <Icons.Payments />
-                      <div className="empty-title">No Payments Scheduled</div>
-                      <div className="empty-desc">Your payment schedule will appear here after your application is approved by the Director.</div>
-                    </div>
-                  </div>
+                  {(() => {
+                    const paidPayments = payments.filter((p: any) => p.status === 'paid' || p.status === 'issued');
+                    const pendingPayments = payments.filter((p: any) => p.status === 'pending' || p.status === 'scheduled');
+                    const paidTotal = paidPayments.reduce((s: number, p: any) => s + parseFloat(p.amount || 0), 0);
+                    const pendingTotal = pendingPayments.reduce((s: number, p: any) => s + parseFloat(p.amount || 0), 0);
+                    const authorizedTotal = getApprovedTotal();
+                    const remaining = Math.max(0, authorizedTotal - paidTotal);
+                    return (
+                      <>
+                        <div className="kpi-row">
+                          <div className="kpi-card"><div className="kpi-val">${authorizedTotal.toLocaleString()}</div><div className="kpi-label">Authorized Total</div></div>
+                          <div className="kpi-card"><div className="kpi-val">${paidTotal.toLocaleString()}</div><div className="kpi-label">Paid To Date</div></div>
+                          <div className="kpi-card"><div className="kpi-val">${remaining.toLocaleString()}</div><div className="kpi-label">Remaining Balance</div></div>
+                          <div className="kpi-card"><div className="kpi-val">${pendingTotal.toLocaleString()}</div><div className="kpi-label">Upcoming Scheduled</div></div>
+                        </div>
+                        <div className="sec-card">
+                          <div className="sec-head"><span className="sec-title">Payment History & Schedule</span></div>
+                          {payments.length === 0 ? (
+                            <div className="empty-state">
+                              <Icons.Payments />
+                              <div className="empty-title">No Payments Yet</div>
+                              <div className="empty-desc">Your payment schedule will appear here after your application is approved by the Director.</div>
+                            </div>
+                          ) : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                              <thead>
+                                <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b', fontSize: '11px', textTransform: 'uppercase' }}>
+                                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700' }}>Date</th>
+                                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700' }}>Type</th>
+                                  <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700' }}>Amount</th>
+                                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700' }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {payments.map((p: any) => (
+                                  <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '12px' }}>{p.date_issued ? new Date(p.date_issued).toLocaleDateString() : '—'}</td>
+                                    <td style={{ padding: '12px', color: '#475569' }}>{p.payment_type || 'Bursary'}</td>
+                                    <td style={{ padding: '12px', textAlign: 'right', fontWeight: '600' }}>${parseFloat(p.amount || 0).toLocaleString()}</td>
+                                    <td style={{ padding: '12px' }}>
+                                      <span style={{
+                                        padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700',
+                                        background: p.status === 'paid' || p.status === 'issued' ? '#dcfce7' : p.status === 'pending' ? '#fef9c3' : '#f1f5f9',
+                                        color: p.status === 'paid' || p.status === 'issued' ? '#166534' : p.status === 'pending' ? '#854d0e' : '#475569'
+                                      }}>{(p.status || 'pending').toUpperCase()}</span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             )}
@@ -834,11 +924,38 @@ const Dashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {selectedApplication.decision_notes && (
+                  {selectedApplication.status === 'rejected' && (
+                    <div className="sec-card" style={{ borderLeft: '4px solid #ef4444' }}>
+                      <div className="sec-head">
+                        <span className="sec-title" style={{ color: '#991b1b' }}>❌ Application Rejected</span>
+                      </div>
+                      <div style={{ padding: '0 20px 20px' }}>
+                        {selectedApplication.decision_reason ? (
+                          <>
+                            <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '8px', fontWeight: '600', textTransform: 'uppercase' }}>Reason for Rejection</div>
+                            <div style={{ fontSize: '14px', color: '#1e293b', fontStyle: 'italic', lineHeight: '1.6', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '12px 16px' }}>
+                              "{selectedApplication.decision_reason}"
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ fontSize: '13px', color: '#64748b' }}>No reason was provided. Contact the DGG Education Department for details.</div>
+                        )}
+                        <div style={{ marginTop: '16px', fontSize: '12px', color: '#64748b' }}>
+                          If you believe this decision was made in error, you may submit an appeal or contact the Education Department directly.
+                        </div>
+                        {selectedApplication.form_title?.toLowerCase().includes('admission') && (
+                          <button className="btn-primary" style={{ marginTop: '16px' }} onClick={() => handleNavClick('admission')}>
+                            Submit New Admission Application →
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {selectedApplication.decision_reason && selectedApplication.status !== 'rejected' && (
                     <div className="sec-card" style={{ borderLeft: '4px solid #3b82f6' }}>
                       <div className="sec-head"><span className="sec-title">Decision Notes from Staff</span></div>
                       <div style={{ padding: '0 20px 20px', fontSize: '14px', color: '#1e293b', fontStyle: 'italic' }}>
-                        "{selectedApplication.decision_notes}"
+                        "{selectedApplication.decision_reason}"
                       </div>
                     </div>
                   )}
@@ -932,15 +1049,15 @@ const Dashboard: React.FC = () => {
                     <div className="contact-grid">
                       <div className="contact-item">
                         <div className="contact-label">Email Support</div>
-                        <div className="contact-val">education.support@gov.deline.ca</div>
+                        <div className="contact-val">{sysConfig['contact_email'] || 'education.support@gov.deline.ca'}</div>
                       </div>
                       <div className="contact-item">
                         <div className="contact-label">Phone</div>
-                        <div className="contact-val">(867) 589-3515 ext. 1110</div>
+                        <div className="contact-val">{sysConfig['contact_phone'] || '(867) 589-3515 ext. 1110'}</div>
                       </div>
                       <div className="contact-item">
                         <div className="contact-label">Mailing Address</div>
-                        <div className="contact-val">P.O. Box 156, Délı̨nę, NT X0E 0G0</div>
+                        <div className="contact-val">{sysConfig['contact_address'] || 'P.O. Box 156, Délı̨nę, NT X0E 0G0'}</div>
                       </div>
                     </div>
                   </div>
@@ -949,7 +1066,7 @@ const Dashboard: React.FC = () => {
                     <div className="sec-head"><span className="sec-title">Frequently Asked Questions</span></div>
                     {[
                       { q: "How is my enrollment verified?", a: "Enrollment verification is requested from your registrar automatically once your application or renewal is submitted." },
-                      { q: "How do I claim travel?", a: "Submit a Travel Claim within 30 days of travel and include all receipts." }
+                      { q: "How do I claim travel?", a: `Submit a Travel Claim within ${sysConfig['travel_claim_days'] || '30'} days of travel and include all receipts.` }
                     ].map((item, i) => (
                       <div className="faq-item" key={i}>
                         <div className="faq-q" onClick={() => setOpenFaqIndex(openFaqIndex === i ? null : i)}>
@@ -967,13 +1084,69 @@ const Dashboard: React.FC = () => {
             )}
 
             {/* ── ADMISSION APPLICATION VIEW ── */}
-            {currentView === 'admission' && (
-              <FormA
-                profile={profile}
-                onBack={() => setCurrentView('dashboard')}
-                onComplete={() => handleFormComplete('Admission Application')}
-              />
-            )}
+            {currentView === 'admission' && (() => {
+              const admissionApp = applications.find((a: any) =>
+                a.form_title?.toLowerCase().includes('admission')
+              );
+              const isRejected = admissionApp?.status === 'rejected';
+              const isActive = admissionApp && !isRejected;
+
+              if (isActive) {
+                return (
+                  <div className="view-content fade-in">
+                    <div className="view-header">
+                      <button className="btn-ghost" onClick={() => handleNavClick('dashboard')}>← Back</button>
+                      <div className="view-title">Admission Application</div>
+                    </div>
+                    <div className="view-body">
+                      <div className="sec-card" style={{ borderLeft: '4px solid #3182ce' }}>
+                        <div className="sec-head">
+                          <span className="sec-title">Application Already Submitted</span>
+                          <span style={{ padding: '4px 10px', borderRadius: '4px', fontSize: '9px', fontWeight: '800', background: '#f0f9ff', color: '#075985', border: '1px solid #bae6fd' }}>
+                            {admissionApp.status.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ padding: '20px', fontSize: '14px', color: '#1e293b', lineHeight: '1.6' }}>
+                          <p>You have already submitted an Admission Application (Ref #{admissionApp.id.toString().padStart(6, '0')}). Only one active admission application is permitted at a time.</p>
+                          <p style={{ marginTop: '12px', color: '#64748b', fontSize: '13px' }}>You may submit a new Admission Application only after your current application has been reviewed and a decision rendered. If your application is denied, you will be able to reapply.</p>
+                        </div>
+                        <div style={{ padding: '0 20px 20px', display: 'flex', gap: '12px' }}>
+                          <button className="btn-primary" onClick={() => handleViewApplication(admissionApp)}>View My Application →</button>
+                          <button className="btn-ghost" onClick={() => handleNavClick('applications')}>All Applications</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="view-content fade-in">
+                  {isRejected && (
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderLeft: '4px solid #ef4444', borderRadius: '8px', padding: '20px', marginBottom: '24px' }}>
+                      <div style={{ fontWeight: '800', fontSize: '13px', color: '#991b1b', marginBottom: '8px' }}>⚠ Previous Application Rejected</div>
+                      <div style={{ fontSize: '13px', color: '#7f1d1d', lineHeight: '1.6' }}>
+                        Your previous Admission Application (Ref #{admissionApp.id.toString().padStart(6, '0')}) was rejected by the Director.
+                      </div>
+                      {admissionApp.decision_reason && (
+                        <div style={{ marginTop: '12px', background: '#fff', border: '1px solid #fecaca', borderRadius: '6px', padding: '12px 16px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: '700', color: '#991b1b', textTransform: 'uppercase', marginBottom: '4px' }}>Reason for Rejection</div>
+                          <div style={{ fontSize: '13px', color: '#1e293b', fontStyle: 'italic' }}>"{admissionApp.decision_reason}"</div>
+                        </div>
+                      )}
+                      <div style={{ marginTop: '12px', fontSize: '12px', color: '#64748b' }}>
+                        You may submit a new Admission Application below. Please address the reason above before reapplying.
+                      </div>
+                    </div>
+                  )}
+                  <FormA
+                    profile={profile}
+                    onBack={() => handleNavClick('dashboard')}
+                    onComplete={() => handleFormComplete('Admission Application')}
+                  />
+                </div>
+              );
+            })()}
 
             {/* ── CONTINUING FUNDING VIEW ── */}
             {currentView === 'continuing-funding' && (
