@@ -95,6 +95,7 @@ class UserDocument(models.Model):
 
     class Meta:
         db_table = 'user_documents'
+        ordering = ['-uploaded_at']
 
     def __str__(self):
         return f"{self.name} - {self.user.email}"

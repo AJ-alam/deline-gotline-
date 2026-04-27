@@ -1442,7 +1442,7 @@ const StaffDashboard: React.FC = () => {
     const financialKeywords = ['tuition', 'income', 'amount', 'funding', 'bursary', 'scholarship', 'payment', 'bank', 'account', 'transit', 'financial', 'dependent', 'stream', 'award', 'cost', 'fee', 'expense', 'budget'];
 
     for (const answer of answers) {
-      const label = (answer.field?.label || answer.field_label || '').toLowerCase();
+      const label = (answer.label || answer.field?.label || answer.field_label || '').toLowerCase();
 
       if (isFileAnswer(answer)) {
         groups['Documents & Files'].push(answer);
@@ -1506,7 +1506,7 @@ const StaffDashboard: React.FC = () => {
               </div>
               <div className="submitted-info-grid">
                 {groupAnswers.map((answer: any, idx: number) => {
-                  const fieldLabel = answer.field?.label || answer.field_label || `Field ${idx + 1}`;
+                  const fieldLabel = answer.label || answer.field?.label || answer.field_label || `Field ${idx + 1}`;
                   const displayLabel = formatFieldLabel(fieldLabel);
                   const fileUrl = answer.answer_file || (isFileAnswer(answer) ? answer.answer_text : null);
                   const textValue = answer.answer_text;
@@ -2942,27 +2942,30 @@ const StaffDashboard: React.FC = () => {
                       </div>
                       {(() => {
                         const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+                        const getField = (lbl: string) => (app?.answers || []).find((a: any) =>
+                          (a.label || a.field?.label || a.field_label || '').toLowerCase().includes(lbl.toLowerCase())
+                        )?.answer_text;
                         return (
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '16px', marginTop: '24px' }}>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>INSTITUTION</label>
-                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.student_details?.institute || app?.form_data?.institute || 'N/A'}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.student_details?.institution_name || getField('institution') || getField('school') || 'N/A'}</div>
                             </div>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>PROGRAM</label>
-                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.form_data?.program || 'N/A'}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.student_details?.program_credential || getField('program') || 'N/A'}</div>
                             </div>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>ENROLLMENT</label>
-                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.form_data?.enrollmentStatus || 'Full-Time'}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.student_details?.enrollment_status || getField('enrollment') || 'Full-Time'}</div>
                             </div>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SEMESTER</label>
-                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.form_data?.semester || 'N/A'}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.student_details?.current_semester || getField('semester') || 'N/A'}</div>
                             </div>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>DEPENDENTS</label>
-                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.form_data?.dependentsCount || '0'}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.student_details?.num_dependents ?? getField('dependent') ?? '0'}</div>
                             </div>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>STATUS</label>

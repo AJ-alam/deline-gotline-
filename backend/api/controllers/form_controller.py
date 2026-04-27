@@ -57,6 +57,11 @@ class FormController(viewsets.ModelViewSet):
                 submission = serializer.save(form=form, student=request.user)
                 logger.info(f"Successfully created submission {submission.id} for user {request.user.email}")
                 FormService.send_submission_notifications(submission)
+                # Reload with prefetch to avoid N+1 in response serialization
+                from forms.models import FormSubmission
+                submission = FormSubmission.objects.select_related(
+                    'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
+                ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
                 return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Form submitted successfully", status.HTTP_201_CREATED)
             except Exception as e:
                 logger.error(f"Error during submission save/notify: {str(e)}", exc_info=True)
@@ -79,9 +84,15 @@ class SubmissionController(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        qs = FormSubmission.objects.select_related(
+            'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
+        ).prefetch_related(
+            'answers__field',
+            'notes__author'
+        ).order_by('-submitted_at')
         if user.role in ['admin', 'director']:
-            return FormSubmission.objects.all().order_by('-submitted_at')
-        return FormSubmission.objects.filter(student=user).order_by('-submitted_at')
+            return qs
+        return qs.filter(student=user)
 
     @decorators.action(detail=True, methods=['put'], url_path='status')
     def update_status(self, request, pk=None):
@@ -95,6 +106,9 @@ class SubmissionController(viewsets.ModelViewSet):
             role=request.user.role,
             details=f"Submission {submission.id} — changed to {new_status} by {request.user.full_name}"
         )
+        submission = FormSubmission.objects.select_related(
+            'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
+        ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
         return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Submission updated")
 
     @decorators.action(detail=True, methods=['post'], url_path='notes')

@@ -102,7 +102,12 @@ class API {
             role: data.role || 'student',
             dob: data.dob || '',
             beneficiary_number: data.beneficiaryNo || '',
-            treaty_number: data.treatyNum || ''
+            treaty_number: data.treatyNum || '',
+            primary_stream: data.primary_stream || '',
+            secondary_stream: data.secondary_stream || '',
+            financial_assistance_status: data.financial_assistance_status || '',
+            num_dependents: data.num_dependents || 0,
+            dependent_ages: data.dependent_ages || '',
         };
         return apiClient.post('/auth/register/', payload);
     }

@@ -44,9 +44,7 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
         read_only_fields = ('student', 'submitted_at')
     
     def get_form_title(self, obj):
-        # Try to find a specific purpose or category in the answers
-        # This makes the dashboard much more descriptive (e.g. "Dropped / Added Courses" vs "Form D")
-        answers = obj.answers.all()
+        answers = obj.answers.all()  # uses prefetch_related cache when set
         
         # Look for "Change Categories" (Form D)
         category_ans = next((a for a in answers if a.field and "Change Categories" in a.field.label), None)

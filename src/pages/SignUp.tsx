@@ -35,20 +35,18 @@ const SignUp: React.FC = () => {
   const [showSFANote, setShowSFANote] = useState(false);
 
   const addDependent = () => {
-    const newDep: Dependent = {
+    setDependents([...dependents, {
       id: `dep-${Date.now()}`,
-      firstName: '',
-      lastName: '',
-      dob: '',
-      relationship: '',
-      treatyNum: '',
-      disabilityStatus: ''
-    };
-    setDependents([...dependents, newDep]);
+      firstName: '', lastName: '', dob: '', relationship: '', treatyNum: '', disabilityStatus: ''
+    }]);
   };
 
   const removeDependent = (id: string) => {
     setDependents(dependents.filter(dep => dep.id !== id));
+  };
+
+  const updateDependent = (id: string, field: keyof Dependent, value: string) => {
+    setDependents(dependents.map(dep => dep.id === id ? { ...dep, [field]: value } : dep));
   };
 
   const handleEligChange = (name: string, value: string) => {
@@ -95,14 +93,26 @@ const SignUp: React.FC = () => {
           isApproved = false;
         }
       } else if (q4 === 'other' || q4 === 'outside') {
-        if (q1 === 'yes') {
+        if (q1 === 'yes' && q3 !== 'yes') {
           style = 'success';
-          title = 'Eligible: Federal PSSSP / UCEPP Funding';
-          desc = `Because you live outside the NWT and are registered with the Délı̨nę First Nation, you qualify for the **Federal Post-Secondary Student Support Program (PSSSP)**. ${q2 === 'yes' ? 'You have also qualified for the DGGR Top-Up.' : ''}`;
+          title = 'Eligible: CDFN PSSSP / UCEPP Funding';
+          desc = `Because you live outside the NWT and are registered with the Délı̨nę First Nation, you qualify for the **CDFN Post-Secondary Student Support Program (PSSSP)**. ${q2 === 'yes' ? 'You have also qualified for the DGGR Top-Up.' : ''}`;
+        } else if (q1 === 'yes' && q3 === 'yes') {
+          // SFA blocks PSSSP/UCEPP but DGGR still possible
+          if (q2 === 'yes') {
+            style = 'success';
+            title = 'Eligible: DGGR Top-Up Only (SFA Blocks PSSSP)';
+            desc = 'Because you are currently receiving SFA, you do not qualify for CDFN PSSSP or UCEPP. However, as a Délı̨nę Beneficiary, you qualify for **DGGR Top-Up Funding**.';
+          } else {
+            style = 'error';
+            title = 'Intake Stopped — SFA Active';
+            desc = 'Because you are registered under the Indian Act but are currently receiving GNWT SFA, you do not qualify for CDFN PSSSP or UCEPP. As you are not a Délı̨nę Beneficiary, you are not eligible for DGGR. Please contact the DGG Education Department if you have questions.';
+            isApproved = false;
+          }
         } else if (q2 === 'yes') {
           style = 'success';
           title = 'Eligible: DGGR Top-Up Only';
-          desc = 'Because you are not registered with the Délı̨nę First Nation (Indian Act), you do not qualify for Federal PSSSP. However, as a Délı̨nę Beneficiary, you qualify for **DGGR Top-Up Funding**.';
+          desc = 'Because you are not registered with the Délı̨nę First Nation (Indian Act), you do not qualify for CDFN PSSSP. However, as a Délı̨nę Beneficiary, you qualify for **DGGR Top-Up Funding**.';
         } else {
           style = 'error';
           title = 'Intake Stopped';
@@ -169,13 +179,39 @@ const SignUp: React.FC = () => {
     setIsLoading(true);
     try {
       // Normalize DOB to YYYY-MM-DD
-      const normalizedData = { 
-        ...formData, 
-        dob: normalizeDate(formData.dob) 
+      const normalizedData = {
+        ...formData,
+        dob: normalizeDate(formData.dob)
       };
+
+      // Map eligibility answers to user fields
+      const { q1, q2, q3, q4 } = eligibility;
+      let primary_stream = '';
+      let secondary_stream = '';
+      if (q4 === 'nwt') {
+        primary_stream = 'DGGR';
+      } else if (q4 === 'other' || q4 === 'outside') {
+        if (q1 === 'yes' && q3 !== 'yes') {
+          primary_stream = 'PSSSP';
+          secondary_stream = q2 === 'yes' ? 'DGGR' : '';
+        } else if (q2 === 'yes') {
+          primary_stream = 'DGGR';
+        }
+      }
+      const financial_assistance_status = q3 === 'yes' ? 'SFA Active' : 'No SFA';
+
+      const dependent_ages = dependents
+        .map(d => d.dob ? normalizeDate(d.dob) : '')
+        .filter(Boolean)
+        .join(', ');
 
       await API.register({
         ...normalizedData,
+        primary_stream,
+        secondary_stream,
+        financial_assistance_status,
+        num_dependents: dependents.length,
+        dependent_ages,
         eligibility
       });
       navigate('/signin');
@@ -277,6 +313,11 @@ const SignUp: React.FC = () => {
                   <option value="other">Other Canadian province or territory</option>
                   <option value="outside">Outside Canada</option>
                 </select>
+                {eligibility.q4 === 'nwt' && (
+                  <div className="policy-note info" style={{ fontSize: '9.5px', marginTop: '4px', borderLeftColor: '#3182ce' }}>
+                    <strong>Note:</strong> Most NWT residents may qualify for GNWT SFA. If you are not receiving SFA, you will be asked to upload proof (e.g. denial letter or proof of ineligibility).
+                  </div>
+                )}
               </div>
 
               <div className="checkbox-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
@@ -362,25 +403,25 @@ const SignUp: React.FC = () => {
                       <div className="field-row">
                         <div className="field-group">
                           <label className="field-label">First Name <span className="required">*</span></label>
-                          <input className="field-input" type="text" placeholder="First name" />
+                          <input className="field-input" type="text" placeholder="First name" value={dep.firstName} onChange={e => updateDependent(dep.id, 'firstName', e.target.value)} />
                         </div>
                         <div className="field-group">
                           <label className="field-label">Last Name <span className="required">*</span></label>
-                          <input className="field-input" type="text" placeholder="Last name" />
+                          <input className="field-input" type="text" placeholder="Last name" value={dep.lastName} onChange={e => updateDependent(dep.id, 'lastName', e.target.value)} />
                         </div>
                       </div>
                       <div className="field-row">
                         <div className="field-group">
                           <label className="field-label">Date of Birth <span className="required">*</span></label>
-                          <input className="field-input" type="text" placeholder="DD / MM / YYYY" />
+                          <input className="field-input" type="text" placeholder="DD / MM / YYYY" value={dep.dob} onChange={e => updateDependent(dep.id, 'dob', e.target.value)} />
                         </div>
                         <div className="field-group">
                           <label className="field-label">Relationship <span className="required">*</span></label>
-                          <select className="field-select">
+                          <select className="field-select" value={dep.relationship} onChange={e => updateDependent(dep.id, 'relationship', e.target.value)}>
                             <option value="">Select</option>
-                            <option>Child</option>
-                            <option>Spouse / Partner</option>
-                            <option>Other</option>
+                            <option value="Child">Child</option>
+                            <option value="Spouse / Partner">Spouse / Partner</option>
+                            <option value="Other">Other</option>
                           </select>
                         </div>
                       </div>

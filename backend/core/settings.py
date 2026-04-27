@@ -143,10 +143,26 @@ if config('VERCEL_URL', default=None):
 # Static and Media files
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Supabase Storage configuration
+SUPABASE_URL = config('SUPABASE_URL', default='')
+SUPABASE_ANON_KEY = config('SUPABASE_ANON_KEY', default='')
+SUPABASE_SERVICE_KEY = config('SUPABASE_SERVICE_KEY', default=None)
+SUPABASE_STORAGE_BUCKET = config('SUPABASE_STORAGE_BUCKET', default='dgg-documents')
+
+_use_supabase_storage = bool(SUPABASE_SERVICE_KEY)
+
+STORAGES = {
+    "default": {
+        "BACKEND": "core.supabase_storage.SupabaseStorage" if _use_supabase_storage else "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Production Security
 if not DEBUG:
