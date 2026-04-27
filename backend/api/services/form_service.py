@@ -9,6 +9,7 @@ from notifications.utils import (
     email_finance_payment_details,
     email_form_b_registrar,
     email_more_info_requested,
+    email_new_submission_staff,
 )
 from forms.models import FormSubmission, SubmissionNote
 
@@ -36,11 +37,33 @@ class FormService:
         if 'form a' in form.title.lower() or 'forma' in form.title.lower().replace(' ', ''):
             FormService._send_form_b_email(submission)
 
-        # Notify Admins (in-app only)
-        admins = User.objects.filter(role='admin')
-        for admin in admins:
+        # Notify Admins & Directors
+        admins_and_directors = User.objects.filter(role__in=['admin', 'director'])
+        staff_emails = [u.email for u in admins_and_directors if u.email]
+        
+        if staff_emails:
+            # Build summary of answers
+            answers = submission.answers.all()
+            summary_lines = []
+            for ans in answers[:10]: # Limit to first 10 for email brevity
+                label = ans.field.label if ans.field else (getattr(ans, 'field_label', '') or 'Field')
+                summary_lines.append(f"<strong>{label}:</strong> {ans.answer_text}")
+            
+            summary_html = "<br>".join(summary_lines)
+            if len(answers) > 10:
+                summary_html += "<br><em>... and more details available in the dashboard.</em>"
+                
+            email_new_submission_staff(
+                staff_emails=staff_emails,
+                student_name=student.full_name if student else 'Guest',
+                form_title=form.title,
+                submission_id=submission.id,
+                answers_summary=summary_html
+            )
+
+        for staff in admins_and_directors:
             Notification.objects.create(
-                user=admin,
+                user=staff,
                 title="New Application Received",
                 message=f"A new submission for '{form.title}' from {student.full_name if student else 'Guest'}.",
                 link=None

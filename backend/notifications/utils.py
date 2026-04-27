@@ -269,3 +269,32 @@ def email_finance_payment_details(
         subject=f"Payment Authorization #{submission_id} — {student_name} (${amount:,.2f})",
         html_body=_base_template(body),
     )
+
+def email_new_submission_staff(staff_emails: list, student_name: str, form_title: str, submission_id: int, answers_summary: str):
+    """Notify staff and directors of a new application submission."""
+    body = f"""
+    <h2 style="color: #1e293b;">New Application Received</h2>
+    <p>A new application has been submitted and is awaiting review.</p>
+    
+    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 24px 0;">
+      <p style="margin: 0 0 8px; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Submission Details</p>
+      <p style="margin: 4px 0;"><strong>Student:</strong> {student_name}</p>
+      <p style="margin: 4px 0;"><strong>Form:</strong> {form_title}</p>
+      <p style="margin: 4px 0;"><strong>Reference #:</strong> {submission_id}</p>
+    </div>
+
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 24px 0;">
+      <p style="margin: 0 0 8px; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Form Content Summary</p>
+      <div style="font-size: 13px; line-height: 1.6; color: #374151;">
+        {answers_summary}
+      </div>
+    </div>
+
+    <p>Please log in to the Staff Dashboard to review this application.</p>
+    """
+    for email in staff_emails:
+        send_email_notification(
+            recipient_email=email,
+            subject=f"New Submission: #{submission_id} — {student_name}",
+            html_body=_base_template(body),
+        )

@@ -112,7 +112,7 @@ class AuditLog(models.Model):
         db_table = 'audit_logs'
 
 class PolicySetting(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # id will be default AutoField (bigint) to match database
     section = models.CharField(max_length=100)        # e.g. 'psssp_tuition'
     field_key = models.CharField(max_length=100)      # e.g. 'full_time_no_dependents'
     field_label = models.CharField(max_length=255)    # Human-readable label

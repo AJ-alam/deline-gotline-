@@ -143,7 +143,7 @@ const StaffDashboard: React.FC = () => {
         const sysConfig: any[] = settings?.system_config || [];
         const config = sysConfig.find((s: any) => s.field_key === 'finance_email');
         if (config) setFinanceEmail(config.unit || 'finance@organization.com');
-      } catch (e) {}
+      } catch (e) { }
     };
     fetchFinanceConfig();
   }, []);
@@ -153,7 +153,7 @@ const StaffDashboard: React.FC = () => {
     try {
       const exportData = payments.map(p => ({
         'Student ID': `DGG-${p.user.toString().padStart(5, '0')}`,
-        'Student Full Name': userData?.full_name || 'Student', 
+        'Student Full Name': userData?.full_name || 'Student',
         'Funding Type': (p.payment_type || '').includes('DGGR') ? 'DGGR' : ((p.payment_type || '').includes('UCEPP') ? 'UCEPP' : 'CDFN'),
         'Approved Amount': parseFloat(p.amount),
         'Approval Date': new Date(p.date_issued).toLocaleDateString(),
@@ -245,18 +245,18 @@ const StaffDashboard: React.FC = () => {
 
   const getStats = () => {
     if (!backendStats) return { totalApps: 0, approvedAmount: 0, underReview: 0, activeStudents: 0, pssspCount: 0, otherCount: 0, pssspPercent: 0, livingApps: 0, travelApps: 0, scholarshipApps: 0 };
-    
-    return { 
-      totalApps: backendStats.total_submissions || 0, 
-      approvedAmount: backendStats.total_funding_approved || 0, 
-      underReview: (backendStats.submissions_by_status?.pending || 0) + (backendStats.submissions_by_status?.reviewed || 0) + (backendStats.submissions_by_status?.forwarded || 0), 
-      activeStudents: backendStats.total_students || 0, 
-      pssspCount: backendStats.submissions_by_form?.['FormA'] || 0, 
-      otherCount: (backendStats.total_submissions || 0) - (backendStats.submissions_by_form?.['FormA'] || 0), 
-      pssspPercent: (backendStats.total_submissions || 0) > 0 ? ((backendStats.submissions_by_form?.['FormA'] || 0) / backendStats.total_submissions) * 100 : 0, 
-      livingApps: backendStats.submissions_by_status?.pending || 0, 
-      travelApps: backendStats.submissions_by_form?.['FormE'] || 0, 
-      scholarshipApps: backendStats.submissions_by_form?.['scholarship'] || 0 
+
+    return {
+      totalApps: backendStats.total_submissions || 0,
+      approvedAmount: backendStats.total_funding_approved || 0,
+      underReview: (backendStats.submissions_by_status?.pending || 0) + (backendStats.submissions_by_status?.reviewed || 0) + (backendStats.submissions_by_status?.forwarded || 0),
+      activeStudents: backendStats.total_students || 0,
+      pssspCount: backendStats.submissions_by_form?.['FormA'] || 0,
+      otherCount: (backendStats.total_submissions || 0) - (backendStats.submissions_by_form?.['FormA'] || 0),
+      pssspPercent: (backendStats.total_submissions || 0) > 0 ? ((backendStats.submissions_by_form?.['FormA'] || 0) / backendStats.total_submissions) * 100 : 0,
+      livingApps: backendStats.submissions_by_status?.pending || 0,
+      travelApps: backendStats.submissions_by_form?.['FormE'] || 0,
+      scholarshipApps: backendStats.submissions_by_form?.['scholarship'] || 0
     };
   };
 
@@ -298,23 +298,23 @@ const StaffDashboard: React.FC = () => {
   const handleShareView = async () => {
     if (!selectedAppId) return;
     try {
-       const resp = await API.generateShareLink(Number(selectedAppId)) as any;
-       const url = `${window.location.origin}/shared/${resp.token}`;
-       await navigator.clipboard.writeText(url);
-       alert('Secure share link (valid for 7 days) copied to clipboard!');
+      const resp = await API.generateShareLink(Number(selectedAppId)) as any;
+      const url = `${window.location.origin}/shared/${resp.token}`;
+      await navigator.clipboard.writeText(url);
+      alert('Secure share link (valid for 7 days) copied to clipboard!');
     } catch (err: any) {
-       alert('Share failed: ' + err.message);
+      alert('Share failed: ' + err.message);
     }
   };
 
   const handleRequestInfo = async () => {
     if (!selectedAppId) return;
     try {
-       await API.requestMoreInfo(Number(selectedAppId));
-       alert('Application status updated to RE-OPENED and student notified.');
-       fetchApplications();
+      await API.requestMoreInfo(Number(selectedAppId));
+      alert('Application status updated to RE-OPENED and student notified.');
+      fetchApplications();
     } catch (err: any) {
-       alert('Action failed: ' + err.message);
+      alert('Action failed: ' + err.message);
     }
   };
 
@@ -337,12 +337,12 @@ const StaffDashboard: React.FC = () => {
       doc.text(`Form: ${app.form_title || 'N/A'}`, 20, 50);
       doc.text(`Status: ${(app.status || 'pending').toUpperCase()}`, 20, 60);
       doc.text(`Submitted: ${app.submitted_at ? new Date(app.submitted_at).toLocaleDateString() : 'N/A'}`, 20, 70);
-      
+
       doc.text('------------------------------------------------', 20, 80);
       doc.text('Decision Details:', 20, 90);
       doc.text(`Authorized Amount: $${app.amount || 0}`, 20, 100);
       doc.text(`Notes: ${app.decision_notes || 'None'}`, 20, 110);
-      
+
       doc.save(`Application_${app.id}.pdf`);
     } catch (err: any) {
       console.error('PDF Export Error:', err);
@@ -369,14 +369,14 @@ const StaffDashboard: React.FC = () => {
     try {
       await API.markAllNotificationsRead();
       setNotifications(notifications.map((n: any) => ({ ...n, is_read: true })));
-    } catch {}
+    } catch { }
   };
 
   const handleMarkNotificationRead = async (id: number) => {
     try {
       await API.markNotificationRead(id);
       setNotifications(notifications.map((n: any) => n.id === id ? { ...n, is_read: true } : n));
-    } catch {}
+    } catch { }
   };
 
   const handleMarkLegitimate = async () => {
@@ -435,7 +435,7 @@ const StaffDashboard: React.FC = () => {
       setIsDirty({});
     } catch (err) {
       console.error('Failed to fetch policy settings:', err);
-    } 
+    }
   };
 
   useEffect(() => {
@@ -471,10 +471,10 @@ const StaffDashboard: React.FC = () => {
       fetchPolicySettings();
     }
     if (currentView === 'payments') {
-       API.getPayments().then(res => setPayments(Array.isArray(res) ? res : [])).catch(e => console.error('Payments fetch failed', e));
+      API.getPayments().then(res => setPayments(Array.isArray(res) ? res : [])).catch(e => console.error('Payments fetch failed', e));
     }
     if (currentView === 'appeals') {
-       API.getAppeals().then(res => setAppeals(Array.isArray(res) ? res : [])).catch(e => console.error('Appeals fetch failed', e));
+      API.getAppeals().then(res => setAppeals(Array.isArray(res) ? res : [])).catch(e => console.error('Appeals fetch failed', e));
     }
     if (currentView === 'reports') {
       fetchReportStats();
@@ -489,21 +489,21 @@ const StaffDashboard: React.FC = () => {
   }, [reportFundingType, reportDateFrom, reportDateTo, reportStatusFilter]);
 
   useEffect(() => {
-     if (selectedAppId) {
-        const app = applications.find(a => Number(a.id) === Number(selectedAppId));
-        if (app && app.office_use_data) {
-           setOfficeUseInputs({
-              dateReceived: app.office_use_data.dateReceived || '',
-              approvedBy: app.office_use_data.approvedBy || '',
-              commitmentNum: app.office_use_data.commitmentNum || ''
-           });
-        } else {
-           setOfficeUseInputs({ dateReceived: '', approvedBy: '', commitmentNum: '' });
-        }
-     }
-     // Reset note state when switching applications
-     setStaffNote('');
-     setNoteError(null);
+    if (selectedAppId) {
+      const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+      if (app && app.office_use_data) {
+        setOfficeUseInputs({
+          dateReceived: app.office_use_data.dateReceived || '',
+          approvedBy: app.office_use_data.approvedBy || '',
+          commitmentNum: app.office_use_data.commitmentNum || ''
+        });
+      } else {
+        setOfficeUseInputs({ dateReceived: '', approvedBy: '', commitmentNum: '' });
+      }
+    }
+    // Reset note state when switching applications
+    setStaffNote('');
+    setNoteError(null);
   }, [selectedAppId, applications]);
 
   // ── ELIGIBILITY CHECK: Fetch when detail view opens for a selected application ──
@@ -633,19 +633,19 @@ const StaffDashboard: React.FC = () => {
   }, [selectedAppId, currentView]);
 
   const handleSaveOfficeUse = async () => {
-     if (!selectedAppId) return;
-     setIsSavingOffice(true);
-     try {
-       const app = applications.find(a => Number(a.id) === Number(selectedAppId));
-       if (!app) throw new Error("Application not found in state");
-       await API.updateSubmissionStatus(Number(selectedAppId), app.status, { office_use_data: officeUseInputs });
-       alert('Office use data saved successfully');
-       fetchApplications();
-     } catch (err: any) {
-       alert(err.message || 'Failed to save office use data');
-     } finally {
-       setIsSavingOffice(false);
-     }
+    if (!selectedAppId) return;
+    setIsSavingOffice(true);
+    try {
+      const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+      if (!app) throw new Error("Application not found in state");
+      await API.updateSubmissionStatus(Number(selectedAppId), app.status, { office_use_data: officeUseInputs });
+      alert('Office use data saved successfully');
+      fetchApplications();
+    } catch (err: any) {
+      alert(err.message || 'Failed to save office use data');
+    } finally {
+      setIsSavingOffice(false);
+    }
   };
 
 
@@ -688,8 +688,8 @@ const StaffDashboard: React.FC = () => {
       beneficiaryNumber.includes(query) ||
       (app.form_title || '').toLowerCase().includes(query);
     const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
-    const matchesFunding = fundingStreamFilter === 'all' || 
-      (app.form_title || '').includes(fundingStreamFilter);
+    const matchesFunding = fundingStreamFilter === 'all' ||
+      (app.form_title || app.form?.title || '').includes(fundingStreamFilter);
     return matchesSearch && matchesStatus && matchesFunding;
   });
 
@@ -745,10 +745,10 @@ const StaffDashboard: React.FC = () => {
 
   const calculateAutoFunding = (app: any) => {
     if (!app || !app.answers || !policySettings) return null;
-    
+
     const student = app.student_details || {};
     const profile = student.profile || {};
-    
+
     // helper to get answer by label (case-insensitive fuzzy match); backend returns 'label' (read field)
     const getAns = (label: string) => app.answers.find((a: any) => (a.label || a.field_label || '').toLowerCase().includes(label.toLowerCase()))?.answer_text;
 
@@ -789,7 +789,7 @@ const StaffDashboard: React.FC = () => {
     const depKey = hasDeps ? 'with_dependents' : 'no_dependents';
     const loadKey = isFullTime ? 'fulltime' : 'parttime';
     const fieldKey = `${loadKey}_${depKey}`;
-    
+
     const livingRate = getPolicySetting(livingSection, fieldKey);
     const totalLiving = livingRate * months;
 
@@ -851,16 +851,16 @@ const StaffDashboard: React.FC = () => {
     const bookAllowance = getPolicySetting('eligibility_rules', 'min_program_weeks') > 0 ? 500 : 0; // Simplified for now, or use a specific field
 
     return {
-      tuition: { 
-        system: finalTuition, 
-        requested: requestedTuition, 
-        rule: `Max $${tuitionLimit} per semester` 
+      tuition: {
+        system: finalTuition,
+        requested: requestedTuition,
+        rule: `Max $${tuitionLimit} per semester`
       },
-      living: { 
-        system: totalLiving, 
-        rate: livingRate, 
-        months, 
-        rule: `$${livingRate}/mo for ${months} mons` 
+      living: {
+        system: totalLiving,
+        rate: livingRate,
+        months,
+        rule: `$${livingRate}/mo for ${months} mons`
       },
       books: {
         system: 500, // Move to system_config later if requested
@@ -918,13 +918,13 @@ const StaffDashboard: React.FC = () => {
   // Eligibility result rendering
   const renderEligibilityResult = () => {
     if (!eligibilityResult) return null;
-    
+
     return (
       <div className="admin-chart-card" style={{ marginBottom: '24px' }}>
         <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '16px' }}>
           ✓ ELIGIBILITY DETERMINATION
         </h3>
-        
+
         {eligibilityResult.eligible_streams && eligibilityResult.eligible_streams.length > 0 && (
           <div style={{ marginBottom: '16px' }}>
             <h4 style={{ fontSize: '12px', fontWeight: '700', color: '#1a6b3a', marginBottom: '8px' }}>
@@ -939,7 +939,7 @@ const StaffDashboard: React.FC = () => {
             </div>
           </div>
         )}
-        
+
         {eligibilityResult.ineligible_streams && eligibilityResult.ineligible_streams.length > 0 && (
           <div>
             <h4 style={{ fontSize: '12px', fontWeight: '700', color: '#cc3333', marginBottom: '8px' }}>
@@ -968,7 +968,7 @@ const StaffDashboard: React.FC = () => {
   // Duplicate status rendering
   const renderDuplicateStatus = () => {
     if (!duplicateStatus || !duplicateStatus.is_flagged) return null;
-    
+
     return (
       <div className="admin-chart-card" style={{ background: '#fef2f2', border: '1px solid #fecaca', marginBottom: '24px' }}>
         <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '16px', color: '#b91c1c' }}>
@@ -978,14 +978,14 @@ const StaffDashboard: React.FC = () => {
           {duplicateStatus.message || 'This application has been flagged for review'}
         </p>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
+          <button
             className="admin-input"
             style={{ background: '#1a6b3a', color: '#fff', border: 'none', cursor: 'pointer', padding: '8px 16px', borderRadius: '6px' }}
             onClick={handleMarkLegitimate}
           >
             ✓ Mark as Legitimate
           </button>
-          <button 
+          <button
             className="admin-input"
             style={{ background: '#cc3333', color: '#fff', border: 'none', cursor: 'pointer', padding: '8px 16px', borderRadius: '6px' }}
             onClick={handleMarkDuplicate}
@@ -1146,7 +1146,7 @@ const StaffDashboard: React.FC = () => {
   // Banking details rendering (director only)
   const renderBankingDetails = () => {
     if (role !== 'director' || !selectedApp?.student_details) return null;
-    
+
     return (
       <div className="admin-chart-card" style={{ background: '#f0fdf4', border: '1px solid #dcfce7', marginBottom: '24px' }}>
         <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '16px', color: '#166534' }}>
@@ -1378,7 +1378,7 @@ const StaffDashboard: React.FC = () => {
 
   const renderAnswerText = (text: string) => {
     if (!text) return 'N/A';
-    
+
     // Check if it's a JSON array (like Expense List)
     if (text.startsWith('[') && text.endsWith(']')) {
       try {
@@ -1412,7 +1412,7 @@ const StaffDashboard: React.FC = () => {
         // Not valid JSON, just return text
       }
     }
-    
+
     return text;
   };
 
@@ -1518,7 +1518,7 @@ const StaffDashboard: React.FC = () => {
                         <div className="submitted-info-file">
                           <span style={{ fontSize: '16px', marginRight: '8px' }}>
                             {fileUrl.toLowerCase().endsWith('.pdf') ? '📄' :
-                             /\.(jpg|jpeg|png|gif)$/i.test(fileUrl) ? '🖼️' : '📎'}
+                              /\.(jpg|jpeg|png|gif)$/i.test(fileUrl) ? '🖼️' : '📎'}
                           </span>
                           <a
                             href={fileUrl}
@@ -1590,7 +1590,7 @@ const StaffDashboard: React.FC = () => {
                 {renderNavItem('director-queue', 'Approval Queue', <AdminIcons.Apps />, applications.filter(a => a.status === 'forwarded').length)}
                 {renderNavItem('applications', 'All Applications', <AdminIcons.Apps />)}
               </div>
-              
+
               <div className="staff-nav-group">
                 <div className="staff-nav-title">Governance</div>
                 {renderNavItem('reports', 'Reports', <AdminIcons.Reports />)}
@@ -1732,8 +1732,8 @@ const StaffDashboard: React.FC = () => {
                     <option>Q4 (Jan-Mar)</option>
                   </select>
                 </div>
-                <button 
-                  className="btn-auth-primary" 
+                <button
+                  className="btn-auth-primary"
                   style={{ width: 'auto', background: 'var(--admin-accent)', color: '#111', fontWeight: '800', padding: '10px 24px' }}
                   onClick={() => alert("Paper Form entry coming soon.")}
                 >
@@ -1765,7 +1765,7 @@ const StaffDashboard: React.FC = () => {
                 {/* Stream Split Card */}
                 <div className="admin-chart-card" style={{ marginBottom: 0, padding: '24px' }}>
                   <h3 style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>STREAM SPLIT</h3>
-                  
+
                   <div className="admin-stat-row">
                     <div className="admin-stat-head">
                       <span className="admin-stat-label">C-DFN (PSSSP / Bursary)</span>
@@ -1800,7 +1800,7 @@ const StaffDashboard: React.FC = () => {
                 {/* Application Status Card */}
                 <div className="admin-chart-card" style={{ marginBottom: 0, padding: '24px' }}>
                   <h3 style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>APPLICATION STATUS</h3>
-                  
+
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -1809,7 +1809,7 @@ const StaffDashboard: React.FC = () => {
                       </div>
                       <span style={{ fontSize: '14px', fontWeight: '800' }}>{(backendStats?.submissions_by_status?.accepted || 0)}</span>
                     </div>
-                    
+
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                         <span className="admin-badge badge-review" style={{ minWidth: '80px', textAlign: 'center' }}>REVIEW</span>
@@ -1833,9 +1833,9 @@ const StaffDashboard: React.FC = () => {
               <div className="admin-table-wrap">
                 <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div style={{ fontSize: '13px', fontWeight: '800' }}>RECENT ACTIVITY</div>
-                  <button 
-                    className="staff-nav-item active" 
-                    style={{ fontSize: '10px', padding: '6px 14px', borderRadius: '20px', background: 'var(--admin-accent)', color: '#111', fontWeight: '8400' }} 
+                  <button
+                    className="staff-nav-item active"
+                    style={{ fontSize: '10px', padding: '6px 14px', borderRadius: '20px', background: 'var(--admin-accent)', color: '#111', fontWeight: '8400' }}
                     onClick={() => setCurrentView('applications')}
                   >
                     View All Applications
@@ -1892,8 +1892,8 @@ const StaffDashboard: React.FC = () => {
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
-                <select 
-                  className="admin-input" 
+                <select
+                  className="admin-input"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
                 >
@@ -1904,8 +1904,8 @@ const StaffDashboard: React.FC = () => {
                   <option value="accepted">Approved</option>
                   <option value="rejected">Rejected</option>
                 </select>
-                <select 
-                  className="admin-input" 
+                <select
+                  className="admin-input"
                   value={fundingStreamFilter}
                   onChange={(e) => setFundingStreamFilter(e.target.value)}
                 >
@@ -1920,38 +1920,38 @@ const StaffDashboard: React.FC = () => {
               </div>
 
               <div className="policy-tabs" style={{ marginBottom: '0', padding: '0 20px' }}>
-                <div 
-                  className={`policy-tab ${statusFilter === 'all' ? 'active' : ''}`} 
+                <div
+                  className={`policy-tab ${statusFilter === 'all' ? 'active' : ''}`}
                   onClick={() => setStatusFilter('all')}
                 >
                   All ({applications.length})
                 </div>
-                <div 
-                  className={`policy-tab ${statusFilter === 'pending' ? 'active' : ''}`} 
+                <div
+                  className={`policy-tab ${statusFilter === 'pending' ? 'active' : ''}`}
                   style={{ color: '#1a6b3a' }}
                   onClick={() => setStatusFilter('pending')}
                 >
                   New ({applications.filter(a => a.status === 'pending').length})
                 </div>
-                <div 
+                <div
                   className={`policy-tab ${statusFilter === 'reviewed' ? 'active' : ''}`}
                   onClick={() => setStatusFilter('reviewed')}
                 >
                   Review ({applications.filter(a => a.status === 'reviewed').length})
                 </div>
-                <div 
+                <div
                   className={`policy-tab ${statusFilter === 'forwarded' ? 'active' : ''}`}
                   onClick={() => setStatusFilter('forwarded')}
                 >
                   Pending Director ({applications.filter(a => a.status === 'forwarded').length})
                 </div>
-                <div 
+                <div
                   className={`policy-tab ${statusFilter === 'accepted' ? 'active' : ''}`}
                   onClick={() => setStatusFilter('accepted')}
                 >
                   Approved ({applications.filter(a => a.status === 'accepted').length})
                 </div>
-                <div 
+                <div
                   className={`policy-tab ${statusFilter === 'rejected' ? 'active' : ''}`}
                   onClick={() => setStatusFilter('rejected')}
                 >
@@ -1963,39 +1963,39 @@ const StaffDashboard: React.FC = () => {
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th 
-                        onClick={() => handleSort('id')} 
+                      <th
+                        onClick={() => handleSort('id')}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
                       >
                         REF # {sortColumn === 'id' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th 
-                        onClick={() => handleSort('student_name')} 
+                      <th
+                        onClick={() => handleSort('student_name')}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
                       >
                         APPLICANT {sortColumn === 'student_name' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th 
-                        onClick={() => handleSort('form_title')} 
+                      <th
+                        onClick={() => handleSort('form_title')}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
                       >
                         INSTITUTION / PROGRAM {sortColumn === 'form_title' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th 
-                        onClick={() => handleSort('submitted_at')} 
+                      <th
+                        onClick={() => handleSort('submitted_at')}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
                       >
                         SUBMITTED {sortColumn === 'submitted_at' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th 
-                        onClick={() => handleSort('status')} 
+                      <th
+                        onClick={() => handleSort('status')}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
                       >
                         STATUS {sortColumn === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
                       </th>
                       <th>VERIFICATION</th>
-                      <th 
-                        onClick={() => handleSort('amount')} 
+                      <th
+                        onClick={() => handleSort('amount')}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
                       >
                         FUNDING $ {sortColumn === 'amount' && (sortDirection === 'asc' ? '↑' : '↓')}
@@ -2273,8 +2273,8 @@ const StaffDashboard: React.FC = () => {
                               <td colSpan={3} style={{ textAlign: 'left', fontWeight: '700', padding: '16px' }}>
                                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                   <span>Total Suggested</span>
-                                  <button 
-                                    className="admin-badge badge-approved" 
+                                  <button
+                                    className="admin-badge badge-approved"
                                     style={{ border: 'none', cursor: 'pointer', fontSize: '9px' }}
                                     onClick={async () => {
                                       if (autoSuggested && selectedApp) {
@@ -2419,25 +2419,25 @@ const StaffDashboard: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="admin-chart-card" style={{ marginTop: '24px' }}>
                     <h3 style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', marginBottom: '16px', color: '#64748b' }}>OFFICE USE ONLY</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       <div>
                         <label className="admin-kpi-label" style={{ fontSize: '9px', marginBottom: '4px', display: 'block' }}>DATE RECEIVED</label>
-                        <input className="admin-input" type="date" value={officeUseInputs.dateReceived} onChange={e => setOfficeUseInputs({...officeUseInputs, dateReceived: e.target.value})} style={{ width: '100%', padding: '8px' }} />
+                        <input className="admin-input" type="date" value={officeUseInputs.dateReceived} onChange={e => setOfficeUseInputs({ ...officeUseInputs, dateReceived: e.target.value })} style={{ width: '100%', padding: '8px' }} />
                       </div>
                       <div>
                         <label className="admin-kpi-label" style={{ fontSize: '9px', marginBottom: '4px', display: 'block' }}>APPROVED BY</label>
-                        <input className="admin-input" type="text" value={officeUseInputs.approvedBy} onChange={e => setOfficeUseInputs({...officeUseInputs, approvedBy: e.target.value})} style={{ width: '100%', padding: '8px' }} placeholder="Admin Name" />
+                        <input className="admin-input" type="text" value={officeUseInputs.approvedBy} onChange={e => setOfficeUseInputs({ ...officeUseInputs, approvedBy: e.target.value })} style={{ width: '100%', padding: '8px' }} placeholder="Admin Name" />
                       </div>
                       <div>
                         <label className="admin-kpi-label" style={{ fontSize: '9px', marginBottom: '4px', display: 'block' }}>COMMITMENT #</label>
-                        <input className="admin-input" type="text" value={officeUseInputs.commitmentNum} onChange={e => setOfficeUseInputs({...officeUseInputs, commitmentNum: e.target.value})} style={{ width: '100%', padding: '8px' }} placeholder="CM-00000" />
+                        <input className="admin-input" type="text" value={officeUseInputs.commitmentNum} onChange={e => setOfficeUseInputs({ ...officeUseInputs, commitmentNum: e.target.value })} style={{ width: '100%', padding: '8px' }} placeholder="CM-00000" />
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
-                        <button 
-                          className="admin-badge badge-review" 
+                        <button
+                          className="admin-badge badge-review"
                           style={{ cursor: 'pointer', border: 'none', opacity: isSavingOffice ? 0.5 : 1, padding: '8px 16px', fontWeight: '800' }}
                           onClick={handleSaveOfficeUse}
                           disabled={isSavingOffice}
@@ -2452,381 +2452,347 @@ const StaffDashboard: React.FC = () => {
             </div>
           )}
 
-                {/* Policy Settings View */}
-                {currentView === 'policy' && (
-                  <div className="fade-in" style={{ padding: '0 20px 40px' }}>
-                    <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#1e293b' }}>Policy Settings</h2>
-                        <p style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>Configure funding rules, rates, and deadlines. Changes affect all future calculations.</p>
-                      </div>
-                      {role !== 'director' && (
-                        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: '10px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: '600' }}>
-                          READ-ONLY ACCESS: Only the Director of Education can modify policy settings.
+          {/* Policy Settings View */}
+          {currentView === 'policy' && (
+            <div className="fade-in" style={{ padding: '0 20px 40px' }}>
+              <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#1e293b' }}>Policy Settings</h2>
+                  <p style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>Configure funding rules, rates, and deadlines. Changes affect all future calculations.</p>
+                </div>
+                {/* Policy editing is now open to both staff and directors */}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {[
+                  { id: 'application_deadlines', title: 'Application Deadlines', desc: 'Define semester start/end and application cut-off dates.' },
+                  { id: 'psssp_tuition', title: 'PSSSP — Tuition Bursary', desc: 'Maximum tuition coverage per semester for PSSSP students.' },
+                  { id: 'psssp_living', title: 'PSSSP — Living Allowance', desc: 'Monthly living allowance rates based on enrollment and dependents.' },
+                  { id: 'psssp_travel', title: 'PSSSP — Travel Bursary', desc: 'Limits and eligibility for student travel reimbursements.' },
+                  { id: 'psssp_graduation_travel', title: 'PSSSP — Graduation Travel', desc: 'Assistance for students traveling to attend graduation ceremonies.' },
+                  { id: 'ucepp_tuition', title: 'UCEPP — Tuition Bursary', desc: 'Maximum tuition coverage per semester for UCEPP students.' },
+                  { id: 'ucepp_living', title: 'UCEPP — Living Allowance', desc: 'Monthly living allowance rates for UCEPP students.' },
+                  { id: 'dggr_tuition', title: 'DGGR — Tuition Bursary', desc: 'Tuition rates for DGGR-funded programs.' },
+                  { id: 'dggr_extra_tuition', title: 'DGGR — Extra Tuition Bursary', desc: 'Top-up bursary for tuition exceeding standard limits.' },
+                  { id: 'dggr_living', title: 'DGGR — Living Allowance', desc: 'Monthly living allowance rates for DGGR students.' },
+                  { id: 'dggr_practicum_award', title: 'DGGR — Practicum Award', desc: 'Awards for placements and practicum completions.' },
+                  { id: 'dggr_grad_bursary', title: 'DGGR — Graduation Bursary', desc: 'One-time bursaries for completing degrees or certificates.' },
+                  { id: 'dggr_academic_scholarship', title: 'DGGR — Academic Scholarship', desc: 'Achievement awards based on GPA thresholds.' },
+                  { id: 'dggr_hardship', title: 'DGGR — Hardship Bursary', desc: 'Emergency funding caps for students in financial distress.' },
+                  { id: 'eligibility_rules', title: 'Eligibility Rules', desc: 'Global rules for program length and minimum course loads.' },
+                  { id: 'misconduct_rules', title: 'Misconduct Rules', desc: 'Suspension rules for academic or financial misconduct.' },
+                  { id: 'payment_schedule', title: 'Payment Schedule', desc: 'Processing times and standard payment dates.' }
+                ].map((section) => {
+                  const items = policySettings[section.id] || [];
+                  const isSectionExpanded = expandedSections[section.id];
+                  const hasChanges = isDirty[section.id];
+                  const lastUpdated = items[0]?.last_updated_at;
+                  const updatedBy = items[0]?.last_updated_by_name;
+
+                  return (
+                    <div key={section.id} className="admin-chart-card" style={{ padding: '0', overflow: 'hidden', border: hasChanges ? '2px solid #f97316' : '1px solid #e2e8f0' }}>
+                      <div
+                        onClick={() => setExpandedSections({ ...expandedSections, [section.id]: !isSectionExpanded })}
+                        style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', background: isSectionExpanded ? '#f8fafc' : 'white' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', margin: '0' }}>{section.title}</h3>
+                          {hasChanges && <span style={{ background: '#fff7ed', color: '#c2410c', fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '4px', border: '1px solid #fdba74' }}>UNSAVED</span>}
                         </div>
-                      )}
-                    </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                          {(lastUpdated && !isSectionExpanded) && (
+                            <span style={{ fontSize: '11px', color: '#94a3b8' }}>
+                              Last updated {new Date(lastUpdated).toLocaleDateString()}
+                            </span>
+                          )}
+                          <span style={{ fontSize: '18px', color: '#64748b' }}>{isSectionExpanded ? '−' : '+'}</span>
+                        </div>
+                      </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {[
-                        { id: 'application_deadlines', title: 'Application Deadlines', desc: 'Define semester start/end and application cut-off dates.' },
-                        { id: 'psssp_tuition', title: 'PSSSP — Tuition Bursary', desc: 'Maximum tuition coverage per semester for PSSSP students.' },
-                        { id: 'psssp_living', title: 'PSSSP — Living Allowance', desc: 'Monthly living allowance rates based on enrollment and dependents.' },
-                        { id: 'psssp_travel', title: 'PSSSP — Travel Bursary', desc: 'Limits and eligibility for student travel reimbursements.' },
-                        { id: 'psssp_graduation_travel', title: 'PSSSP — Graduation Travel', desc: 'Assistance for students traveling to attend graduation ceremonies.' },
-                        { id: 'ucepp_tuition', title: 'UCEPP — Tuition Bursary', desc: 'Maximum tuition coverage per semester for UCEPP students.' },
-                        { id: 'ucepp_living', title: 'UCEPP — Living Allowance', desc: 'Monthly living allowance rates for UCEPP students.' },
-                        { id: 'dggr_tuition', title: 'DGGR — Tuition Bursary', desc: 'Tuition rates for DGGR-funded programs.' },
-                        { id: 'dggr_extra_tuition', title: 'DGGR — Extra Tuition Bursary', desc: 'Top-up bursary for tuition exceeding standard limits.' },
-                        { id: 'dggr_living', title: 'DGGR — Living Allowance', desc: 'Monthly living allowance rates for DGGR students.' },
-                        { id: 'dggr_practicum_award', title: 'DGGR — Practicum Award', desc: 'Awards for placements and practicum completions.' },
-                        { id: 'dggr_grad_bursary', title: 'DGGR — Graduation Bursary', desc: 'One-time bursaries for completing degrees or certificates.' },
-                        { id: 'dggr_academic_scholarship', title: 'DGGR — Academic Scholarship', desc: 'Achievement awards based on GPA thresholds.' },
-                        { id: 'dggr_hardship', title: 'DGGR — Hardship Bursary', desc: 'Emergency funding caps for students in financial distress.' },
-                        { id: 'eligibility_rules', title: 'Eligibility Rules', desc: 'Global rules for program length and minimum course loads.' },
-                        { id: 'misconduct_rules', title: 'Misconduct Rules', desc: 'Suspension rules for academic or financial misconduct.' },
-                        { id: 'payment_schedule', title: 'Payment Schedule', desc: 'Processing times and standard payment dates.' }
-                      ].map((section) => {
-                        const items = policySettings[section.id] || [];
-                        const isExpanded = expandedSections[section.id];
-                        const hasChanges = isDirty[section.id];
-                        const lastUpdated = items[0]?.last_updated_at;
-                        const updatedBy = items[0]?.last_updated_by_name;
+                      {isSectionExpanded && (
+                        <div style={{ padding: '0 24px 24px' }}>
+                          <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px', marginTop: '-8px' }}>{section.desc}</p>
 
-                        return (
-                          <div key={section.id} className="admin-chart-card" style={{ padding: '0', overflow: 'hidden', border: hasChanges ? '2px solid #f97316' : '1px solid #e2e8f0' }}>
-                            <div 
-                              onClick={() => setExpandedSections({ ...expandedSections, [section.id]: !isExpanded })}
-                              style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', background: isExpanded ? '#f8fafc' : 'white' }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <h3 style={{ fontSize: '15px', fontWeight: '800', color: '#1e293b', margin: '0' }}>{section.title}</h3>
-                                {hasChanges && <span style={{ background: '#fff7ed', color: '#c2410c', fontSize: '10px', fontWeight: '800', padding: '2px 8px', borderRadius: '4px', border: '1px solid #fdba74' }}>UNSAVED</span>}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '20px' }}>
+                            {items.length > 0 ? items.map((field) => (
+                              <div key={field.id} style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                  {field.field_label}
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <input
+                                    type="number"
+                                    className="admin-input"
+                                    disabled={false} // Open to all staff/directors
+                                    value={field.value}
+                                    style={{ flex: '1', fontSize: '16px', fontWeight: '700', padding: '10px 14px' }}
+                                    onChange={(e) => {
+                                      const newVal = e.target.value;
+                                      const newSettings = { ...policySettings };
+                                      // Deep copy the array for this section to trigger React re-render
+                                      const updatedSection = [...newSettings[section.id]];
+                                      const itemIdx = updatedSection.findIndex(i => i.id === field.id);
+
+                                      updatedSection[itemIdx] = {
+                                        ...updatedSection[itemIdx],
+                                        value: newVal
+                                      };
+
+                                      newSettings[section.id] = updatedSection;
+                                      setPolicySettings(newSettings);
+                                      setIsDirty({ ...isDirty, [section.id]: true });
+                                    }}
+                                  />
+                                  <span style={{ minWidth: '40px', fontSize: '14px', fontWeight: '600', color: '#94a3b8' }}>{field.unit}</span>
+                                </div>
                               </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                {(lastUpdated && !isExpanded) && (
-                                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>
-                                    Last updated {new Date(lastUpdated).toLocaleDateString()}
-                                  </span>
-                                )}
-                                <span style={{ fontSize: '18px', color: '#64748b' }}>{isExpanded ? '−' : '+'}</span>
-                              </div>
-                            </div>
-
-                            {isExpanded && (
-                              <div style={{ padding: '0 24px 24px' }}>
-                                <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px', marginTop: '-8px' }}>{section.desc}</p>
-                                
-                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '20px' }}>
-                                    {items.length > 0 ? items.map((field) => (
-                                      <div key={field.id} style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                        <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
-                                          {field.field_label}
-                                        </label>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                          <input 
-                                            type="number" 
-                                            className="admin-input" 
-                                            disabled={role !== 'director'}
-                                            value={field.value}
-                                            style={{ flex: '1', fontSize: '16px', fontWeight: '700', padding: '10px 14px' }}
-                                            onChange={(e) => {
-                                              const newVal = e.target.value;
-                                              const newSettings = { ...policySettings };
-                                              const itemIdx = newSettings[section.id].findIndex(i => i.id === field.id);
-                                              newSettings[section.id][itemIdx].value = newVal;
-                                              setPolicySettings(newSettings);
-                                              setIsDirty({ ...isDirty, [section.id]: true });
-                                            }}
-                                          />
-                                          <span style={{ minWidth: '40px', fontSize: '14px', fontWeight: '600', color: '#94a3b8' }}>{field.unit}</span>
-                                        </div>
-                                      </div>
-                                    )) : (
-                                      <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', background: '#f1f5f9', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
-                                        <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Policy parameters for this section are being synchronized or have not been defined.</p>
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div style={{ marginTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '24px', borderTop: '1px solid #e2e8f0' }}>
-                                    <div style={{ fontSize: '12px', color: '#94a3b8' }}>
-                                      {lastUpdated ? `Last modified by ${updatedBy || 'System'} on ${new Date(lastUpdated).toLocaleString()}` : 'No previous updates recorded.'}
-                                    </div>
-
-                                    {/* Hide Save/Reset buttons for SSW (role !== 'director') */}
-                                    {role === 'director' && (
-                                      <div style={{ display: 'flex', gap: '12px' }}>
-                                        <button 
-                                          className="admin-badge badge-review" 
-                                          style={{ padding: '10px 20px', fontWeight: '700', background: 'white', border: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer' }}
-                                          onClick={() => {
-                                            if (window.confirm("This will reset all values in this section to the original policy defaults. Are you sure?")) {
-                                              fetchPolicySettings();
-                                              setIsDirty({ ...isDirty, [section.id]: false });
-                                            }
-                                          }}
-                                        >
-                                          Reset to Defaults
-                                        </button>
-                                        <button 
-                                          className="admin-badge badge-approved" 
-                                          disabled={!hasChanges}
-                                          style={{ padding: '10px 20px', fontWeight: '700', border: 'none', cursor: hasChanges ? 'pointer' : 'not-allowed', opacity: hasChanges ? 1 : 0.5 }}
-                                          onClick={async () => {
-                                            if (window.confirm("Are you sure you want to update these policy values? This will affect all future funding calculations.")) {
-                                              try {
-                                                await API.updatePolicySetting('bulk', { settings: items });
-                                                setIsDirty({ ...isDirty, [section.id]: false });
-                                                fetchPolicySettings();
-                                                alert("Section updated successfully.");
-                                              } catch (err: any) {
-                                                alert(err.message || "Failed to update section.");
-                                              }
-                                            }
-                                          }}
-                                        >
-                                          Save Section
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
+                            )) : (
+                              <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', background: '#f1f5f9', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                                <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Policy parameters for this section are being synchronized or have not been defined.</p>
                               </div>
                             )}
                           </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
-           {currentView === 'reports' && (
-            <div className="fade-in">
-              {(isReportLoading && !reportStats) ? (
-                <div style={{ padding: '60px', textAlign: 'center', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                  <div className="admin-loading-spinner" style={{ margin: '0 auto 20px' }}></div>
-                  <div style={{ color: '#64748b', fontWeight: '600' }}>Aggregating database records...</div>
-                </div>
-              ) : (
-                <React.Fragment>
-                  {/* Filter System + Export Controls */}
-                  <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '24px', marginBottom: '32px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '12px', textTransform: 'uppercase' }}>Funding Type</label>
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                          {['all', 'UCEPP', 'CDFN', 'DGGR'].map(type => (
-                            <button
-                              key={type}
-                              onClick={() => setReportFundingType(type.toLowerCase())}
-                              style={{
-                                padding: '10px 20px',
-                                borderRadius: '8px',
-                                border: 'none',
-                                background: reportFundingType === type.toLowerCase() ? 'var(--admin-accent)' : '#f1f5f9',
-                                color: '#111',
-                                fontWeight: '800',
-                                fontSize: '12px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {type}
-                            </button>
-                          ))}
+                          <div style={{ marginTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '24px', borderTop: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                              {lastUpdated ? `Last modified by ${updatedBy || 'System'} on ${new Date(lastUpdated).toLocaleString()}` : 'No previous updates recorded.'}
+                            </div>
+
+                            {/* Visible to both staff and directors */}
+                            <div style={{ display: 'flex', gap: '12px' }}>
+                              <div style={{ display: 'flex', gap: '12px' }}>
+                                <button
+                                  className="admin-badge badge-review"
+                                  style={{ padding: '10px 20px', fontWeight: '700', background: 'white', border: '1px solid #e2e8f0', color: '#64748b', cursor: 'pointer' }}
+                                  onClick={() => {
+                                    if (window.confirm("This will reset all values in this section to the original policy defaults. Are you sure?")) {
+                                      fetchPolicySettings();
+                                      setIsDirty({ ...isDirty, [section.id]: false });
+                                    }
+                                  }}
+                                >
+                                  Reset to Defaults
+                                </button>
+                                <button
+                                  className="admin-badge badge-approved"
+                                  disabled={!hasChanges}
+                                  style={{ padding: '10px 20px', fontWeight: '700', border: 'none', cursor: hasChanges ? 'pointer' : 'not-allowed', opacity: hasChanges ? 1 : 0.5 }}
+                                  onClick={async () => {
+                                    try {
+                                      console.log("Saving policy section:", section.id, items);
+                                      const resp = await API.updatePolicySetting('bulk', { section: section.id, settings: items }) as any;
+                                      if (resp && (resp.success || resp.updated_count !== undefined)) {
+                                        setIsDirty({ ...isDirty, [section.id]: false });
+                                        await fetchPolicySettings();
+                                        alert("Section updated successfully.");
+                                      } else {
+                                        alert("Failed to update section: " + (resp?.message || "Unknown error"));
+                                      }
+                                    } catch (err: any) {
+                                      console.error("Policy save error:", err);
+                                      alert(err.message || "Failed to update section.");
+                                    }
+                                  }}
+                                >
+                                  Save Section
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                      {/* Export buttons (Task 10.7, 10.8) */}
-                      <div style={{ display: 'flex', gap: '8px', flexShrink: 0, marginLeft: '16px' }}>
-                        <button
-                          className="admin-badge"
-                          style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: '11px', fontWeight: '700' }}
-                          onClick={handleReportPDFExport}
-                        >
-                          Export PDF
-                        </button>
-                        <button
-                          className="admin-badge"
-                          style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '8px 14px', fontSize: '11px', fontWeight: '700' }}
-                          onClick={handleReportCSVExport}
-                        >
-                          Export CSV
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Date Range Filter (Task 10.5) */}
-                    <div style={{ marginBottom: '20px', display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                      <div>
-                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>From Date</label>
-                        <input
-                          type="date"
-                          className="admin-input"
-                          style={{ width: '150px', padding: '8px 12px', fontSize: '12px' }}
-                          value={reportDateFrom}
-                          onChange={e => setReportDateFrom(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>To Date</label>
-                        <input
-                          type="date"
-                          className="admin-input"
-                          style={{ width: '150px', padding: '8px 12px', fontSize: '12px' }}
-                          value={reportDateTo}
-                          onChange={e => setReportDateTo(e.target.value)}
-                        />
-                      </div>
-                      {/* Status Filter (Task 10.6) */}
-                      <div>
-                        <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Status</label>
-                        <select
-                          className="admin-input"
-                          style={{ width: '140px', padding: '8px 12px', fontSize: '12px' }}
-                          value={reportStatusFilter}
-                          onChange={e => setReportStatusFilter(e.target.value)}
-                        >
-                          <option value="all">All Statuses</option>
-                          <option value="pending">Pending</option>
-                          <option value="reviewed">Reviewed</option>
-                          <option value="forwarded">Forwarded</option>
-                          <option value="accepted">Approved</option>
-                          <option value="rejected">Rejected</option>
-                        </select>
-                      </div>
-                      {(reportDateFrom || reportDateTo || reportStatusFilter !== 'all') && (
-                        <button
-                          style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '8px 12px', cursor: 'pointer', fontSize: '11px', color: '#64748b', fontWeight: '700' }}
-                          onClick={() => { setReportDateFrom(''); setReportDateTo(''); setReportStatusFilter('all'); }}
-                        >
-                          Clear Filters
-                        </button>
                       )}
                     </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
-                    <div>
-                      <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '12px', textTransform: 'uppercase' }}>Sub-Filters</label>
-                      <div style={{ display: 'flex', gap: '12px' }}>
-                        {[
-                          { id: 'students', label: '# of Students' },
-                          { id: 'paid', label: 'Amount Paid Out' },
-                          { id: 'quarterly', label: 'Quarterly Report' }
-                        ].map(sub => (
-                          <button 
-                            key={sub.id}
-                            onClick={() => setReportSubFilter(sub.id)}
-                            style={{ 
-                              padding: '10px 20px', 
-                              borderRadius: '8px', 
-                              border: reportSubFilter === sub.id ? '2px solid #111' : '1px solid #e2e8f0',
-                              background: 'white',
-                              color: '#111',
-                              fontWeight: '800',
-                              fontSize: '12px',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            {sub.label}
-                          </button>
-                        ))}
-                      </div>
+          {currentView === 'reports' && (
+            <div className="fade-in" style={{ padding: '0 20px 40px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+                <div>
+                  <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#1e293b' }}>Reports & Analytics</h2>
+                  <p style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>Real-time data aggregation for funding streams and student enrollment.</p>
+                </div>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportPDFExport}>
+                    <span style={{ marginRight: '8px' }}>📄</span> Export PDF
+                  </button>
+                  <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportCSVExport}>
+                    <span style={{ marginRight: '8px' }}>📊</span> Export CSV
+                  </button>
+                </div>
+              </div>
+
+              {/* Enhanced Filter Bar */}
+              <div className="admin-chart-card" style={{ padding: '24px', marginBottom: '32px', background: '#fff' }}>
+                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div style={{ flex: '1', minWidth: '200px' }}>
+                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Funding Stream</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      {['all', 'UCEPP', 'CDFN', 'DGGR'].map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setReportFundingType(type.toLowerCase())}
+                          style={{
+                            flex: 1,
+                            padding: '10px',
+                            borderRadius: '8px',
+                            border: reportFundingType === type.toLowerCase() ? '2px solid #111' : '1px solid #e2e8f0',
+                            background: reportFundingType === type.toLowerCase() ? '#111' : '#f8fafc',
+                            color: reportFundingType === type.toLowerCase() ? '#fff' : '#64748b',
+                            fontWeight: '700',
+                            fontSize: '12px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          {type}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
-                  {/* Dashboard Content Area */}
-                  <div className="admin-chart-card" style={{ padding: '32px' }}>
-                    {reportSubFilter === 'students' && (
-                      <div className="fade-in">
-                        <div style={{ marginBottom: '32px' }}>
-                          <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Students Enrolled</h3>
-                          <div style={{ fontSize: '48px', fontWeight: '900', color: '#111' }}>{(reportStats || backendStats)?.total_students || 0}</div>
-                        </div>
-                        <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
-                          <table className="admin-table">
-                            <thead>
-                              <tr>
-                                <th>REF #</th>
-                                <th>STUDENT NAME</th>
-                                <th>PROGRAM</th>
-                                <th>STATUS</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {applications.map((app: any) => (
-                                <tr key={app.id}>
-                                  <td><span style={{ fontSize: '11px', color: '#64748b' }}>#{app.id}</span></td>
-                                  <td><strong>{app.student_details?.full_name || app.name}</strong></td>
-                                  <td style={{ fontSize: '12px' }}>{app.form_title}</td>
-                                  <td>{getStatusBadge(app.status)}</td>
-                                </tr>
-                              ))}
-                              {applications.length === 0 && (
-                                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No students found for this selection.</td></tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {reportSubFilter === 'paid' && (
-                      <div className="fade-in">
-                        <div style={{ marginBottom: '32px' }}>
-                          <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase' }}>Total Amount Paid Out</h3>
-                          <div style={{ fontSize: '48px', fontWeight: '900', color: '#166534' }}>${((reportStats || backendStats)?.total_funding_approved || 0).toLocaleString()}</div>
-                        </div>
-                        <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
-                          <table className="admin-table">
-                            <thead>
-                              <tr>
-                                <th>REF #</th>
-                                <th>STUDENT</th>
-                                <th>PAYMENT TYPE</th>
-                                <th>AMOUNT</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {((reportStats || backendStats)?.recent_payouts || []).map((p: any) => (
-                                <tr key={p.id}>
-                                  <td><span style={{ fontSize: '11px', color: '#64748b' }}>#{p.id}</span></td>
-                                  <td><strong>{p.user_name}</strong></td>
-                                  <td><span className="admin-badge" style={{ fontSize: '10px' }}>{p.payment_type}</span></td>
-                                  <td style={{ fontWeight: '800' }}>${parseFloat(p.amount).toLocaleString()}</td>
-                                </tr>
-                              ))}
-                              {((reportStats || backendStats)?.recent_payouts || []).length === 0 && (
-                                <tr><td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No payments recorded for this selection.</td></tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {reportSubFilter === 'quarterly' && (
-                      <div className="fade-in">
-                        <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '32px' }}>Quarterly Performance</h3>
-                        {(() => {
-                          const activeStats = reportStats || backendStats;
-                          const qData = activeStats?.quarterly_report || [];
-                          if (!qData.length) return <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', fontSize: '13px' }}>No data for selected period.</div>;
-                          const maxAmt = Math.max(...qData.map((x: any) => x.amount), 1);
-                          return (
-                            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '40px', height: '250px', paddingBottom: '40px', borderBottom: '1px solid #e2e8f0', justifyContent: 'space-around' }}>
-                              {qData.map((q: any, i: number) => (
-                                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', height: '100%', justifyContent: 'flex-end' }}>
-                                  <div style={{ fontSize: '12px', fontWeight: '800' }}>${(q.amount / 1000).toFixed(1)}k</div>
-                                  <div style={{ width: '100%', maxWidth: '50px', height: `${(q.amount / maxAmt) * 100}%`, background: 'var(--admin-accent)', borderRadius: '6px 6px 0 0' }}></div>
-                                  <div style={{ fontSize: '12px', fontWeight: '800' }}>{q.quarter}</div>
-                                  <div style={{ fontSize: '10px', color: '#64748b' }}>{q.count || 0} apps</div>
-                                </div>
-                              ))}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Period</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <input type="date" className="admin-input" style={{ width: '140px' }} value={reportDateFrom} onChange={e => setReportDateFrom(e.target.value)} />
+                      <span style={{ color: '#94a3b8' }}>to</span>
+                      <input type="date" className="admin-input" style={{ width: '140px' }} value={reportDateTo} onChange={e => setReportDateTo(e.target.value)} />
+                    </div>
                   </div>
-                </React.Fragment>
+
+                  <div>
+                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Application Status</label>
+                    <select className="admin-input" style={{ width: '160px' }} value={reportStatusFilter} onChange={e => setReportStatusFilter(e.target.value)}>
+                      <option value="all">All Statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="reviewed">Reviewed</option>
+                      <option value="forwarded">Forwarded</option>
+                      <option value="accepted">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+
+                  {(reportDateFrom || reportDateTo || reportStatusFilter !== 'all' || reportFundingType !== 'all') && (
+                    <button
+                      onClick={() => { setReportDateFrom(''); setReportDateTo(''); setReportStatusFilter('all'); setReportFundingType('all'); }}
+                      style={{ height: '42px', padding: '0 16px', background: 'none', border: 'none', color: '#e11d48', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      Reset Filters
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {isReportLoading ? (
+                <div style={{ padding: '100px', textAlign: 'center' }}>
+                  <div className="admin-spinner" style={{ width: '40px', height: '40px', border: '3px solid #f1f5f9', borderTopColor: '#111', borderRadius: '50%', margin: '0 auto 20px', animation: 'spin 1s linear infinite' }}></div>
+                  <div style={{ color: '#64748b', fontWeight: '600' }}>Aggregating system records...</div>
+                </div>
+              ) : (
+                <div className="fade-in">
+                  {/* Stats Cards Row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '32px' }}>
+                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #f0f9ff 100%)', border: '1px solid #bae6fd' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#0369a1' }}>{(reportStats || backendStats)?.total_students || 0}</div>
+                      <div className="admin-kpi-label" style={{ color: '#0ea5e9' }}>ACTIVE STUDENTS</div>
+                    </div>
+                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #f0fdf4 100%)', border: '1px solid #bbf7d0' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#15803d' }}>${((reportStats || backendStats)?.total_funding_approved || 0).toLocaleString()}</div>
+                      <div className="admin-kpi-label" style={{ color: '#22c55e' }}>TOTAL DISBURSED</div>
+                    </div>
+                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #fffbeb 100%)', border: '1px solid #fef3c7' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#b45309' }}>{(reportStats || backendStats)?.total_submissions || 0}</div>
+                      <div className="admin-kpi-label" style={{ color: '#f59e0b' }}>TOTAL APPLICATIONS</div>
+                    </div>
+                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #f8fafc 100%)', border: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#1e293b' }}>{Math.round(((reportStats || backendStats)?.submissions_by_status?.accepted || 0) / ((reportStats || backendStats)?.total_submissions || 1) * 100)}%</div>
+                      <div className="admin-kpi-label">APPROVAL RATE</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
+                    {/* Main Report Table */}
+                    <div className="admin-chart-card" style={{ padding: '0' }}>
+                      <div style={{ padding: '24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '800', margin: 0 }}>DETAILED RECORDS</h3>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>Showing {applications.length} results</div>
+                      </div>
+                      <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
+                        <table className="admin-table">
+                          <thead>
+                            <tr>
+                              <th>REF #</th>
+                              <th>STUDENT</th>
+                              <th>STREAM</th>
+                              <th>STATUS</th>
+                              <th>AMOUNT</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {applications.map((app: any) => (
+                              <tr key={app.id}>
+                                <td><span style={{ fontSize: '11px', color: '#64748b' }}>#{app.id}</span></td>
+                                <td><strong>{app.student_details?.full_name || app.name}</strong></td>
+                                <td><span className="admin-badge" style={{ background: '#f1f5f9', color: '#475569' }}>{app.form_title || 'General'}</span></td>
+                                <td>{getStatusBadge(app.status)}</td>
+                                <td style={{ fontWeight: '800' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                            {applications.length === 0 && (
+                              <tr><td colSpan={5} style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>No records found for the selected filters.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Secondary Insights */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                      <div className="admin-chart-card">
+                        <h3 style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '20px', textTransform: 'uppercase' }}>STREAM ALLOCATION</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          {['CDFN', 'DGGR', 'UCEPP'].map(stream => {
+                            const stats = (reportStats || backendStats);
+                            const count = stats?.submissions_by_form?.[stream] || 0;
+                            const total = stats?.total_submissions || 1;
+                            const percent = (count / total) * 100;
+                            const color = stream === 'CDFN' ? '#0369a1' : stream === 'DGGR' ? '#15803d' : '#b45309';
+
+                            return (
+                              <div key={stream}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>
+                                  <span>{stream}</span>
+                                  <span>{count} apps</span>
+                                </div>
+                                <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${percent}%`, background: color, transition: 'width 0.5s ease-out' }}></div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="admin-chart-card" style={{ background: '#1e293b', color: '#fff' }}>
+                        <h3 style={{ fontSize: '11px', fontWeight: '800', color: 'rgba(255,255,255,0.5)', marginBottom: '20px', textTransform: 'uppercase' }}>QUARTERLY TREND</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                          {((reportStats || backendStats)?.quarterly_report || []).map((q: any) => (
+                            <div key={q.quarter} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                              <div style={{ fontSize: '13px', fontWeight: '600' }}>{q.quarter}</div>
+                              <div style={{ fontSize: '14px', fontWeight: '800', color: '#e5a662' }}>${(q.amount || 0).toLocaleString()}</div>
+                            </div>
+                          ))}
+                          {((reportStats || backendStats)?.quarterly_report || []).length === 0 && (
+                            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '12px', padding: '20px' }}>No quarterly data yet.</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -2883,15 +2849,15 @@ const StaffDashboard: React.FC = () => {
                         <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(app.submitted_at).toLocaleDateString()}</td>
                         <td>
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <button 
-                              className="director-action-btn" 
+                            <button
+                              className="director-action-btn"
                               onClick={() => { setSelectedAppId(app.id); setCurrentView('director-detail'); }}
                               style={{ color: 'var(--admin-accent)', fontWeight: '800' }}
                             >
                               Review →
                             </button>
-                            <button className="director-decision-icon-btn approve"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
-                            <button className="director-decision-icon-btn deny"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                            <button className="director-decision-icon-btn approve"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg></button>
+                            <button className="director-decision-icon-btn deny"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg></button>
                           </div>
                         </td>
                       </tr>
@@ -2931,10 +2897,10 @@ const StaffDashboard: React.FC = () => {
                       ))}
                     </tbody>
                   </table>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
           {/* Director Application Detail View */}
           {(currentView === 'director-detail' && selectedAppId) && (
@@ -2950,10 +2916,10 @@ const StaffDashboard: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <div style={{ fontSize: '11px', color: '#64748b' }}>{selectedAppId}</div>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800' }}>{applications.find(a => a.id === selectedAppId)?.name} — Post-Secondary Application</h2>
-                        <div style={{ fontSize: '11px', color: '#64748b' }}>SSW forwarded {applications.find(a => a.id === selectedAppId)?.date} · J. Villeneuve</div>
+                        <h2 style={{ fontSize: '20px', fontWeight: '800' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.full_name} — Post-Secondary Application</h2>
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>SSW forwarded {new Date(applications.find(a => Number(a.id) === Number(selectedAppId))?.submitted_at).toLocaleDateString()}</div>
                       </div>
-                      {applications.find(a => a.id === selectedAppId)?.flags?.map((f: string) => (
+                      {applications.find(a => Number(a.id) === Number(selectedAppId))?.flags?.map((f: string) => (
                         <span key={f} className={`admin-badge badge-${f.toLowerCase()}`} style={{ fontSize: '9px', padding: '4px 10px' }}>{f}</span>
                       ))}
                     </div>
@@ -2963,15 +2929,15 @@ const StaffDashboard: React.FC = () => {
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '32px 24px' }}>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>NAME</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => a.id === selectedAppId)?.student_details?.full_name || applications.find(a => a.id === selectedAppId)?.name}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.full_name}</div>
                         </div>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>BENEFICIARY #</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => a.id === selectedAppId)?.student_details?.beneficiary_number || 'DGG-00000'}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.beneficiary_number || 'N/A'}</div>
                         </div>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SFA STATUS</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => a.id === selectedAppId)?.student_details?.is_sfa_active ? 'Yes' : 'No'}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.is_sfa_active ? 'Yes' : 'No'}</div>
                         </div>
                       </div>
                       {(() => {
@@ -3039,7 +3005,7 @@ const StaffDashboard: React.FC = () => {
                                 </tr>
                               </tbody>
                             </table>
-                          );
+                          )
                         })()}
                       </div>
                     </div>
@@ -3063,25 +3029,25 @@ const StaffDashboard: React.FC = () => {
                       <h4 style={{ fontSize: '11px', fontWeight: '700', color: '#475569', textTransform: 'uppercase', marginBottom: '16px' }}>DOCUMENTS</h4>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                         {(() => {
-                           const app = applications.find(a => Number(a.id) === Number(selectedAppId));
-                           return app?.documents?.map((doc: any, i: number) => (
-                              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                  <span style={{ fontSize: '16px' }}>📄</span>
-                                  <div>
-                                    <div style={{ fontSize: '12px', fontWeight: '600' }}>{doc.name}</div>
-                                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>Verified Document</div>
-                                  </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  <span className={`admin-badge ${doc.is_verified ? 'badge-approved' : 'badge-review'}`} style={{ fontSize: '8px' }}>{doc.is_verified ? 'VERIFIED' : 'PENDING'}</span>
-                                  <a href={doc.file} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', color: 'var(--admin-accent)', fontSize: '11px', fontWeight: '800', cursor: 'pointer', textDecoration: 'none' }}>View</a>
+                          const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+                          return app?.documents?.map((doc: any, i: number) => (
+                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <span style={{ fontSize: '16px' }}>📄</span>
+                                <div>
+                                  <div style={{ fontSize: '12px', fontWeight: '600' }}>{doc.name}</div>
+                                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>Verified Document</div>
                                 </div>
                               </div>
-                           ));
+                              <div style={{ display: 'flex', gap: '8px' }}>
+                                <span className={`admin-badge ${doc.is_verified ? 'badge-approved' : 'badge-review'}`} style={{ fontSize: '8px' }}>{doc.is_verified ? 'VERIFIED' : 'PENDING'}</span>
+                                <a href={doc.file} target="_blank" rel="noopener noreferrer" style={{ border: 'none', background: 'none', color: 'var(--admin-accent)', fontSize: '11px', fontWeight: '800', cursor: 'pointer', textDecoration: 'none' }}>View</a>
+                              </div>
+                            </div>
+                          ));
                         })()}
                         {(!applications.find(a => Number(a.id) === Number(selectedAppId))?.documents?.length) && (
-                           <div style={{ gridColumn: 'span 2', fontSize: '11px', color: '#64748b', textAlign: 'center', padding: '16px', border: '1px dashed #e2e8f0', borderRadius: '8px' }}>No documents uploaded.</div>
+                          <div style={{ gridColumn: 'span 2', fontSize: '11px', color: '#64748b', textAlign: 'center', padding: '16px', border: '1px dashed #e2e8f0', borderRadius: '8px' }}>No documents uploaded.</div>
                         )}
                       </div>
                     </div>
@@ -3106,8 +3072,8 @@ const StaffDashboard: React.FC = () => {
                       </div>
                       <div style={{ marginBottom: '24px' }}>
                         <label style={{ fontSize: '11px', fontWeight: '700', color: '#475569', display: 'block', marginBottom: '8px' }}>REASON / NOTES</label>
-                        <textarea 
-                          className="admin-input" 
+                        <textarea
+                          className="admin-input"
                           placeholder="Enter reason, exception justification, or notes for the record.."
                           style={{ height: '120px', resize: 'none', fontSize: '13px', lineHeight: '1.5' }}
                           value={decisionNotes}
@@ -3161,13 +3127,13 @@ const StaffDashboard: React.FC = () => {
                 </div>
                 <div className="modal-body">
                   <p style={{ fontSize: '14px', lineHeight: '1.6', color: '#475569', marginBottom: '20px' }}>
-                    You are approving <strong>#{selectedAppId} — {applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.full_name}</strong>.<br/>
+                    You are approving <strong>#{selectedAppId} — {applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.full_name}</strong>.<br />
                     Funding amount: <strong>${parseFloat(applications.find(a => Number(a.id) === Number(selectedAppId))?.amount || 0).toLocaleString()}</strong>.
                   </p>
                   <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>
                     This decision will be recorded in the audit trail and the student and SSW will be notified.
                   </p>
-                  
+
                   <div className="field-group">
                     <label className="field-label" style={{ fontSize: '11px', fontWeight: '800' }}>NOTES (OPTIONAL)</label>
                     <textarea
@@ -3236,8 +3202,8 @@ const StaffDashboard: React.FC = () => {
                   <h2 style={{ fontSize: '20px', fontWeight: '800' }}>PAYMENT RECORDS</h2>
                   <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Records are automatically generated upon application approval.</p>
                 </div>
-                <button 
-                  className="admin-badge badge-approved" 
+                <button
+                  className="admin-badge badge-approved"
                   onClick={handleExcelExport}
                   style={{ border: 'none', cursor: 'pointer', padding: '10px 20px', fontWeight: '800' }}
                 >
@@ -3293,8 +3259,8 @@ const StaffDashboard: React.FC = () => {
                     <div style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b' }}>{financeEmail}</div>
                   </div>
                   <div style={{ display: 'flex', gap: '12px' }}>
-                    <button 
-                      className="admin-input" 
+                    <button
+                      className="admin-input"
                       style={{ background: 'var(--admin-accent)', color: '#111', fontWeight: '800', border: 'none', cursor: isExporting ? 'not-allowed' : 'pointer' }}
                       disabled={isExporting}
                       onClick={async () => {
@@ -3312,8 +3278,8 @@ const StaffDashboard: React.FC = () => {
                     >
                       {isExporting ? 'SENDING...' : 'SEND EMAIL'}
                     </button>
-                    <button 
-                      className="admin-input" 
+                    <button
+                      className="admin-input"
                       style={{ background: 'white', border: '1px solid #e2e8f0', color: '#64748b' }}
                       onClick={() => setShowFinanceModal(false)}
                     >

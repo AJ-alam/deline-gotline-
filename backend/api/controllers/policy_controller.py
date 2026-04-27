@@ -12,7 +12,7 @@ class PolicyViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action in ['update', 'partial_update', 'bulk_update', 'reset_section']:
-            return [permissions.IsAuthenticated(), IsDirectorUser()]
+            return [permissions.IsAuthenticated(), IsAdminUser()]
         return [permissions.IsAuthenticated()]
 
     def perform_update(self, serializer):
@@ -39,6 +39,7 @@ class PolicyViewSet(viewsets.ModelViewSet):
             if all(s.get('section') == section_id for s in settings_data):
                 section_name = section_id
 
+        logger.info(f"Bulk policy update started for section: {section_name}. Settings count: {len(settings_data)}")
         for data in settings_data:
             setting_id = data.get('id')
             try:
@@ -47,7 +48,13 @@ class PolicyViewSet(viewsets.ModelViewSet):
                 if serializer.is_valid():
                     serializer.save(last_updated_by=request.user)
                     updated_count += 1
+                else:
+                    logger.warning(f"Policy validation failed for ID {setting_id}: {serializer.errors}")
             except PolicySetting.DoesNotExist:
+                logger.error(f"Policy setting ID {setting_id} not found during bulk update.")
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error updating policy ID {setting_id}: {str(e)}")
                 continue
 
         if updated_count > 0:
