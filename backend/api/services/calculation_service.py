@@ -14,9 +14,9 @@ class CalculationService:
         form_title = submission.form.title.lower() if submission.form else ''
 
         # Route to the correct calculator based on form type
-        if 'form g' in form_title or 'graduation' in form_title:
+        if 'graduation bursary' in form_title:
             results = CalculationService._calculate_graduation_bursary(submission)
-        elif 'form f' in form_title or 'practicum' in form_title or 'summer student' in form_title:
+        elif 'practicum' in form_title or 'placement allowance' in form_title or 'summer student' in form_title:
             results = CalculationService._calculate_practicum_award(submission)
         else:
             results = CalculationService._calculate_funding(submission)

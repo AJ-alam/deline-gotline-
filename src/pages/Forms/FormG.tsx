@@ -155,7 +155,7 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
       }
 
       await API.submitApplication({
-        form_type: 'Form G',
+        form_type: 'Graduation Bursary',
         form_data: submissionData
       });
       setIsSubmitted(true);

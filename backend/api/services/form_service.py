@@ -33,17 +33,16 @@ class FormService:
             if student.email:
                 email_application_received(student.email, student.full_name, form.title)
 
-        # Trigger Form B (Enrollment Verification) for Form A submissions
-        if 'form a' in form_title_lower or 'forma' in form_title_lower.replace(' ', ''):
+        # Trigger enrollment verification email for new student applications
+        if 'new student application' in form_title_lower or 'psssp' in form_title_lower:
             FormService._send_form_b_email(submission)
 
-        # Auto-forward Form F (Practicum) and Form G (Graduation) directly to director queue
+        # Auto-forward Practicum and Graduation Bursary directly to director queue
         # These are one-off awards that don't need SSW review
         is_one_off = (
-            'form f' in form_title_lower or
-            'form g' in form_title_lower or
             'practicum' in form_title_lower or
-            'graduation' in form_title_lower or
+            'placement allowance' in form_title_lower or
+            'graduation bursary' in form_title_lower or
             'summer student' in form_title_lower
         )
         if is_one_off:

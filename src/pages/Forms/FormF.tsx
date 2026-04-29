@@ -109,7 +109,7 @@ const FormF: React.FC<FormFProps> = ({ profile, onBack, onComplete }) => {
       });
 
       await API.submitApplication({
-        form_type: 'Form F',
+        form_type: 'Practicum',
         form_data: submissionData
       });
       setIsSubmitted(true);
