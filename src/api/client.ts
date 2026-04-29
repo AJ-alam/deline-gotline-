@@ -76,6 +76,9 @@ apiClient.interceptors.response.use(
             }
         }
         
+        if (error.response && error.response.status !== 401) {
+            console.error('[API Error]', error.response.status, error.config?.url, error.response.data);
+        }
         return Promise.reject({
             status: error.response?.status,
             message: error.response?.data?.message || error.response?.data?.detail || 'An error occurred',
@@ -120,7 +123,18 @@ class API {
     }
 
     static updateMe(data: any) {
-        return apiClient.put('/auth/me/', data);
+        // Strip only truly read-only/file fields that fail backend validation.
+        // town_city, postal_code, institute ARE sent — the backend serializer
+        // captures them in to_internal_value() and writes them to the Profile model.
+        const {
+            id,
+            role,
+            date_joined,
+            profile_picture,  // ImageField — can't send a URL string back
+            ...payload
+        } = data;
+        console.log('[updateMe] Sending PATCH payload:', payload);
+        return apiClient.patch('/auth/me/', payload);
     }
 
     // Programs

@@ -52,4 +52,12 @@ class MeController(generics.RetrieveUpdateAPIView):
         if serializer.is_valid():
             self.perform_update(serializer)
             return api_response(True, serializer.data, "User profile updated")
+        # Log the exact errors for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Profile update failed for user {instance.email}: {serializer.errors}")
         return api_response(False, serializer.errors, "Update failed", status.HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)

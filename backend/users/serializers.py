@@ -34,8 +34,10 @@ class UserSerializer(serializers.ModelSerializer):
             'town_city', 'postal_code', 'institute',
             'is_indian_act_registered', 'is_deline_beneficiary', 'province_of_residence',
         )
-        # profile_picture is ImageField — sending a URL string back in PUT fails validation.
-        # Keep read_only so display works but JSON PUT can't accidentally break it.
+        # profile_picture is ImageField — sending a URL string back in PUT/PATCH fails validation.
+        # id, role, date_joined are never writable via this endpoint.
+        # town_city, postal_code, institute are SerializerMethodFields (read) but written
+        # manually via to_internal_value → update(), so they stay read_only here.
         read_only_fields = ('id', 'role', 'date_joined', 'profile_picture',
                             'town_city', 'postal_code', 'institute')
 
@@ -51,8 +53,24 @@ class UserSerializer(serializers.ModelSerializer):
     _PROFILE_FIELDS = ('town_city', 'postal_code', 'institute')
 
     def to_internal_value(self, data):
-        # Capture profile-only fields before normal validation (they're not on CustomUser model)
-        self._profile_data = {k: data[k] for k in self._PROFILE_FIELDS if k in data}
+        # Capture profile-only fields BEFORE normal validation runs,
+        # because they are read_only on the serializer (not in CustomUser model).
+        # Make a mutable copy so we can remove the profile fields before
+        # passing to DRF — otherwise DRF raises "unexpected field" errors.
+        if hasattr(data, 'dict'):
+            # QueryDict (multipart/form-data) → make mutable copy
+            data = data.dict()
+        else:
+            data = dict(data)
+
+        self._profile_data = {k: data.pop(k) for k in self._PROFILE_FIELDS if k in data}
+
+        # Coerce null/None to safe defaults for non-nullable fields
+        if data.get('num_dependents') is None:
+            data['num_dependents'] = 0
+        if data.get('course_load') is None:
+            data['course_load'] = 100
+
         return super().to_internal_value(data)
 
     def update(self, instance, validated_data):
@@ -67,8 +85,7 @@ class UserSerializer(serializers.ModelSerializer):
             from api.models import Profile
             profile_obj, _ = Profile.objects.get_or_create(user=instance)
             for attr, value in profile_data.items():
-                if value is not None:
-                    setattr(profile_obj, attr, value)
+                setattr(profile_obj, attr, value)  # allow empty string to clear fields
             profile_obj.save()
 
         return instance
