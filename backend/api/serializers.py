@@ -26,10 +26,21 @@ class DocumentSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class UserDocumentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
     class Meta:
         model = UserDocument
-        fields = ('id', 'user', 'name', 'file', 'category', 'uploaded_at')
+        fields = ('id', 'user', 'name', 'file', 'file_url', 'category', 'uploaded_at')
         read_only_fields = ('id', 'user', 'uploaded_at')
+
+    def get_file_url(self, obj):
+        if not obj.file:
+            return None
+        # obj.file.url calls SupabaseStorage.url() which returns the full public URL
+        try:
+            return obj.file.url
+        except Exception:
+            return None
 
 class ApplicationSerializer(serializers.ModelSerializer):
     student_details = UserSerializer(source='student', read_only=True)

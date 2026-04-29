@@ -419,7 +419,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
               <span className={`db-badge ${doc.is_verified ? 'db-verified' : 'db-uploaded'}`}>
                 {doc.is_verified ? '✓ VERIFIED' : 'PENDING REVIEW'}
               </span>
-              <a href={doc.file} target="_blank" rel="noopener noreferrer" className="section-edit-btn" style={{ padding: '4px 10px', textDecoration: 'none' }}>View</a>
+              <a href={doc.file_url || doc.file} target="_blank" rel="noopener noreferrer" className="section-edit-btn" style={{ padding: '4px 10px', textDecoration: 'none' }}>View</a>
             </div>
           </div>
         ))}

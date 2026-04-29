@@ -24,7 +24,11 @@ class SupabaseStorage(Storage):
 
         content.seek(0)
         data = content.read()
-        content_type = getattr(content, 'content_type', None) or mimetypes.guess_type(name)[0] or 'application/octet-stream'
+        content_type = (
+            getattr(content, 'content_type', None)
+            or mimetypes.guess_type(name)[0]
+            or 'application/octet-stream'
+        )
 
         client.storage.from_(self.bucket_name).upload(
             path=path,
@@ -34,7 +38,35 @@ class SupabaseStorage(Storage):
         return path
 
     def url(self, name):
+        """
+        Return a URL for the file.
+        - If the bucket is public: returns the permanent public URL.
+        - If the bucket is private: returns a signed URL valid for 1 hour.
+        Falls back to signed URL on any error with the public URL approach.
+        """
+        if not name:
+            return ''
+
         client = self._client()
+
+        # Try signed URL first (works for both public and private buckets)
+        try:
+            result = client.storage.from_(self.bucket_name).create_signed_url(
+                path=name,
+                expires_in=3600,  # 1 hour
+            )
+            # supabase-py v1 returns dict, v2 returns object
+            if isinstance(result, dict):
+                signed_url = result.get('signedURL') or result.get('signedUrl') or result.get('signed_url')
+            else:
+                signed_url = getattr(result, 'signed_url', None) or getattr(result, 'signedURL', None)
+
+            if signed_url:
+                return signed_url
+        except Exception:
+            pass
+
+        # Fallback: public URL (works only if bucket is set to public)
         return client.storage.from_(self.bucket_name).get_public_url(name)
 
     def exists(self, name):
