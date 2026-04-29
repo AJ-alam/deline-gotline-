@@ -2871,11 +2871,21 @@ const StaffDashboard: React.FC = () => {
                     {applications.filter(a => a.status === 'forwarded').map(app => (
                       <tr key={app.id}>
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}>#{app.id}</span></td>
-                        <td><strong>{app.student_details?.full_name || 'Student'}</strong></td>
+                        <td>
+                          <strong>
+                            {app.student_details?.full_name ||
+                              (app.answers || []).find((a: any) =>
+                                (a.label || '').toLowerCase().includes('full name') ||
+                                (a.label || '').toLowerCase().includes('student name')
+                              )?.answer_text ||
+                              'Guest Applicant'}
+                          </strong>
+                        </td>
                         <td style={{ fontSize: '12px' }}>{app.form_title}</td>
                         <td style={{ fontSize: '13px', fontWeight: '700' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
                         <td>
                           {app.amount > 10000 && <span className="admin-badge badge-review" style={{ fontSize: '9px', padding: '2px 6px' }}>HIGH VALUE</span>}
+                          {!app.student_details && <span className="admin-badge" style={{ fontSize: '9px', padding: '2px 6px', background: '#fef3c7', color: '#92400e' }}>GUEST</span>}
                         </td>
                         <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(app.submitted_at).toLocaleDateString()}</td>
                         <td>
@@ -2957,7 +2967,18 @@ const StaffDashboard: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                         <div style={{ fontSize: '11px', color: '#64748b' }}>{selectedAppId}</div>
-                        <h2 style={{ fontSize: '20px', fontWeight: '800' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.full_name} — Post-Secondary Application</h2>
+                        <h2 style={{ fontSize: '20px', fontWeight: '800' }}>
+                          {(() => {
+                            const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+                            const name = app?.student_details?.full_name ||
+                              (app?.answers || []).find((a: any) =>
+                                (a.label || '').toLowerCase().includes('full name') ||
+                                (a.label || '').toLowerCase().includes('student name')
+                              )?.answer_text ||
+                              'Guest Applicant';
+                            return `${name} — ${app?.form_title || 'Application'}`;
+                          })()}
+                        </h2>
                         {(() => { const app = applications.find(a => Number(a.id) === Number(selectedAppId)); const ts = app?.forwarded_at || app?.submitted_at; return <div style={{ fontSize: '11px', color: '#64748b' }}>{app?.forwarded_at ? 'SSW forwarded' : 'Submitted'} {ts ? new Date(ts).toLocaleDateString() : 'N/A'}</div>; })()}
                       </div>
                       {applications.find(a => Number(a.id) === Number(selectedAppId))?.flags?.map((f: string) => (
@@ -2970,15 +2991,23 @@ const StaffDashboard: React.FC = () => {
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '32px 24px' }}>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>NAME</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.full_name}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>
+                            {app?.student_details?.full_name ||
+                              (app?.answers || []).find((a: any) => (a.label || '').toLowerCase().includes('full name') || (a.label || '').toLowerCase().includes('student name'))?.answer_text ||
+                              'Guest Applicant'}
+                          </div>
                         </div>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>BENEFICIARY #</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.beneficiary_number || 'N/A'}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>
+                            {app?.student_details?.beneficiary_number ||
+                              (app?.answers || []).find((a: any) => (a.label || '').toLowerCase().includes('treaty') || (a.label || '').toLowerCase().includes('beneficiary'))?.answer_text ||
+                              'N/A'}
+                          </div>
                         </div>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SFA STATUS</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{applications.find(a => Number(a.id) === Number(selectedAppId))?.student_details?.financial_assistance_status || 'N/A'}</div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{app?.student_details?.financial_assistance_status || 'N/A'}</div>
                         </div>
                       </div>
                       {(() => {
@@ -3024,6 +3053,54 @@ const StaffDashboard: React.FC = () => {
                       <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
                         {(() => {
                           const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+                          const answers: any[] = app?.answers || [];
+                          const getField = (lbl: string) => answers.find((a: any) =>
+                            (a.label || a.field?.label || '').toLowerCase().includes(lbl.toLowerCase())
+                          )?.answer_text;
+
+                          const formTitle = (app?.form_title || '').toLowerCase();
+                          const isGraduation = formTitle.includes('graduation') || formTitle.includes('form g');
+                          const isPracticum = formTitle.includes('practicum') || formTitle.includes('form f') || formTitle.includes('summer');
+
+                          // Build dynamic rows from answers
+                          const rows: { component: string; stream: string; rule: string; amount: number }[] = [];
+
+                          if (isGraduation) {
+                            const credential = getField('credential') || 'Certificate';
+                            rows.push({
+                              component: 'Graduation Bursary',
+                              stream: 'DGGR',
+                              rule: `${credential} — per policy dggr_grad_bursary`,
+                              amount: parseFloat(app?.amount || 0),
+                            });
+                          } else if (isPracticum) {
+                            rows.push({
+                              component: 'Practicum / Summer Award',
+                              stream: 'DGGR',
+                              rule: 'Fixed award — per policy dggr_practicum_award',
+                              amount: parseFloat(app?.amount || 0),
+                            });
+                          } else {
+                            // Standard funding — show per-component breakdown from office_use_data if available
+                            const officeData = app?.office_use_data || {};
+                            const stream = getField('funding stream') || getField('bursarystream') || app?.student_details?.primary_stream || 'CDFN';
+                            const tuition = parseFloat(officeData.tuition || 0);
+                            const living = parseFloat(officeData.living || 0);
+                            const books = parseFloat(officeData.books || 500);
+                            const extra = parseFloat(officeData.extra_tuition || 0);
+                            const total = parseFloat(app?.amount || 0);
+
+                            if (tuition > 0) rows.push({ component: 'Tuition', stream, rule: `${stream} tuition cap`, amount: tuition });
+                            if (living > 0) rows.push({ component: 'Living Allowance', stream, rule: `${stream} living rate × months`, amount: living });
+                            if (books > 0) rows.push({ component: 'Books', stream, rule: 'Standard $500 allowance', amount: books });
+                            if (extra > 0) rows.push({ component: 'Extra Tuition Relief', stream, rule: 'DGGR extra tuition cap', amount: extra });
+
+                            // Fallback: single row if no breakdown available
+                            if (rows.length === 0) {
+                              rows.push({ component: 'Approved Funding', stream, rule: 'Full calculated payout', amount: total });
+                            }
+                          }
+
                           return (
                             <table className="admin-table table-dense">
                               <thead style={{ background: '#f8fafc' }}>
@@ -3032,24 +3109,24 @@ const StaffDashboard: React.FC = () => {
                                   <th>STREAM</th>
                                   <th>POLICY RULE</th>
                                   <th>AMOUNT</th>
-                                  <th>FLAG</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                <tr>
-                                  <td style={{ fontWeight: '600' }}>Approved Funding</td>
-                                  <td><span className="admin-badge" style={{ background: '#e0e7ff' }}>{app?.form_title}</span></td>
-                                  <td style={{ fontSize: '10px', color: '#64748b' }}>Full calculated payout</td>
-                                  <td><strong>${parseFloat(app?.amount || 0).toLocaleString()}</strong></td>
-                                  <td><span style={{ fontSize: '10px', color: '#64748b' }}>—</span></td>
-                                </tr>
+                                {rows.map((row, i) => (
+                                  <tr key={i}>
+                                    <td style={{ fontWeight: '600' }}>{row.component}</td>
+                                    <td><span className="admin-badge" style={{ background: '#e0e7ff' }}>{row.stream}</span></td>
+                                    <td style={{ fontSize: '10px', color: '#64748b' }}>{row.rule}</td>
+                                    <td><strong>${row.amount.toLocaleString()}</strong></td>
+                                  </tr>
+                                ))}
                                 <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
                                   <td colSpan={3} style={{ fontWeight: '800', textAlign: 'right', paddingRight: '20px' }}>Total Authorized</td>
-                                  <td colSpan={2} style={{ fontSize: '16px', fontWeight: '800' }}>${parseFloat(app?.amount || 0).toLocaleString()}</td>
+                                  <td style={{ fontSize: '16px', fontWeight: '800' }}>${parseFloat(app?.amount || 0).toLocaleString()}</td>
                                 </tr>
                               </tbody>
                             </table>
-                          )
+                          );
                         })()}
                       </div>
                     </div>

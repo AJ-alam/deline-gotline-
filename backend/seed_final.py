@@ -30,16 +30,16 @@ def seed():
     )
 
     forms_to_seed = [
-        {'title': 'FormA - New Student Application', 'purpose': 'application'},
-        {'title': 'FormB - Student Profile Update', 'purpose': 'application'},
-        {'title': 'FormC - Travel Assistance', 'purpose': 'application'},
-        {'title': 'FormD - Specialized Training', 'purpose': 'application'},
-        {'title': 'FormE - Emergency Funding', 'purpose': 'application'},
-        {'title': 'FormF - Laptop & Tech Support', 'purpose': 'application'},
-        {'title': 'FormG - Graduation Award', 'purpose': 'application'},
-        {'title': 'FormH - Summer Student Employment', 'purpose': 'application'},
-        {'title': 'Scholarship - Academic Excellence', 'purpose': 'application'},
-        {'title': 'Hardship - Secondary Support', 'purpose': 'application'},
+        {'title': 'New Student Application', 'purpose': 'application'},
+        {'title': 'Student Profile Update', 'purpose': 'application'},
+        {'title': 'Continuing Funding Application', 'purpose': 'application'},
+        {'title': 'Specialized Training', 'purpose': 'application'},
+        {'title': 'Emergency Funding', 'purpose': 'application'},
+        {'title': 'Practicum / Placement Support', 'purpose': 'application'},
+        {'title': 'Graduation Bursary', 'purpose': 'application'},
+        {'title': 'Summer Student Employment', 'purpose': 'application'},
+        {'title': 'Academic Scholarship — Merit Award', 'purpose': 'application'},
+        {'title': 'Hardship Bursary — Secondary Support', 'purpose': 'application'},
     ]
 
     for f_data in forms_to_seed:

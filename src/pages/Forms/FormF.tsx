@@ -80,7 +80,6 @@ const FormF: React.FC<FormFProps> = ({ profile, onBack, onComplete }) => {
     else onBack();
   };
 
-  // BUG 4: Connected Submission Flow
   const handleSubmit = async () => {
     if (!formData.signature) {
       setError('Supervisor signature is required.');
@@ -96,11 +95,12 @@ const FormF: React.FC<FormFProps> = ({ profile, onBack, onComplete }) => {
         { field_label: 'Organization Name', answer_text: formData.orgName },
         { field_label: 'Supervisor Title', answer_text: formData.supervisorTitle },
         { field_label: 'Student Name', answer_text: formData.studentName },
-        { field_label: 'Start Date', answer_text: formData.placementStart },
-        { field_label: 'End Date', answer_text: formData.placementEnd },
-        { field_label: 'Roles/Responsibilities', answer_text: formData.responsibilities },
-        { field_label: 'Work Performance', answer_text: formData.performance },
-        { field_label: 'Supervisor Signature', answer_text: formData.signature }
+        { field_label: 'Placement Start Date', answer_text: formData.placementStart },
+        { field_label: 'Placement End Date', answer_text: formData.placementEnd },
+        { field_label: 'Roles and Responsibilities', answer_text: formData.responsibilities },
+        { field_label: 'Work Performance Summary', answer_text: formData.performance },
+        { field_label: 'Supervisor Signature', answer_text: formData.signature },
+        { field_label: 'Submission Date', answer_text: new Date().toISOString().split('T')[0] },
       ];
 
       answers.forEach((ans, i) => {
@@ -109,7 +109,7 @@ const FormF: React.FC<FormFProps> = ({ profile, onBack, onComplete }) => {
       });
 
       await API.submitApplication({
-        form_type: 'FormF',
+        form_type: 'Form F',
         form_data: submissionData
       });
       setIsSubmitted(true);

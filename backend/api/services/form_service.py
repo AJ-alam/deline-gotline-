@@ -20,8 +20,9 @@ class FormService:
     def send_submission_notifications(submission):
         form = submission.form
         student = submission.student
+        form_title_lower = form.title.lower() if form else ''
 
-        # In-app notification
+        # In-app notification for logged-in students
         if student:
             Notification.objects.create(
                 user=student,
@@ -29,33 +30,48 @@ class FormService:
                 message=f"Your application for '{form.title}' has been successfully submitted.",
                 link=None
             )
-            # Task 9.3: Email notification
             if student.email:
                 email_application_received(student.email, student.full_name, form.title)
 
         # Trigger Form B (Enrollment Verification) for Form A submissions
-        if 'form a' in form.title.lower() or 'forma' in form.title.lower().replace(' ', ''):
+        if 'form a' in form_title_lower or 'forma' in form_title_lower.replace(' ', ''):
             FormService._send_form_b_email(submission)
+
+        # Auto-forward Form F (Practicum) and Form G (Graduation) directly to director queue
+        # These are one-off awards that don't need SSW review
+        is_one_off = (
+            'form f' in form_title_lower or
+            'form g' in form_title_lower or
+            'practicum' in form_title_lower or
+            'graduation' in form_title_lower or
+            'summer student' in form_title_lower
+        )
+        if is_one_off:
+            from django.utils import timezone
+            submission.status = 'forwarded'
+            submission.forwarded_at = timezone.now()
+            submission.save(update_fields=['status', 'forwarded_at'])
+            # Calculate award amount immediately from policy
+            from api.services.calculation_service import CalculationService
+            CalculationService.calculate_and_pay(submission)
 
         # Notify Admins & Directors
         admins_and_directors = User.objects.filter(role__in=['admin', 'director'])
         staff_emails = [u.email for u in admins_and_directors if u.email]
-        
+
         if staff_emails:
-            # Build summary of answers
             answers = submission.answers.all()
             summary_lines = []
-            for ans in answers[:10]: # Limit to first 10 for email brevity
+            for ans in answers[:10]:
                 label = ans.field.label if ans.field else (getattr(ans, 'field_label', '') or 'Field')
-                summary_lines.append(f"<strong>{label}:</strong> {ans.answer_text}")
-            
+                summary_lines.append(f"<strong>{label}:</strong> {ans.answer_text or '—'}")
             summary_html = "<br>".join(summary_lines)
             if len(answers) > 10:
                 summary_html += "<br><em>... and more details available in the dashboard.</em>"
-                
+
             email_new_submission_staff(
                 staff_emails=staff_emails,
-                student_name=student.full_name if student else 'Guest',
+                student_name=student.full_name if student else 'Guest Applicant',
                 form_title=form.title,
                 submission_id=submission.id,
                 answers_summary=summary_html
@@ -65,7 +81,7 @@ class FormService:
             Notification.objects.create(
                 user=staff,
                 title="New Application Received",
-                message=f"A new submission for '{form.title}' from {student.full_name if student else 'Guest'}.",
+                message=f"A new submission for '{form.title}' from {student.full_name if student else 'Guest Applicant'}.",
                 link=None
             )
 

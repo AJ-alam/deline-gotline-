@@ -57,12 +57,12 @@ def seed():
     # 4. Create Forms
     forms_to_seed = [
         {
-            'title': 'FormA - New Student Application',
+            'title': 'Form A — New Student Application',
             'description': 'Main admission form for the DGG Student Portal.',
             'purpose': 'application'
         },
         {
-            'title': 'FormC - Travel Assistance',
+            'title': 'Form C — Continuing Funding Application',
             'description': 'Request for travel assistance and support.',
             'purpose': 'application'
         }

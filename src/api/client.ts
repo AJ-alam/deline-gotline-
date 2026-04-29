@@ -281,8 +281,8 @@ class API {
     // Support for complex wizards
     static async submitApplication(data: any) {
         const forms = await this.getForms() as unknown as any[];
-        // More robust matching: strip spaces and compare lowercase
-        const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, '');
+        // Normalize: strip spaces, dashes, em-dashes, lowercase for matching
+        const normalize = (s: string) => s.toLowerCase().replace(/[\s\-\u2014\u2013]+/g, '');
         const target = normalize(data.form_type);
         
         const form = forms.find((f: any) => {

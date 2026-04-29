@@ -110,7 +110,6 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
     else onBack();
   };
 
-  // BUG 4: Connected Submission Flow
   const handleSubmit = async () => {
     if (!formData.signature) {
       setError('Student signature is required.');
@@ -141,7 +140,8 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
         { field_label: 'Bank Account', answer_text: formData.bankAccount },
         { field_label: 'Recipient Name', answer_text: formData.releaseToOther ? formData.recipientName : 'Self' },
         { field_label: 'Recipient Relationship', answer_text: formData.releaseToOther ? formData.recipientRelationship : 'N/A' },
-        { field_label: 'Student Signature', answer_text: formData.signature }
+        { field_label: 'Student Signature', answer_text: formData.signature },
+        { field_label: 'Submission Date', answer_text: new Date().toISOString().split('T')[0] },
       ];
 
       answers.forEach((ans, i) => {
@@ -155,7 +155,7 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
       }
 
       await API.submitApplication({
-        form_type: 'FormG',
+        form_type: 'Form G',
         form_data: submissionData
       });
       setIsSubmitted(true);
