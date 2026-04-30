@@ -36,10 +36,12 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
     forwarded_by_name = serializers.SerializerMethodField()
     decided_by_name = serializers.SerializerMethodField()
 
+    form_type = serializers.CharField(source='form.title', read_only=True)
+
     class Meta:
         model = FormSubmission
         fields = (
-            'id', 'form', 'form_title', 'student', 'student_name', 'student_details',
+            'id', 'form', 'form_title', 'form_type', 'student', 'student_name', 'student_details',
             'submitted_at', 'status', 'amount', 'answers', 'notes',
             'reviewed_at', 'reviewed_by', 'reviewed_by_name',
             'forwarded_at', 'forwarded_by', 'forwarded_by_name',

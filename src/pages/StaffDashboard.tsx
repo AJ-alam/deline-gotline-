@@ -76,16 +76,23 @@ const StaffDashboard: React.FC = () => {
   const [appeals, setAppeals] = useState<any[]>([]);
   const [userData, setUserData] = useState<any>(null);
 
-  const fetchApplications = async () => {
+  const fetchApplications = async (showLoader = false) => {
+    if (showLoader || applications.length === 0) setIsLoading(true);
+    
     // Start all requests in parallel
-    const subsPromise = API.getSubmissions().then((resp: any) => {
-      if (Array.isArray(resp)) {
-        setApplications(resp);
-      } else if (resp && resp.results && Array.isArray(resp.results)) {
-        setApplications(resp.results);
-      } else {
-        setApplications([]);
-      }
+    const subsPromise = Promise.all([
+      API.getApplications(),
+      API.getSubmissions()
+    ]).then(([appsResp, subsResp]: [any, any]) => {
+      const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
+      const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
+      
+      // Merge: ensure submissions have consistent naming if needed
+      const merged = [
+        ...apps.map((a: any) => ({ ...a, _is_standard: true })), 
+        ...subs
+      ];
+      setApplications(merged);
     });
 
     const statsPromise = API.getDashboardStats().then((resp: any) => {
@@ -94,6 +101,10 @@ const StaffDashboard: React.FC = () => {
 
     const notifsPromise = API.getNotifications().then((resp: any) => {
       setNotifications(Array.isArray(resp) ? resp : []);
+    });
+
+    const appealsPromise = API.getAppeals().then((resp: any) => {
+      setAppeals(Array.isArray(resp) ? resp : (resp?.results || []));
     });
 
     const mePromise = API.getMe().then((meResp: any) => {
@@ -110,8 +121,7 @@ const StaffDashboard: React.FC = () => {
     });
 
     try {
-      // Wait for all to complete but display each as it arrives
-      await Promise.allSettled([subsPromise, statsPromise, notifsPromise, mePromise]);
+      await Promise.allSettled([subsPromise, statsPromise, notifsPromise, mePromise, appealsPromise]);
     } catch (err: any) {
       console.error('Data sync failed:', err);
       setError(err.message || 'Failed to sync with database');
@@ -130,8 +140,8 @@ const StaffDashboard: React.FC = () => {
 
   // ── POLLING FOR REAL-TIME UPDATES ──
   useEffect(() => {
-    fetchApplications();
-    const interval = setInterval(fetchApplications, 10000); // 10-second polling
+    fetchApplications(true); // Initial load with spinner
+    const interval = setInterval(() => fetchApplications(false), 30000); // Silent poll every 30s
     return () => clearInterval(interval);
   }, [reportFundingType]); // Re-fetch when funding type filter changes
 
@@ -290,10 +300,14 @@ const StaffDashboard: React.FC = () => {
     }
 
     try {
-      await API.updateSubmissionStatus(Number(selectedAppId), status, {
-        decision_notes: notesOverride ?? decisionNotes,
-        amount: amountToSave
-      });
+      if (currentApp?._is_standard) {
+        await API.updateApplicationStatus(Number(selectedAppId), status, notesOverride ?? decisionNotes);
+      } else {
+        await API.updateSubmissionStatus(Number(selectedAppId), status, {
+          decision_notes: notesOverride ?? decisionNotes,
+          amount: amountToSave
+        });
+      }
       setShowConfirmModal(false);
       setShowRejectModal(false);
       setDecisionNotes('');
@@ -716,6 +730,22 @@ const StaffDashboard: React.FC = () => {
     }
   };
 
+  const getStudentName = (app: any) => {
+    if (!app) return 'Student';
+    const nameFromAnswers = (app.answers || []).find((a: any) =>
+      (a.label || '').toLowerCase().includes('full name') ||
+      (a.label || '').toLowerCase().includes('student name')
+    )?.answer_text;
+
+    const profileName = app.student_details?.full_name || app.student_name;
+    
+    // If profile name is generic (like Admin), use the form answer
+    if (!profileName || profileName.includes('Administrator') || profileName.includes('Admin')) {
+      return nameFromAnswers || profileName || 'Guest Applicant';
+    }
+    return profileName;
+  };
+
   const filteredAndSortedApps = [...filteredApps].sort((a, b) => {
     let aVal: any;
     let bVal: any;
@@ -762,10 +792,15 @@ const StaffDashboard: React.FC = () => {
     const student = app.student_details || {};
     const profile = student.profile || {};
 
-    // helper to get answer by label (case-insensitive fuzzy match); backend returns 'label' (read field)
+    // helper to get answer by label (case-insensitive fuzzy match)
     const getAns = (label: string) => app.answers.find((a: any) => (a.label || a.field_label || '').toLowerCase().includes(label.toLowerCase()))?.answer_text;
 
-    const stream = getAns('bursaryStream') || student.primary_stream || 'DGGR';
+    // Stream identification
+    let stream = getAns('bursaryStream') || student.primary_stream || 'DGGR';
+    if (stream.includes('PSSSP')) stream = 'PSSSP';
+    else if (stream.includes('UCEPP')) stream = 'UCEPP';
+    else stream = 'DGGR';
+
     const enrollment = getAns('enrollmentType')?.toLowerCase() || student.enrollment_status?.toLowerCase() || 'full-time';
     const isFullTime = enrollment.includes('full');
     const hasDeps = (getAns('hasDependents')?.toLowerCase() === 'yes') || (student.num_dependents > 0);
@@ -773,9 +808,9 @@ const StaffDashboard: React.FC = () => {
     const startStr = getAns('semStart');
     const endStr = getAns('semEnd');
 
-    // 0. Eligibility Check (NWT SFA)
+    // 0. Eligibility Check (NWT SFA Exclusion for PSSSP/UCEPP)
     const isNwtSfaEligible = profile.is_sfa_active || student.financial_assistance_status === 'Eligible';
-    if ((stream.includes('PSSSP') || stream.includes('UCEPP')) && isNwtSfaEligible) {
+    if ((stream === 'PSSSP' || stream === 'UCEPP') && isNwtSfaEligible) {
       return {
         total: 0,
         ineligible: true,
@@ -795,99 +830,150 @@ const StaffDashboard: React.FC = () => {
     }
 
     // 2. Living Allowance
-    let livingSection = 'dggr_living';
-    if (stream.includes('PSSSP')) livingSection = 'psssp_living';
-    else if (stream.includes('UCEPP')) livingSection = 'ucepp_living';
+    let livingSection = 'dggr_rates';
+    if (stream === 'PSSSP') livingSection = 'psssp_rates';
+    else if (stream === 'UCEPP') livingSection = 'ucepp_rates';
 
-    const depKey = hasDeps ? 'with_dependents' : 'no_dependents';
-    const loadKey = isFullTime ? 'fulltime' : 'parttime';
-    const fieldKey = `${loadKey}_${depKey}`;
+    const depKey = hasDeps ? 'with_dep' : 'no_dep';
+    const loadKey = isFullTime ? 'full' : 'part';
+    const livingFieldKey = `living_${loadKey}_${depKey}`;
 
-    const livingRate = getPolicySetting(livingSection, fieldKey);
+    const livingRate = getPolicySetting(livingSection, livingFieldKey);
     const totalLiving = livingRate * months;
 
-    // 3. Tuition
-    let tuitionSection = 'dggr_tuition';
-    if (stream.includes('PSSSP')) tuitionSection = 'psssp_tuition';
-    else if (stream.includes('UCEPP')) tuitionSection = 'ucepp_tuition';
-
+    // 3. Tuition Award
     let tuitionLimit = 0;
-    if (tuitionSection === 'psssp_tuition' || tuitionSection === 'ucepp_tuition') {
-      tuitionLimit = getPolicySetting(tuitionSection, 'max_per_semester');
+    let tuitionRule = "";
+    
+    if (stream === 'PSSSP') {
+      tuitionLimit = getPolicySetting('psssp_rates', 'tuition_cap');
+      tuitionRule = `PSSSP cap: $${tuitionLimit} (includes books/fees)`;
+    } else if (stream === 'UCEPP') {
+      tuitionLimit = getPolicySetting('ucepp_rates', 'tuition_cap');
+      tuitionRule = `UCEPP cap: $${tuitionLimit} (includes books/fees)`;
     } else {
-      tuitionLimit = getPolicySetting('dggr_tuition', isFullTime ? 'fulltime_per_semester' : 'parttime_per_semester');
+      // DGGR Tuition Top-up (Fixed amount based on load)
+      tuitionLimit = getPolicySetting('dggr_rates', isFullTime ? 'tuition_full' : 'tuition_part');
+      tuitionRule = `DGGR Top-up: $${tuitionLimit} fixed`;
     }
 
-    const finalTuition = requestedTuition > 0 ? Math.min(requestedTuition, tuitionLimit) : tuitionLimit;
+    let finalTuition = stream === 'DGGR' ? tuitionLimit : Math.min(requestedTuition || tuitionLimit, tuitionLimit);
 
-    // 4. Extra Tuition (DGGR Only)
-    let extraAmount = 0;
-    if (stream.includes('DGGR') && requestedTuition > tuitionLimit) {
-      const threshold = getPolicySetting('dggr_extra_tuition', 'threshold_per_semester');
-      if (requestedTuition >= threshold) {
-        const maxPercent = getPolicySetting('dggr_extra_tuition', 'max_percent_covered') / 100;
-        const maxCap = getPolicySetting('dggr_extra_tuition', 'max_per_semester');
-        extraAmount = Math.min((requestedTuition - tuitionLimit) * maxPercent, maxCap);
+    // 4. DGGR Extra Tuition Relief (25% top-up for expensive programs)
+    let extraRelief = 0;
+    if (stream === 'DGGR') {
+      const triggerSem = getPolicySetting('dggr_extra_tuition', 'trigger_semester');
+      // Trigger if tuition > $5000 per semester or if user requested a lot
+      if (requestedTuition > triggerSem) {
+        const reliefPercent = getPolicySetting('dggr_extra_tuition', 'relief_percent');
+        const reliefMaxSem = getPolicySetting('dggr_extra_tuition', 'relief_max_semester');
+        // Up to 25% of tuition, max $4000 INCLUDING the regular bursary
+        const potentialRelief = requestedTuition * reliefPercent;
+        extraRelief = Math.min(potentialRelief, reliefMaxSem) - finalTuition;
+        if (extraRelief < 0) extraRelief = 0;
       }
     }
 
-    // 5. Special Awards/Bursaries
+    // 5. Special Awards/Bursaries (Graduation, Scholarship, etc.)
     let specialAwards = 0;
     let specialNote = "";
 
-    // Graduation Bursary (FormG)
-    if (app.form_type === 'FormG') {
-      const degreeType = getAns('degreeType') || student.program_credential;
-      if (degreeType) {
-        // Map common titles to field keys
-        const mappedKey = degreeType.toLowerCase().replace(/ /g, '_');
-        specialAwards = getPolicySetting('dggr_grad_bursary', mappedKey);
-        specialNote = `Graduation Bursary: ${degreeType}`;
-      }
+    // Graduation Award
+    if (app.form_type === 'Graduation Bursary' || app.form_type === 'FormG' || (app.form?.title || '').toLowerCase().includes('graduation')) {
+      const degreeType = getAns('degreeType') || student.program_credential || 'Diploma';
+      const mappedKey = degreeType.toLowerCase().replace(/ /g, '_');
+      specialAwards = getPolicySetting('dggr_grad_bursary', mappedKey);
+      specialNote = `Graduation Award: ${degreeType}`;
     }
 
-    // Academic Scholarship (GPA Check)
+    // Academic Achievement Scholarship
     const gpa = parseFloat(getAns('gpa') || '0');
-    if (gpa > 0) {
-      const highThreshold = getPolicySetting('dggr_academic_scholarship', 'high_threshold_percent');
-      const midThresholdLower = getPolicySetting('dggr_academic_scholarship', 'mid_threshold_lower');
-      const midThresholdUpper = getPolicySetting('dggr_academic_scholarship', 'mid_threshold_upper');
-
-      if (gpa >= highThreshold) {
-        specialAwards += getPolicySetting('dggr_academic_scholarship', 'high_achievement_award');
-      } else if (gpa >= midThresholdLower && gpa <= midThresholdUpper) {
-        specialAwards += getPolicySetting('dggr_academic_scholarship', 'mid_achievement_award');
-      }
+    if (gpa >= 80) {
+      specialAwards += getPolicySetting('dggr_scholarship', 'gpa_80_plus');
+      specialNote += (specialNote ? " + " : "") + "Scholarship (80%+)";
+    } else if (gpa >= 70) {
+      specialAwards += getPolicySetting('dggr_scholarship', 'gpa_70_79');
+      specialNote += (specialNote ? " + " : "") + "Scholarship (70-79%)";
     }
 
-    const bookAllowance = getPolicySetting('system_config', 'book_allowance') || 500;
+    // Summer/Practicum Award
+    if (app.form_type === 'Practicum' || app.form_type === 'FormF' || (app.form?.title || '').toLowerCase().includes('practicum')) {
+      specialAwards += getPolicySetting('dggr_rates', 'summer_practicum_award');
+      specialNote += (specialNote ? " + " : "") + "Summer/Practicum Award";
+    }
+
+    // Books & Supplies (Policy: PSSSP/UCEPP include it in tuition, DGGR doesn't specify a separate book bursary)
+    // We will set it to 0 as it is now dynamic or bundled
+    const bookAllowance = 0; 
 
     return {
       tuition: {
-        system: finalTuition,
+        system: finalTuition + extraRelief,
         requested: requestedTuition,
-        rule: `Max $${tuitionLimit} per semester`
+        rule: extraRelief > 0 ? `${tuitionRule} + 25% Extra Relief` : tuitionRule
       },
       living: {
         system: totalLiving,
         rate: livingRate,
         months,
-        rule: `$${livingRate}/mo for ${months} mons`
+        rule: `$${livingRate}/mo for ${months} months`
       },
       books: {
         system: bookAllowance,
-        rule: `$${bookAllowance} per semester standard allowance`
+        rule: stream === 'DGGR' ? 'Not specified in policy' : 'Included in tuition cap'
       },
       special: {
         system: specialAwards,
         rule: specialNote
       },
-      total: finalTuition + totalLiving + extraAmount + bookAllowance + specialAwards,
+      total: finalTuition + totalLiving + extraRelief + bookAllowance + specialAwards,
       stream
     };
   };
 
   const autoSuggested = calculateAutoFunding(selectedApp);
+
+  // Single Awards to be shown in the Appeals section for Director review
+  const singleAwardTypes = [
+    'Graduation Bursary',
+    'Practicum',
+    'Scholarship',
+    'Hardship',
+    'Summer Student'
+  ];
+
+  const displayAppeals = [
+    ...appeals.map(a => ({
+      id: `APL-${a.id}`,
+      student: a.student_details?.full_name || 'Student',
+      form_title: a.submission_details?.form_title || 'Appeal',
+      reason: a.reason,
+      status: a.status,
+      date: a.created_at,
+      original: a,
+      type: 'appeal'
+    })),
+    ...applications.filter(app => {
+      const type = (app.form_type || '').toLowerCase();
+      return singleAwardTypes.some(t => type.includes(t.toLowerCase()));
+    }).map(app => ({
+      id: `APP-${app.id}`,
+      student: app.student_details?.full_name || app.student_name || 'Student',
+      form_title: app.form_title || 'Single Award',
+      reason: `Direct Award Application: ${app.form_title}`,
+      status: app.status,
+      date: app.submitted_at || app.created_at,
+      original: app,
+      type: 'application'
+    }))
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const pendingSpecialAwards = applications.filter(app => {
+    const type = (app.form_type || '').toLowerCase();
+    const isSpecial = singleAwardTypes.some(t => type.includes(t.toLowerCase()));
+    return isSpecial && (app.status === 'pending' || app.status === 'new' || app.status === 'review');
+  }).length;
+  const totalAppealsBadge = (appeals.filter((a: any) => a.status === 'pending').length || 0) + pendingSpecialAwards;
 
   const getFormDisplayName = (title: string) => {
     const mapping: Record<string, string> = {
@@ -1113,7 +1199,7 @@ const StaffDashboard: React.FC = () => {
                 </div>
               </div>
               <div style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>
-                ${row.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${(row.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
           ))}
@@ -1137,7 +1223,7 @@ const StaffDashboard: React.FC = () => {
               </div>
             </div>
             <div style={{ fontSize: '18px', fontWeight: '900', color: '#e5a662' }}>
-              ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${(totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
         </div>
@@ -1147,7 +1233,7 @@ const StaffDashboard: React.FC = () => {
           <div style={{ marginTop: '16px', padding: '12px 16px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #dcfce7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: '12px', fontWeight: '700', color: '#166534' }}>✓ Approved Amount</div>
             <div style={{ fontSize: '14px', fontWeight: '800', color: '#166534' }}>
-              ${parseFloat(selectedApp.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${parseFloat(selectedApp?.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
           </div>
         )}
@@ -1607,7 +1693,7 @@ const StaffDashboard: React.FC = () => {
                 <div className="staff-nav-title">Governance</div>
                 {renderNavItem('reports', 'Reports', <AdminIcons.Reports />)}
                 {renderNavItem('policy', 'Policy Settings', <AdminIcons.Policy />)}
-                {renderNavItem('appeals', 'Appeals', <AdminIcons.Apps />, appeals.filter((a: any) => a.status === 'pending').length || undefined)}
+                {renderNavItem('appeals', 'Appeals & Awards', <AdminIcons.Apps />, totalAppealsBadge || undefined)}
               </div>
             </>
           ) : (
@@ -1866,7 +1952,7 @@ const StaffDashboard: React.FC = () => {
                   <tbody>
                     {applications.slice(0, 8).map(app => (
                       <tr
-                        key={app.id}
+                        key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`}
                         className="clickable-row"
                         style={{ cursor: 'pointer' }}
                         onClick={() => handleAppClick(app.id)}
@@ -1876,7 +1962,7 @@ const StaffDashboard: React.FC = () => {
                         aria-label={`View application ${app.id} for ${app.student_details?.full_name || 'Anonymous Student'}`}
                       >
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}># {app.id}</span></td>
-                        <td><strong>{app.student_details?.full_name || 'Anonymous Student'}</strong></td>
+                        <td><strong>{getStudentName(app)}</strong></td>
                         <td style={{ fontSize: '12px' }}>{app.form_title || app.form?.title || 'General App'}</td>
                         <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(app.submitted_at).toLocaleDateString()}</td>
                         <td>{getStatusBadge(app.status)}</td>
@@ -2018,7 +2104,7 @@ const StaffDashboard: React.FC = () => {
                   <tbody>
                     {paginatedApps.map(app => (
                       <tr
-                        key={app.id}
+                        key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`}
                         className="clickable-row"
                         onClick={() => handleAppClick(app.id)}
                         style={{ cursor: 'pointer' }}
@@ -2028,7 +2114,7 @@ const StaffDashboard: React.FC = () => {
                         aria-label={`View application ${app.id} for ${app.student_details?.full_name || 'Student'}`}
                       >
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}>{app.id}</span></td>
-                        <td><strong>{app.student_details?.full_name}</strong></td>
+                        <td><strong>{getStudentName(app)}</strong></td>
                         <td style={{ fontSize: '12px' }}>{getFormDisplayName(app.form_title || app.form?.title)}</td>
                         <td style={{ fontSize: '12px' }}>{new Date(app.submitted_at).toLocaleDateString()}</td>
                         <td>{getStatusBadge(app.status)}</td>
@@ -2275,23 +2361,25 @@ const StaffDashboard: React.FC = () => {
                               <td style={{ fontSize: '12px' }}>Tuition Award</td>
                               <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#dcfce7', color: '#166534' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>
                               <td style={{ fontSize: '11px', color: '#64748b' }}>{autoSuggested?.tuition?.rule}</td>
-                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.tuition?.system ?? 0).toLocaleString()}</td>
-                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.tuition?.system ?? 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
+                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.tuition?.system || 0).toLocaleString()}</td>
+                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.tuition?.system || 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
                             </tr>
                             <tr>
                               <td style={{ fontSize: '12px' }}>Living Allowance</td>
                               <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#e0e7ff', color: '#3730a3' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>
                               <td style={{ fontSize: '11px', color: '#64748b' }}>{autoSuggested?.living?.rule}</td>
-                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.living?.system ?? 0).toLocaleString()}</td>
-                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.living?.system ?? 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
+                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.living?.system || 0).toLocaleString()}</td>
+                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.living?.system || 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
                             </tr>
-                            <tr>
-                              <td style={{ fontSize: '12px' }}>Books & Supplies</td>
-                              <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#fff7ed', color: '#c2410c' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>
-                              <td style={{ fontSize: '11px', color: '#64748b' }}>{autoSuggested?.books?.rule}</td>
-                              <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.books?.system ?? 500).toLocaleString()}</td>
-                              <td><input type="text" className="admin-input" defaultValue={autoSuggested?.books?.system ?? 500} style={{ width: '100px', padding: '4px 8px' }} /></td>
-                            </tr>
+                            {autoSuggested?.books?.system > 0 && (
+                              <tr>
+                                <td style={{ fontSize: '12px' }}>Books & Supplies</td>
+                                <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#fff7ed', color: '#c2410c' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>
+                                <td style={{ fontSize: '11px', color: '#64748b' }}>{autoSuggested?.books?.rule}</td>
+                                <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.books?.system || 0).toLocaleString()}</td>
+                                <td><input type="text" className="admin-input" defaultValue={autoSuggested?.books?.system || 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
+                              </tr>
+                            )}
                           </tbody>
                           <tfoot>
                             <tr style={{ borderTop: '2px solid #e2e8f0' }}>
@@ -2315,7 +2403,7 @@ const StaffDashboard: React.FC = () => {
                                   </button>
                                 </div>
                               </td>
-                              <td style={{ fontSize: '15px' }}><strong>${autoSuggested?.total.toLocaleString()}</strong></td>
+                              <td style={{ fontSize: '15px' }}><strong>${(autoSuggested?.total || 0).toLocaleString()}</strong></td>
                               <td><div className="admin-badge badge-approved" style={{ width: '100px', textAlign: 'center' }}>${selectedApp?.amount?.toLocaleString() || '0'}</div></td>
                             </tr>
                           </tfoot>
@@ -2763,7 +2851,7 @@ const StaffDashboard: React.FC = () => {
                           </thead>
                           <tbody>
                             {applications.map((app: any) => (
-                              <tr key={app.id}>
+                              <tr key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`}>
                                 <td><span style={{ fontSize: '11px', color: '#64748b' }}>#{app.id}</span></td>
                                 <td><strong>{app.student_details?.full_name || app.name}</strong></td>
                                 <td><span className="admin-badge" style={{ background: '#f1f5f9', color: '#475569' }}>{app.form_title || 'General'}</span></td>
@@ -2869,17 +2957,10 @@ const StaffDashboard: React.FC = () => {
                   </thead>
                   <tbody>
                     {applications.filter(a => a.status === 'forwarded').map(app => (
-                      <tr key={app.id}>
+                      <tr key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`}>
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}>#{app.id}</span></td>
                         <td>
-                          <strong>
-                            {app.student_details?.full_name ||
-                              (app.answers || []).find((a: any) =>
-                                (a.label || '').toLowerCase().includes('full name') ||
-                                (a.label || '').toLowerCase().includes('student name')
-                              )?.answer_text ||
-                              'Guest Applicant'}
-                          </strong>
+                          <strong>{getStudentName(app)}</strong>
                         </td>
                         <td style={{ fontSize: '12px' }}>{app.form_title}</td>
                         <td style={{ fontSize: '13px', fontWeight: '700' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
@@ -2936,9 +3017,9 @@ const StaffDashboard: React.FC = () => {
                     </thead>
                     <tbody>
                       {applications.filter(a => a.status === 'accepted' || a.status === 'rejected').map(app => (
-                        <tr key={app.id} style={{ cursor: 'pointer' }} onClick={() => { setSelectedAppId(String(app.id)); setCurrentView('director-detail'); }}>
+                        <tr key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`} style={{ cursor: 'pointer' }} onClick={() => { setSelectedAppId(String(app.id)); setCurrentView('director-detail'); }}>
                           <td><span style={{ fontSize: '10px', color: '#64748b' }}>{app.id}</span></td>
-                          <td><strong>{app.student_details?.full_name || 'Student'}</strong></td>
+                          <td><strong>{getStudentName(app)}</strong></td>
                           <td style={{ fontSize: '11px' }}>{app.form_title || 'N/A'}</td>
                           <td style={{ fontSize: '12px', fontWeight: '700' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
                           <td>{getStatusBadge(app.status)}</td>
@@ -2955,7 +3036,10 @@ const StaffDashboard: React.FC = () => {
 
           {/* Director Application Detail View */}
           {(currentView === 'director-detail' && selectedAppId) && (
-            <div className="fade-in">
+            (() => {
+              const app = applications.find(a => String(a.id) === String(selectedAppId));
+              return (
+                <div className="fade-in">
               <div style={{ marginBottom: '20px' }}>
                 <span style={{ fontSize: '11px', color: '#64748b' }}>Approval Queue / <span style={{ fontWeight: '700', color: '#1e293b' }}>{selectedAppId}</span></span>
               </div>
@@ -2970,15 +3054,10 @@ const StaffDashboard: React.FC = () => {
                         <h2 style={{ fontSize: '20px', fontWeight: '800' }}>
                           {(() => {
                             const app = applications.find(a => Number(a.id) === Number(selectedAppId));
-                            const name = app?.student_details?.full_name ||
-                              (app?.answers || []).find((a: any) =>
-                                (a.label || '').toLowerCase().includes('full name') ||
-                                (a.label || '').toLowerCase().includes('student name')
-                              )?.answer_text ||
-                              'Guest Applicant';
-                            return `${name} — ${app?.form_title || 'Application'}`;
+                            return `${getStudentName(app)} — ${app?.form_title || 'Application'}`;
                           })()}
                         </h2>
+                        <div style={{ display: 'none' }}></div>
                         {(() => { const app = applications.find(a => Number(a.id) === Number(selectedAppId)); const ts = app?.forwarded_at || app?.submitted_at; return <div style={{ fontSize: '11px', color: '#64748b' }}>{app?.forwarded_at ? 'SSW forwarded' : 'Submitted'} {ts ? new Date(ts).toLocaleDateString() : 'N/A'}</div>; })()}
                       </div>
                       {applications.find(a => Number(a.id) === Number(selectedAppId))?.flags?.map((f: string) => (
@@ -2991,11 +3070,7 @@ const StaffDashboard: React.FC = () => {
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '32px 24px' }}>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>NAME</label>
-                          <div style={{ fontSize: '13px', fontWeight: '700' }}>
-                            {app?.student_details?.full_name ||
-                              (app?.answers || []).find((a: any) => (a.label || '').toLowerCase().includes('full name') || (a.label || '').toLowerCase().includes('student name'))?.answer_text ||
-                              'Guest Applicant'}
-                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: '700' }}>{getStudentName(app)}</div>
                         </div>
                         <div>
                           <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>BENEFICIARY #</label>
@@ -3086,7 +3161,7 @@ const StaffDashboard: React.FC = () => {
                             const stream = getField('funding stream') || getField('bursarystream') || app?.student_details?.primary_stream || 'CDFN';
                             const tuition = parseFloat(officeData.tuition || 0);
                             const living = parseFloat(officeData.living || 0);
-                            const books = parseFloat(officeData.books || 500);
+                            const books = parseFloat(officeData.books || 0);
                             const extra = parseFloat(officeData.extra_tuition || 0);
                             const total = parseFloat(app?.amount || 0);
 
@@ -3117,7 +3192,7 @@ const StaffDashboard: React.FC = () => {
                                     <td style={{ fontWeight: '600' }}>{row.component}</td>
                                     <td><span className="admin-badge" style={{ background: '#e0e7ff' }}>{row.stream}</span></td>
                                     <td style={{ fontSize: '10px', color: '#64748b' }}>{row.rule}</td>
-                                    <td><strong>${row.amount.toLocaleString()}</strong></td>
+                                    <td><strong>${(row.amount || 0).toLocaleString()}</strong></td>
                                   </tr>
                                 ))}
                                 <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
@@ -3249,7 +3324,9 @@ const StaffDashboard: React.FC = () => {
                 </div>
               </div>
             </div>
-          )}
+          );
+        })()
+      )}
 
           {/* Confirm Approval Modal */}
           {showConfirmModal && (
@@ -3484,7 +3561,17 @@ const StaffDashboard: React.FC = () => {
           {currentView === 'appeals' && (
             <div className="fade-in">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <h2 style={{ fontSize: '20px', fontWeight: '800' }}>APPEAL REQUESTS</h2>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h2 style={{ fontSize: '20px', fontWeight: '800' }}>APPEALS & SPECIAL AWARDS</h2>
+                  <button 
+                    onClick={() => fetchApplications(true)}
+                    className="admin-btn-secondary"
+                    style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Refresh List"
+                  >
+                    Refresh
+                  </button>
+                </div>
               </div>
               <div className="admin-table-wrap">
                 <table className="admin-table">
@@ -3499,31 +3586,43 @@ const StaffDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {appeals.map((a: any) => (
+                    {displayAppeals.map((a: any) => (
                       <tr
                         key={a.id}
                         className="clickable-row"
                         style={{ cursor: 'pointer' }}
-                        onClick={() => handleAppClick(a.submission)}
+                        onClick={() => {
+                          if (a.type === 'appeal') {
+                            handleAppClick(a.original.submission);
+                          } else {
+                            handleAppClick(a.original.id);
+                          }
+                        }}
                         tabIndex={0}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleAppClick(a.submission); } }}
+                        onKeyDown={(e) => { 
+                          if (e.key === 'Enter' || e.key === ' ') { 
+                            e.preventDefault(); 
+                            if (a.type === 'appeal') handleAppClick(a.original.submission);
+                            else handleAppClick(a.original.id);
+                          } 
+                        }}
                         role="button"
-                        aria-label={`View appeal ${a.id} for ${a.student_details?.full_name || 'Student'}`}
+                        aria-label={`View ${a.type} ${a.id} for ${a.student || 'Student'}`}
                       >
-                        <td><span style={{ fontSize: '11px', color: '#64748b' }}>APP-{a.id}</span></td>
-                        <td><strong>{a.student_details?.full_name || 'Student'}</strong></td>
-                        <td style={{ fontSize: '12px' }}>{a.submission_details?.form_title || 'Application'}</td>
+                        <td><span style={{ fontSize: '11px', color: '#64748b' }}>{a.id}</span></td>
+                        <td><strong>{a.student}</strong></td>
+                        <td style={{ fontSize: '12px' }}>{a.form_title}</td>
                         <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.reason}</td>
                         <td>
-                          <span className={`admin-badge ${a.status === 'resolved' ? 'badge-approved' : 'badge-review'}`}>
+                          <span className={`admin-badge ${a.status === 'accepted' || a.status === 'resolved' || a.status === 'approved' ? 'badge-approved' : 'badge-review'}`}>
                             {a.status.toUpperCase()}
                           </span>
                         </td>
-                        <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(a.created_at).toLocaleDateString()}</td>
+                        <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(a.date).toLocaleDateString()}</td>
                       </tr>
                     ))}
-                    {appeals.length === 0 && (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No appeal requests found.</td></tr>
+                    {displayAppeals.length === 0 && (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No items found in review queue.</td></tr>
                     )}
                   </tbody>
                 </table>

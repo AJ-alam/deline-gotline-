@@ -146,9 +146,13 @@ class API {
         return apiClient.get(`/programs/${id}/`);
     }
 
-    // Forms
-    static getForms() {
-        return apiClient.get('/forms/forms/');
+    private static formsCache: any[] | null = null;
+
+    static async getForms() {
+        if (this.formsCache) return this.formsCache;
+        const forms = await apiClient.get('/forms/forms/');
+        this.formsCache = forms;
+        return forms;
     }
 
     static getForm(id: number) {
@@ -167,12 +171,30 @@ class API {
         return apiClient.get('/forms/submissions/');
     }
 
+    static getApplications() {
+        return apiClient.get('/applications/');
+    }
+
     static getSubmission(id: number) {
         return apiClient.get(`/forms/submissions/${id}/`);
     }
 
     static updateSubmissionStatus(id: number, status: string, additionalData: any = {}) {
         return apiClient.put(`/forms/submissions/${id}/status/`, { status, ...additionalData });
+    }
+
+    static updateApplicationStatus(id: number, status: string, notes: string = '') {
+        if (status === 'accepted') return this.approveApplication(id, notes);
+        if (status === 'rejected') return this.denyApplication(id, notes);
+        return apiClient.patch(`/applications/${id}/`, { status });
+    }
+
+    static approveApplication(id: number, notes: string = '') {
+        return apiClient.post(`/applications/${id}/approve/`, { notes });
+    }
+
+    static denyApplication(id: number, notes: string = '') {
+        return apiClient.post(`/applications/${id}/deny/`, { notes });
     }
 
     static addSubmissionNote(id: number, text: string) {

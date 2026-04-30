@@ -1,7 +1,8 @@
-from .models import Notification
+import logging
+import threading
 from django.core.mail import send_mail
 from django.conf import settings
-import logging
+from .models import Notification
 
 logger = logging.getLogger(__name__)
 
@@ -16,23 +17,28 @@ def create_notification(user, title, message, link=None):
 
 
 def send_email_notification(recipient_email: str, subject: str, html_body: str, plain_body: str = '') -> bool:
-    """Send email notification. Returns True on success, False on failure."""
+    """Send email notification in a background thread."""
     if not getattr(settings, 'EMAIL_HOST_USER', ''):
         logger.warning("EMAIL_HOST_USER not configured — email not sent to %s", recipient_email)
         return False
-    try:
-        send_mail(
-            subject=subject,
-            message=plain_body or html_body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[recipient_email],
-            html_message=html_body,
-            fail_silently=False,
-        )
-        return True
-    except Exception as exc:
-        logger.error("Failed to send email to %s: %s", recipient_email, exc)
-        return False
+
+    def _send():
+        try:
+            send_mail(
+                subject=subject,
+                message=plain_body or html_body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[recipient_email],
+                html_message=html_body,
+                fail_silently=False,
+            )
+            logger.info("Successfully sent background email to %s", recipient_email)
+        except Exception as exc:
+            logger.error("Failed to send background email to %s: %s", recipient_email, exc)
+
+    thread = threading.Thread(target=_send)
+    thread.start()
+    return True
 
 
 # ── EMAIL TEMPLATES (Task 9.2) ──
