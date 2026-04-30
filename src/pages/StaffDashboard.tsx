@@ -1810,7 +1810,7 @@ const StaffDashboard: React.FC = () => {
               <div style={{ background: '#fff5f5', border: '1px solid #fed7d7', padding: '16px', borderRadius: '8px', color: '#c53030', fontSize: '13px' }}>
                 <strong style={{ display: 'block', marginBottom: '4px' }}>Error Loading Data</strong>
                 {error}
-                <button onClick={fetchApplications} style={{ marginLeft: '12px', background: 'none', border: 'none', color: '#c53030', textDecoration: 'underline', fontWeight: '800', cursor: 'pointer' }}>Try Again</button>
+                <button onClick={() => fetchApplications(true)} style={{ marginLeft: '12px', background: 'none', border: 'none', color: '#c53030', textDecoration: 'underline', fontWeight: '800', cursor: 'pointer' }}>Try Again</button>
               </div>
             </div>
           )}
@@ -2371,7 +2371,7 @@ const StaffDashboard: React.FC = () => {
                               <td style={{ fontSize: '13px', fontWeight: '700' }}>${(autoSuggested?.living?.system || 0).toLocaleString()}</td>
                               <td><input type="text" className="admin-input" defaultValue={autoSuggested?.living?.system || 0} style={{ width: '100px', padding: '4px 8px' }} /></td>
                             </tr>
-                            {autoSuggested?.books?.system > 0 && (
+                            {(autoSuggested?.books?.system || 0) > 0 && (
                               <tr>
                                 <td style={{ fontSize: '12px' }}>Books & Supplies</td>
                                 <td style={{ fontSize: '11px' }}><span className="admin-badge" style={{ background: '#fff7ed', color: '#c2410c' }}>{autoSuggested?.stream || selectedApp?.student_details?.primary_stream || 'DGGR'}</span></td>

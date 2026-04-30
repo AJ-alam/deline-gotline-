@@ -146,12 +146,12 @@ class API {
         return apiClient.get(`/programs/${id}/`);
     }
 
-    private static formsCache: any[] | null = null;
+    static formsCache: any[] | null = null;
 
     static async getForms() {
-        if (this.formsCache) return this.formsCache;
-        const forms = await apiClient.get('/forms/forms/');
-        this.formsCache = forms;
+        if (API.formsCache) return API.formsCache;
+        const forms: any = await apiClient.get('/forms/forms/');
+        API.formsCache = forms;
         return forms;
     }
 
