@@ -90,6 +90,12 @@ class FormSubmission(models.Model):
     late_application_approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_late_submissions')
     late_application_approved_at = models.DateTimeField(null=True, blank=True)
 
+    # More Info Request Tracking
+    more_info_requested_at = models.DateTimeField(null=True, blank=True)
+    more_info_requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='info_requests_made')
+    more_info_request_notes = models.TextField(blank=True, null=True)
+    more_info_responded_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = 'form_submissions'
 

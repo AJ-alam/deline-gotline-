@@ -144,7 +144,7 @@
 
 .staff-topbar {
   height: 60px;
-  background: rgba(10, 10, 10, 0.82);
+  background: rgb(10 10 10);
   backdrop-filter: blur(18px) saturate(1.6);
   -webkit-backdrop-filter: blur(18px) saturate(1.6);
   border: 1px solid rgba(255, 255, 255, 0.08);

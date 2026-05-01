@@ -77,21 +77,41 @@ class SubmissionController(viewsets.ModelViewSet):
     serializer_class = FormSubmissionSerializer
     
     def get_permissions(self):
-        admin_only = ['update_status', 'add_note', 'share', 'check_eligibility', 'check_duplicates', 'mark_legitimate', 'mark_duplicate']
+        # Directors can only approve/reject (update_status) — not SSW-only actions
+        director_allowed = ['update_status', 'list', 'retrieve', 'respond_info']
+        admin_only = ['add_note', 'share', 'check_eligibility', 'check_duplicates', 'mark_legitimate', 'mark_duplicate']
+
         if self.action in admin_only:
-            return [IsAdminUser()]
+            from users.permissions import IsAdminUser as AdminOnly
+            class StrictAdminOnly(permissions.BasePermission):
+                def has_permission(self, request, view):
+                    return bool(request.user and request.user.is_authenticated and request.user.role == 'admin')
+            return [StrictAdminOnly()]
+
+        if self.action in director_allowed:
+            return [IsAdminUser()]  # both admin and director
+
         return [IsOwnerOrAdmin()]
 
     def get_queryset(self):
         user = self.request.user
         qs = FormSubmission.objects.select_related(
-            'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
+            'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by',
+            'more_info_requested_by'
         ).prefetch_related(
             'answers__field',
             'notes__author'
         ).order_by('-submitted_at')
-        if user.role in ['admin', 'director']:
+
+        if user.role == 'director':
+            # Directors only see submissions forwarded to them by admin/SSW
+            # plus already decided ones (accepted/rejected) for their history
+            return qs.filter(status__in=['forwarded', 'accepted', 'rejected'])
+
+        if user.role == 'admin':
             return qs
+
+        # Students only see their own
         return qs.filter(student=user)
 
     @decorators.action(detail=True, methods=['put'], url_path='status')
@@ -255,3 +275,108 @@ class SubmissionController(viewsets.ModelViewSet):
                 f"Failed to mark as duplicate: {str(e)}",
                 status.HTTP_400_BAD_REQUEST
             )
+
+    @decorators.action(detail=True, methods=['post'], url_path='respond-info')
+    def respond_info(self, request, pk=None):
+        """
+        Student submits additional information in response to a more_info_required request.
+        Accepts new answers (text + files) and updates submission status back to 'pending'.
+        """
+        submission = self.get_object()
+
+        # Only the submission owner can respond
+        if submission.student != request.user:
+            return api_response(False, None, "Not authorized", status.HTTP_403_FORBIDDEN)
+
+        if submission.status != 'more_info_required':
+            return api_response(False, None, "Submission is not awaiting additional information", status.HTTP_400_BAD_REQUEST)
+
+        # Parse new answers from request
+        data = request.data.dict() if hasattr(request.data, 'dict') else dict(request.data)
+
+        new_answers = []
+        i = 0
+        while f'answers[{i}]field_label' in data:
+            ans = {
+                'field_label': data.get(f'answers[{i}]field_label'),
+                'answer_text': data.get(f'answers[{i}]answer_text', ''),
+            }
+            file_key = f'answers[{i}]answer_file'
+            if file_key in request.FILES:
+                ans['answer_file'] = request.FILES[file_key]
+            new_answers.append(ans)
+            i += 1
+
+        # Also accept JSON body answers
+        if not new_answers and 'answers' in request.data:
+            new_answers = request.data.get('answers', [])
+
+        if not new_answers and 'response_text' not in data:
+            return api_response(False, None, "No information provided", status.HTTP_400_BAD_REQUEST)
+
+        from forms.models import FormField, SubmissionAnswer
+        from django.utils import timezone
+
+        # Add a general response note if provided
+        response_text = data.get('response_text', '')
+        if response_text:
+            field, _ = FormField.objects.get_or_create(
+                form=submission.form,
+                label='Student Response',
+                defaults={'field_type': 'textarea', 'is_required': False, 'order': 100}
+            )
+            SubmissionAnswer.objects.create(
+                submission=submission,
+                field=field,
+                answer_text=response_text
+            )
+
+        # Add each new answer
+        for ans_data in new_answers:
+            field_label = ans_data.get('field_label', 'Additional Information')
+            field, _ = FormField.objects.get_or_create(
+                form=submission.form,
+                label=field_label,
+                defaults={'field_type': 'text', 'is_required': False, 'order': 101}
+            )
+            answer = SubmissionAnswer(
+                submission=submission,
+                field=field,
+                answer_text=ans_data.get('answer_text', '')
+            )
+            if 'answer_file' in ans_data:
+                answer.answer_file = ans_data['answer_file']
+            answer.save()
+
+        # Update submission: mark responded, set status back to pending
+        submission.more_info_responded_at = timezone.now()
+        submission.status = 'pending'
+        submission.save(update_fields=['more_info_responded_at', 'status'])
+
+        # Notify staff
+        from django.contrib.auth import get_user_model
+        from notifications.models import Notification
+        from api.models import AuditLog
+        User = get_user_model()
+
+        staff = User.objects.filter(role__in=['admin', 'director'])
+        for s in staff:
+            Notification.objects.create(
+                user=s,
+                title="Student Responded — Info Provided",
+                message=f"{submission.student.full_name} has submitted the requested information for '{submission.form.title}' (#{submission.id}).",
+                link=None
+            )
+
+        AuditLog.objects.create(
+            action=f"Student responded to info request for Submission #{submission.id}",
+            performed_by=request.user,
+            role=request.user.role,
+        )
+
+        # Return updated submission
+        submission = FormSubmission.objects.select_related(
+            'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by', 'more_info_requested_by'
+        ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
+
+        return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Information submitted successfully")

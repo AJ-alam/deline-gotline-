@@ -35,6 +35,7 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
     reviewed_by_name = serializers.SerializerMethodField()
     forwarded_by_name = serializers.SerializerMethodField()
     decided_by_name = serializers.SerializerMethodField()
+    more_info_requested_by_name = serializers.SerializerMethodField()
 
     form_type = serializers.CharField(source='form.title', read_only=True)
 
@@ -46,7 +47,10 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             'reviewed_at', 'reviewed_by', 'reviewed_by_name',
             'forwarded_at', 'forwarded_by', 'forwarded_by_name',
             'decided_at', 'decided_by', 'decided_by_name',
-            'decision_reason', 'office_use_data'
+            'decision_reason', 'office_use_data',
+            'more_info_requested_at', 'more_info_requested_by',
+            'more_info_requested_by_name', 'more_info_request_notes',
+            'more_info_responded_at',
         )
         read_only_fields = ('student', 'submitted_at')
 
@@ -58,6 +62,9 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
 
     def get_decided_by_name(self, obj):
         return obj.decided_by.full_name if obj.decided_by else None
+
+    def get_more_info_requested_by_name(self, obj):
+        return obj.more_info_requested_by.full_name if obj.more_info_requested_by else None
     
     def get_form_title(self, obj):
         answers = obj.answers.all()  # uses prefetch_related cache when set

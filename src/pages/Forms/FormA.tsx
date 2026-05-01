@@ -123,42 +123,67 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
     try {
       const formDataObj = new FormData();
 
+      // Map camelCase formData keys to exact field labels the calculation service expects
       const allAnswers = [
-        ...Object.entries(formData).map(([key, val]) => ({ field_label: key, answer_text: String(val) })),
-        { field_label: 'bursaryStream', answer_text: getBursaryStream() }
+        { field_label: 'Full Name',           answer_text: `${formData.firstName} ${formData.lastName}`.trim() },
+        { field_label: 'First Name',          answer_text: formData.firstName },
+        { field_label: 'Last Name',           answer_text: formData.lastName },
+        { field_label: 'Preferred Name',      answer_text: formData.preferredName },
+        { field_label: 'Phone',               answer_text: formData.phone },
+        { field_label: 'Email',               answer_text: formData.email },
+        { field_label: 'Date of Birth',       answer_text: formData.dob },
+        { field_label: 'Mailing Address',     answer_text: formData.address },
+        { field_label: 'City',                answer_text: formData.city },
+        { field_label: 'Province',            answer_text: formData.province },
+        { field_label: 'Postal Code',         answer_text: formData.postalCode },
+        { field_label: 'SIN',                 answer_text: formData.sin },
+        { field_label: 'Gender',              answer_text: formData.sex },
+        { field_label: 'Beneficiary Number',  answer_text: formData.beneficiaryNo },
+        { field_label: 'Institution Name',    answer_text: formData.institution },
+        { field_label: 'Program',             answer_text: formData.program },
+        { field_label: 'Semester Start Date', answer_text: formData.semStart },
+        { field_label: 'Semester End Date',   answer_text: formData.semEnd },
+        { field_label: 'Registrar Email',     answer_text: formData.registrarEmail },
+        { field_label: 'Tuition Amount',      answer_text: formData.tuition },
+        { field_label: 'Enrollment Status',   answer_text: formData.courseLoad },
+        { field_label: 'Has Dependents',      answer_text: formData.hasDependents },
+        { field_label: 'Number of Dependents',answer_text: String(formData.dependentCount || 0) },
+        { field_label: 'Semester',            answer_text: formData.semester },
+        { field_label: 'Institution Location',answer_text: formData.institutionLocation },
+        { field_label: 'Funding Stream',      answer_text: getBursaryStream() },
+        { field_label: 'Account Holder',      answer_text: formData.accountHolder },
+        { field_label: 'Transit Number',      answer_text: formData.transitNumber },
+        { field_label: 'Institution Number',  answer_text: formData.instNumber },
+        { field_label: 'Account Number',      answer_text: formData.accountNumber },
+        { field_label: 'Signature',           answer_text: formData.signature },
       ];
 
-      // Add file placeholders to answers and actual files to FormData
-      const totalAnswers = [...allAnswers];
+      // Add file answers
       const documents = [
         'Transcripts *', 'Letter of Intent *', 'Reference Letter',
         'Status Card *', 'Void Cheque *', 'Extra Docs'
       ];
-
       documents.forEach(docLabel => {
         if (selectedFiles[docLabel]) {
-          totalAnswers.push({ field_label: docLabel, answer_text: 'File Uploaded' });
+          allAnswers.push({ field_label: docLabel, answer_text: 'File Uploaded' });
         }
       });
 
       // Append answers in indexed format for DRF nested serializer
-      totalAnswers.forEach((ans, index) => {
+      allAnswers.forEach((ans, index) => {
         formDataObj.append(`answers[${index}]field_label`, ans.field_label);
         if (ans.answer_text) {
           formDataObj.append(`answers[${index}]answer_text`, ans.answer_text);
         }
-
-        // Match files by checking if this answer index corresponds to a file
         const file = selectedFiles[ans.field_label];
         if (file) {
           formDataObj.append(`answers[${index}]answer_file`, file);
         }
       });
 
-      // Find form ID - this would ideally be dynamic but for FormA we'll let API handle it or hardcode
       await API.submitApplication({
-        form_type: 'FormA',
-        form_data: formDataObj // Pass FormData directly
+        form_type: 'C-DFN PSSSP',
+        form_data: formDataObj
       });
 
       setIsSubmitted(true);
@@ -172,7 +197,12 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
   };
 
   const getBursaryStream = () => {
-    return profile?.primary_stream || 'Admission Application Entry';
+    // Map profile stream to calculation service stream keys
+    const stream = profile?.primary_stream || '';
+    if (stream.includes('PSSSP') || stream.includes('CDFN') || stream.includes('C-DFN')) return 'C-DFN PSSSP';
+    if (stream.includes('UCEPP')) return 'UCEPP';
+    if (stream.includes('DGGR')) return 'DGGR';
+    return 'C-DFN PSSSP'; // default for new student applications
   };
 
   const canGoNext = () => {

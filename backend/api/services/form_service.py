@@ -37,13 +37,14 @@ class FormService:
         if 'new student application' in form_title_lower or 'psssp' in form_title_lower:
             FormService._send_form_b_email(submission)
 
-        # Auto-forward Practicum and Graduation Bursary directly to director queue
-        # These are one-off awards that don't need SSW review
+        # Auto-forward one-off awards directly to director queue
         is_one_off = (
             'practicum' in form_title_lower or
             'placement allowance' in form_title_lower or
             'graduation bursary' in form_title_lower or
-            'summer student' in form_title_lower
+            'summer student' in form_title_lower or
+            'scholarship' in form_title_lower or
+            'hardship' in form_title_lower
         )
         if is_one_off:
             from django.utils import timezone
@@ -52,7 +53,16 @@ class FormService:
             submission.save(update_fields=['status', 'forwarded_at'])
             # Calculate award amount immediately from policy
             from api.services.calculation_service import CalculationService
-            CalculationService.calculate_and_pay(submission)
+            results = CalculationService.calculate_and_pay(submission)
+            # Store breakdown in office_use_data for director review
+            if results:
+                submission.office_use_data = {
+                    **(submission.office_use_data or {}),
+                    'auto_calculated': True,
+                    'award_type': results.get('award_type', ''),
+                    'breakdown': {k: str(v) for k, v in results.items() if k not in ('payment_items',)},
+                }
+                submission.save(update_fields=['office_use_data'])
 
         # Notify Admins & Directors
         admins_and_directors = User.objects.filter(role__in=['admin', 'director'])
@@ -98,7 +108,10 @@ class FormService:
             submission.office_use_data = extra_data['office_use_data']
 
         if new_status == 'more_info_required':
-            pass  # No timestamp needed; status update + notification is sufficient
+            from django.utils import timezone
+            submission.more_info_requested_at = timezone.now()
+            submission.more_info_requested_by = performed_by
+            submission.more_info_request_notes = extra_data.get('notes', '')
         elif new_status == 'reviewed':
             submission.reviewed_at = timezone.now()
             submission.reviewed_by = performed_by

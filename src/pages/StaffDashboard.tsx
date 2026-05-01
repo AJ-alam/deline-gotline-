@@ -80,20 +80,26 @@ const StaffDashboard: React.FC = () => {
     if (showLoader || applications.length === 0) setIsLoading(true);
     
     // Start all requests in parallel
-    const subsPromise = Promise.all([
-      API.getApplications(),
-      API.getSubmissions()
-    ]).then(([appsResp, subsResp]: [any, any]) => {
-      const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
-      const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
-      
-      // Merge: ensure submissions have consistent naming if needed
-      const merged = [
-        ...apps.map((a: any) => ({ ...a, _is_standard: true })), 
-        ...subs
-      ];
-      setApplications(merged);
-    });
+    const subsPromise = (role === 'director'
+      // Directors only need FormSubmissions (backend already filters to forwarded/decided)
+      ? API.getSubmissions().then((subsResp: any) => {
+          const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
+          setApplications(subs);
+        })
+      // Admins/SSW get both legacy applications and form submissions merged
+      : Promise.all([
+          API.getApplications(),
+          API.getSubmissions()
+        ]).then(([appsResp, subsResp]: [any, any]) => {
+          const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
+          const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
+          const merged = [
+            ...apps.map((a: any) => ({ ...a, _is_standard: true })),
+            ...subs
+          ];
+          setApplications(merged);
+        })
+    );
 
     const statsPromise = API.getDashboardStats().then((resp: any) => {
       setBackendStats(resp || null);
@@ -334,14 +340,28 @@ const StaffDashboard: React.FC = () => {
     }
   };
 
-  const handleRequestInfo = async () => {
+  const [showMoreInfoModal, setShowMoreInfoModal] = useState(false);
+  const [moreInfoNotes, setMoreInfoNotes] = useState('');
+  const [moreInfoLoading, setMoreInfoLoading] = useState(false);
+
+  const handleRequestInfo = () => {
     if (!selectedAppId) return;
+    setMoreInfoNotes('');
+    setShowMoreInfoModal(true);
+  };
+
+  const handleSubmitMoreInfoRequest = async () => {
+    if (!selectedAppId || !moreInfoNotes.trim()) return;
+    setMoreInfoLoading(true);
     try {
-      await API.requestMoreInfo(Number(selectedAppId));
-      alert('Application status updated to RE-OPENED and student notified.');
+      await API.requestMoreInfo(Number(selectedAppId), moreInfoNotes.trim());
+      setShowMoreInfoModal(false);
+      setMoreInfoNotes('');
       fetchApplications();
     } catch (err: any) {
       alert('Action failed: ' + err.message);
+    } finally {
+      setMoreInfoLoading(false);
     }
   };
 
@@ -1662,6 +1682,7 @@ const StaffDashboard: React.FC = () => {
   );
 
   return (
+    <>
     <div className="staff-portal-root">
       {/* Mobile sidebar overlay */}
       <div
@@ -1685,8 +1706,7 @@ const StaffDashboard: React.FC = () => {
               <div className="staff-nav-group">
                 <div className="staff-nav-title">Main</div>
                 {renderNavItem('dashboard', 'Dashboard', <AdminIcons.Dashboard />)}
-                {renderNavItem('director-queue', 'Approval Queue', <AdminIcons.Apps />, applications.filter(a => a.status === 'forwarded').length)}
-                {renderNavItem('applications', 'All Applications', <AdminIcons.Apps />)}
+                {renderNavItem('director-queue', 'Approval Queue', <AdminIcons.Director />, applications.filter(a => a.status === 'forwarded').length || undefined)}
               </div>
 
               <div className="staff-nav-group">
@@ -1694,6 +1714,7 @@ const StaffDashboard: React.FC = () => {
                 {renderNavItem('reports', 'Reports', <AdminIcons.Reports />)}
                 {renderNavItem('policy', 'Policy Settings', <AdminIcons.Policy />)}
                 {renderNavItem('appeals', 'Appeals & Awards', <AdminIcons.Apps />, totalAppealsBadge || undefined)}
+                {renderNavItem('notifications', 'Notifications', <AdminIcons.Dashboard />, notifications.filter((n: any) => !n.is_read).length || undefined)}
               </div>
             </>
           ) : (
@@ -1978,7 +1999,19 @@ const StaffDashboard: React.FC = () => {
           )}
 
           {/* Applications View */}
-          {currentView === 'applications' && (
+          {currentView === 'applications' && role === 'director' && (
+            // Directors don't have an "All Applications" view — redirect to queue
+            <div className="fade-in" style={{ padding: '40px', textAlign: 'center' }}>
+              <div style={{ fontSize: '32px', marginBottom: '16px' }}>🔒</div>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>Access Restricted</h3>
+              <p style={{ color: '#64748b', marginBottom: '24px' }}>Directors can only view applications that have been forwarded for approval.</p>
+              <button className="admin-badge badge-approved" style={{ padding: '10px 24px', cursor: 'pointer', border: 'none', fontWeight: '700' }} onClick={() => setCurrentView('director-queue')}>
+                Go to Approval Queue →
+              </button>
+            </div>
+          )}
+
+          {currentView === 'applications' && role !== 'director' && (
             <div className="fade-in">
               <div className="admin-filters admin-filters-bar">
                 <div className="admin-search">
@@ -2145,7 +2178,7 @@ const StaffDashboard: React.FC = () => {
                             }}
                             onClick={() => handleAppClick(app.id)}
                           >
-                            {app.status === 'forwarded' && role === 'director' ? 'DECIDE →' : 'Review →'}
+                            {app.status === 'forwarded' ? 'DECIDE →' : 'Review →'}
                           </button>
                         </td>
                       </tr>
@@ -2183,6 +2216,7 @@ const StaffDashboard: React.FC = () => {
               )}
             </div>
           )}
+          {/* end applications view for non-directors */}
 
           {/* Detail View (Shared by Staff and Director) */}
           {((currentView === 'detail' || currentView === 'director-detail') && selectedAppId) && (
@@ -2195,8 +2229,13 @@ const StaffDashboard: React.FC = () => {
                 <div className="admin-detail-actions">
                   <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }} onClick={handlePDFExport}>Export PDF</button>
                   <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' }} onClick={handleShareView}>Share View</button>
-                  <button className="admin-input" style={{ width: 'auto', fontSize: '11px', fontWeight: '700' }} onClick={handleRequestInfo}>REQUEST MORE INFO</button>
-                  <button className="admin-input" style={{ width: 'auto', fontSize: '11px', fontWeight: '700' }} onClick={handleAddNote} disabled={!staffNote.trim() || isLoading}>ADD NOTE</button>
+                  {/* SSW-only actions — hidden from director */}
+                  {role !== 'director' && (
+                    <>
+                      <button className="admin-input" style={{ width: 'auto', fontSize: '11px', fontWeight: '700' }} onClick={handleRequestInfo}>REQUEST MORE INFO</button>
+                      <button className="admin-input" style={{ width: 'auto', fontSize: '11px', fontWeight: '700' }} onClick={handleAddNote} disabled={!staffNote.trim() || isLoading}>ADD NOTE</button>
+                    </>
+                  )}
                   {role === 'director' ? (
                     <>
                       <button
@@ -3208,6 +3247,30 @@ const StaffDashboard: React.FC = () => {
 
                     {(() => {
                       const app = applications.find(a => Number(a.id) === Number(selectedAppId));
+                      if (!app?.more_info_request_notes) return null;
+                      return (
+                        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '10px', padding: '20px', marginBottom: '24px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                            <h4 style={{ fontSize: '11px', fontWeight: '800', color: '#c2410c', textTransform: 'uppercase', margin: 0 }}>⚠ INFORMATION REQUESTED FROM STUDENT</h4>
+                            <span style={{ fontSize: '10px', color: '#9a3412' }}>
+                              {app.more_info_requested_at ? new Date(app.more_info_requested_at).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                              {app.more_info_requested_by_name ? ` · by ${app.more_info_requested_by_name}` : ''}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: '13px', color: '#7c2d12', lineHeight: '1.6', margin: '0 0 10px' }}>{app.more_info_request_notes}</p>
+                          {app.more_info_responded_at ? (
+                            <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '8px 12px', fontSize: '11px', color: '#166534', fontWeight: '700' }}>
+                              ✅ Student responded on {new Date(app.more_info_responded_at).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '11px', color: '#9a3412', fontStyle: 'italic' }}>⏳ Awaiting student response...</div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {(() => {
+                      const app = applications.find(a => Number(a.id) === Number(selectedAppId));
                       const notes: any[] = app?.notes || [];
                       if (notes.length === 0) return null;
                       return (
@@ -3632,6 +3695,59 @@ const StaffDashboard: React.FC = () => {
         </main>
       </div>
     </div>
+
+    {/* ── Request More Info Modal ── */}
+    {showMoreInfoModal && (
+      <div
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        onClick={() => setShowMoreInfoModal(false)}
+      >
+        <div
+          style={{ background: '#fff', borderRadius: '12px', padding: '32px', width: '100%', maxWidth: '520px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', margin: 0 }}>Request Additional Information</h3>
+            <button onClick={() => setShowMoreInfoModal(false)} style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#64748b' }}>✕</button>
+          </div>
+
+          <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', fontSize: '12px', color: '#92400e' }}>
+            <strong>⚠ Note:</strong> The student will be notified by email and in-app with your message. The application will be paused until they respond.
+          </div>
+
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: '700', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            What information is needed? *
+          </label>
+          <textarea
+            value={moreInfoNotes}
+            onChange={e => setMoreInfoNotes(e.target.value)}
+            placeholder="e.g. Please upload a current official transcript. Your enrollment letter must show full-time status for the current semester."
+            style={{ width: '100%', minHeight: '120px', padding: '12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            autoFocus
+          />
+          <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px' }}>
+            {moreInfoNotes.length} characters — be specific so the student knows exactly what to provide.
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+            <button
+              onClick={() => setShowMoreInfoModal(false)}
+              style={{ flex: 1, padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#fff', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmitMoreInfoRequest}
+              disabled={!moreInfoNotes.trim() || moreInfoLoading}
+              style={{ flex: 2, padding: '12px', border: 'none', borderRadius: '8px', background: moreInfoNotes.trim() ? '#f97316' : '#e2e8f0', color: moreInfoNotes.trim() ? '#fff' : '#94a3b8', cursor: moreInfoNotes.trim() ? 'pointer' : 'not-allowed', fontWeight: '700', fontSize: '13px' }}
+            >
+              {moreInfoLoading ? 'Sending...' : 'Send Request to Student'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 };
 

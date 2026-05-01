@@ -86,6 +86,42 @@ const Dashboard: React.FC = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
 
+  // More info response state
+  const [infoResponseText, setInfoResponseText] = useState('');
+  const [infoResponseFiles, setInfoResponseFiles] = useState<File[]>([]);
+  const [infoResponseLoading, setInfoResponseLoading] = useState(false);
+  const [infoResponseSuccess, setInfoResponseSuccess] = useState(false);
+
+  const handleInfoResponse = async () => {
+    if (!selectedApplication) return;
+    if (!infoResponseText.trim() && infoResponseFiles.length === 0) return;
+    setInfoResponseLoading(true);
+    try {
+      const formData = new FormData();
+      if (infoResponseText.trim()) {
+        formData.append('response_text', infoResponseText.trim());
+      }
+      infoResponseFiles.forEach((file, i) => {
+        formData.append(`answers[${i}]field_label`, file.name);
+        formData.append(`answers[${i}]answer_text`, 'File Uploaded');
+        formData.append(`answers[${i}]answer_file`, file);
+      });
+      await API.respondToInfoRequest(selectedApplication.id, formData);
+      setInfoResponseSuccess(true);
+      setInfoResponseText('');
+      setInfoResponseFiles([]);
+      // Refresh the application data
+      const resp = await API.getSubmissions() as any;
+      const updated = (Array.isArray(resp) ? resp : resp?.results || [])
+        .find((a: any) => a.id === selectedApplication.id);
+      if (updated) setSelectedApplication(updated);
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit response. Please try again.');
+    } finally {
+      setInfoResponseLoading(false);
+    }
+  };
+
   // Sync currentView with URL path and handle deep links
   useEffect(() => {
     const segments = location.pathname.split('/').filter(Boolean);
@@ -683,15 +719,29 @@ const Dashboard: React.FC = () => {
                                     borderRadius: '4px',
                                     fontSize: '9px',
                                     fontWeight: '800',
-                                    background: app.status === 'accepted' ? '#f0fdf4' : app.status === 'rejected' ? '#fef2f2' : '#f0f9ff',
-                                    color: app.status === 'accepted' ? '#166534' : app.status === 'rejected' ? '#991b1b' : '#075985',
-                                    border: `1px solid ${app.status === 'accepted' ? '#bbf7d0' : app.status === 'rejected' ? '#fecaca' : '#bae6fd'}`
+                                    background: app.status === 'accepted' ? '#f0fdf4'
+                                      : app.status === 'rejected' ? '#fef2f2'
+                                      : app.status === 'more_info_required' ? '#fff7ed'
+                                      : '#f0f9ff',
+                                    color: app.status === 'accepted' ? '#166534'
+                                      : app.status === 'rejected' ? '#991b1b'
+                                      : app.status === 'more_info_required' ? '#c2410c'
+                                      : '#075985',
+                                    border: `1px solid ${app.status === 'accepted' ? '#bbf7d0'
+                                      : app.status === 'rejected' ? '#fecaca'
+                                      : app.status === 'more_info_required' ? '#fed7aa'
+                                      : '#bae6fd'}`
                                   }}>
-                                    {app.status.toUpperCase()}
+                                    {app.status === 'more_info_required' ? '⚠ ACTION REQUIRED' : app.status.toUpperCase()}
                                   </span>
                                 </td>
                                 <td style={{ fontSize: '10px', color: '#64748b' }}>
-                                  {app.status === 'pending' ? 'Under Review' : app.status === 'accepted' ? 'Funds Authorized' : app.status === 'reviewed' ? 'SSW Reviewed' : 'Policy Non-Compliance'}
+                                  {app.status === 'pending' ? 'Under Review'
+                                    : app.status === 'accepted' ? 'Funds Authorized'
+                                    : app.status === 'reviewed' ? 'SSW Reviewed'
+                                    : app.status === 'forwarded' ? 'Awaiting Director'
+                                    : app.status === 'more_info_required' ? 'Info Requested'
+                                    : 'Policy Non-Compliance'}
                                 </td>
                                 <td>
                                   <button
@@ -888,6 +938,95 @@ const Dashboard: React.FC = () => {
                       )}
                     </div>
                   </div>
+
+                  {/* ── More Info Required Banner + Response Form ── */}
+                  {selectedApplication.status === 'more_info_required' && (
+                    <div className="sec-card" style={{ borderLeft: '4px solid #f97316' }}>
+                      <div className="sec-head">
+                        <span className="sec-title" style={{ color: '#c2410c' }}>⚠ Action Required — Additional Information Needed</span>
+                      </div>
+                      <div style={{ padding: '0 20px 20px' }}>
+
+                        {/* What was requested */}
+                        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', padding: '16px', marginBottom: '20px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: '700', color: '#9a3412', textTransform: 'uppercase', marginBottom: '8px' }}>
+                            Information Requested by Staff
+                            {selectedApplication.more_info_requested_at && (
+                              <span style={{ fontWeight: '400', marginLeft: '8px', textTransform: 'none' }}>
+                                · {new Date(selectedApplication.more_info_requested_at).toLocaleDateString('en-CA', { month: 'long', day: 'numeric', year: 'numeric' })}
+                              </span>
+                            )}
+                          </div>
+                          <p style={{ fontSize: '14px', color: '#7c2d12', lineHeight: '1.7', margin: 0 }}>
+                            {selectedApplication.more_info_request_notes || 'Your Student Support Worker has requested additional information. Please provide the details below.'}
+                          </p>
+                        </div>
+
+                        {/* Already responded */}
+                        {(selectedApplication.more_info_responded_at || infoResponseSuccess) ? (
+                          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '16px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '16px', marginBottom: '8px' }}>✅</div>
+                            <div style={{ fontWeight: '700', color: '#166534', marginBottom: '4px' }}>Response Submitted</div>
+                            <div style={{ fontSize: '12px', color: '#4ade80' }}>
+                              Your information has been sent to the Education Department. Your application is now back under review.
+                            </div>
+                          </div>
+                        ) : (
+                          /* Response form */
+                          <div>
+                            <div style={{ fontSize: '12px', fontWeight: '700', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              Your Response *
+                            </div>
+                            <textarea
+                              value={infoResponseText}
+                              onChange={e => setInfoResponseText(e.target.value)}
+                              placeholder="Explain or provide the requested information here..."
+                              style={{ width: '100%', minHeight: '100px', padding: '12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '13px', lineHeight: '1.6', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', marginBottom: '16px' }}
+                            />
+
+                            <div style={{ fontSize: '12px', fontWeight: '700', color: '#374151', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                              Upload Supporting Documents (optional)
+                            </div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', border: '2px dashed #d1d5db', borderRadius: '8px', cursor: 'pointer', marginBottom: '8px', background: '#f9fafb' }}>
+                              <span style={{ fontSize: '20px' }}>📎</span>
+                              <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                                {infoResponseFiles.length > 0 ? `${infoResponseFiles.length} file(s) selected` : 'Click to attach files (PDF, JPG, PNG)'}
+                              </span>
+                              <input
+                                type="file"
+                                multiple
+                                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                style={{ display: 'none' }}
+                                onChange={e => setInfoResponseFiles(Array.from(e.target.files || []))}
+                              />
+                            </label>
+                            {infoResponseFiles.length > 0 && (
+                              <div style={{ marginBottom: '16px' }}>
+                                {infoResponseFiles.map((f, i) => (
+                                  <div key={i} style={{ fontSize: '11px', color: '#374151', padding: '4px 8px', background: '#f3f4f6', borderRadius: '4px', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>📄 {f.name}</span>
+                                    <button
+                                      onClick={() => setInfoResponseFiles(prev => prev.filter((_, idx) => idx !== i))}
+                                      style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '12px' }}
+                                    >✕</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <button
+                              className="btn-primary"
+                              style={{ width: '100%', padding: '14px', fontSize: '14px', fontWeight: '700', opacity: (!infoResponseText.trim() && infoResponseFiles.length === 0) ? 0.5 : 1 }}
+                              disabled={infoResponseLoading || (!infoResponseText.trim() && infoResponseFiles.length === 0)}
+                              onClick={handleInfoResponse}
+                            >
+                              {infoResponseLoading ? 'Submitting...' : 'Submit Response to Staff →'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="sec-card">
                     <div className="sec-head"><span className="sec-title">Application Content</span></div>

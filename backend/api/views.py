@@ -60,8 +60,10 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        # Staff/Director can see more, students only see their own
-        if _is_staff(user):
+        if user.role == 'director':
+            # Directors only see forwarded/decided applications
+            return self.queryset.filter(status__in=['pending', 'approved', 'denied'])
+        if user.role == 'admin':
             return self.queryset.all()
         return self.queryset.filter(student=user)
 

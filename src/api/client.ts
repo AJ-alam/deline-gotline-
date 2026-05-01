@@ -279,6 +279,10 @@ class API {
         });
     }
 
+    static respondToInfoRequest(id: number, formData: FormData) {
+        return apiClient.post(`/forms/submissions/${id}/respond-info/`, formData);
+    }
+
     static generateShareLink(applicationId: number) {
         // Since we are using Submission ID in current frontend context
         return apiClient.post(`/forms/submissions/${applicationId}/share/`);
