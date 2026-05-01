@@ -23,6 +23,8 @@ class FormController(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAdminUser()]
+        if self.action == 'submit':
+            return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
     def perform_create(self, serializer):
@@ -50,12 +52,13 @@ class FormController(viewsets.ModelViewSet):
                 i += 1
             data['answers'] = answers
 
-        logger.debug(f"Form submission attempt for form {form.id} by user {request.user.email}")
+        logger.debug(f"Form submission attempt for form {form.id} by user {request.user.email if request.user.is_authenticated else 'Anonymous'}")
         serializer = FormSubmissionSerializer(data=data, context={'request': request})
         if serializer.is_valid():
             try:
-                submission = serializer.save(form=form, student=request.user)
-                logger.info(f"Successfully created submission {submission.id} for user {request.user.email}")
+                user = request.user if request.user.is_authenticated else None
+                submission = serializer.save(form=form, student=user)
+                logger.info(f"Successfully created submission {submission.id} for user {user.email if user else 'Anonymous'}")
                 FormService.send_submission_notifications(submission)
                 # Reload with prefetch to avoid N+1 in response serialization
                 from forms.models import FormSubmission

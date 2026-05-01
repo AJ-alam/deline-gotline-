@@ -24,8 +24,8 @@ describe('StaffDashboard Search Functionality', () => {
       {
         id: 2,
         student_details: { 
-          full_name: 'Jane Smith',
-          email: 'jane.smith@example.com',
+          full_name: 'Wajiha Shah',
+          email: 'wajiha.shah@example.com',
           beneficiary_number: 'BEN002'
         },
         form_title: 'FormB',
@@ -90,7 +90,7 @@ describe('StaffDashboard Search Functionality', () => {
     });
 
     it('should filter by email', () => {
-      const result = filterApplications(mockApplications, 'jane.smith@example.com', 'all', 'all');
+      const result = filterApplications(mockApplications, 'wajiha.shah@example.com', 'all', 'all');
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe(2);
     });
@@ -190,8 +190,8 @@ describe('StaffDashboard Search Functionality', () => {
       {
         id: 2,
         student_details: { 
-          full_name: 'Jane Smith',
-          email: 'jane.smith@example.com',
+          full_name: 'Wajiha Shah',
+          email: 'wajiha.shah@example.com',
           beneficiary_number: 'BEN002'
         },
         form_title: 'FormB',
@@ -343,8 +343,8 @@ describe('StaffDashboard Search Functionality', () => {
       {
         id: 2,
         student_details: { 
-          full_name: 'Jane Smith',
-          email: 'jane.smith@example.com',
+          full_name: 'Wajiha Shah',
+          email: 'wajiha.shah@example.com',
           beneficiary_number: 'BEN002'
         },
         form_title: 'UCEPP Program',

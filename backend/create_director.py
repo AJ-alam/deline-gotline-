@@ -12,7 +12,7 @@ def create_director():
         director = CustomUser.objects.create_user(
             email=email,
             password='director123',
-            full_name='Education Director',
+            full_name='Wajiha Shah',
             role='director',
             is_staff=True
         )

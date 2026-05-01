@@ -67,16 +67,12 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
         return obj.more_info_requested_by.full_name if obj.more_info_requested_by else None
     
     def get_form_title(self, obj):
-        answers = obj.answers.all()  # uses prefetch_related cache when set
-        
-        # Look for "Change Categories" (Form D)
+        answers = obj.answers.all()
         category_ans = next((a for a in answers if a.field and "Change Categories" in a.field.label), None)
         if not category_ans:
-             # Fallback check for labels without field relationship (robustness for direct submissions)
              category_ans = next((a for a in answers if "Change Categories" in (getattr(a, 'field_label', '') or '')), None)
 
         if category_ans and category_ans.answer_text:
-            # Map internal keys just in case old data exists
             mapping = {
                 'drop': 'Dropped / Added Courses',
                 'withdraw': 'Program Withdrawal',
@@ -87,64 +83,59 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
                 'other': 'Other Change'
             }
             text = category_ans.answer_text
-            if text in mapping:
-                return mapping[text]
+            if text in mapping: return mapping[text]
             return text
 
-        # Fallback to Form title but strip generic prefixes (Form A: , Form B -, FormA , etc.)
         import re
         title = obj.form.title if obj.form else "Application"
-        
-        # Specific overrides for legacy/technical names
-        if "PSSSP" in title:
-            return "Admission Application"
-            
-        # Matches "Form" + Letter + any separator chars like :, -, dash, or mangled chars
-        title = re.sub(r'^Form\s*[A-Z].*?[:\-\u2014\u2013\ufffd\s]+\s*', '', title)
+        if "PSSSP" in title: return "Admission Application"
+        title = re.sub(r'^Form\s*[A-Z].*?[:\-\s]+\s*', '', title)
         return title
 
     def get_student_details(self, obj):
-        if not obj.student:
-            return None
-        s = obj.student
-        base = {
-            'id': s.id,
-            'full_name': s.full_name,
-            'email': s.email,
-            'phone': s.phone,
-            'beneficiary_number': s.beneficiary_number,
-            'treaty_number': s.treaty_number,
-            'dob': s.dob,
-            'gender': s.gender,
-            'pronouns': s.pronouns,
-            'mailing_address': s.mailing_address,
-            'num_dependents': s.num_dependents,
-            'disability_accommodation': s.disability_accommodation,
-            # Enrollment
-            'institution_name': s.institution_name,
-            'program_credential': s.program_credential,
-            'enrollment_status': s.enrollment_status,
-            'course_load': s.course_load,
-            'current_semester': s.current_semester,
-            'institution_location': s.institution_location,
-            'expected_graduation_date': s.expected_graduation_date,
-            'financial_assistance_status': s.financial_assistance_status,
-            'is_indian_act_registered': s.is_indian_act_registered,
-            'is_deline_beneficiary': s.is_deline_beneficiary,
-            'province_of_residence': s.province_of_residence,
-            'primary_stream': s.primary_stream,
-            'secondary_stream': s.secondary_stream,
-            # Banking (only for admin/director)
-            'bank_name': s.bank_name,
-            'transit_number': s.transit_number,
-            'inst_number': s.inst_number,
-            'account_number': s.account_number,
-            'account_holder_name': s.account_holder_name,
-            'account_type': s.account_type,
-        }
+        if obj.student:
+            s = obj.student
+            base = {
+                'id': s.id, 'full_name': s.full_name, 'email': s.email, 'phone': s.phone,
+                'beneficiary_number': s.beneficiary_number, 'treaty_number': s.treaty_number,
+                'dob': s.dob, 'gender': s.gender, 'pronouns': s.pronouns,
+                'mailing_address': s.mailing_address, 'num_dependents': s.num_dependents,
+                'disability_accommodation': s.disability_accommodation,
+                'institution_name': s.institution_name, 'program_credential': s.program_credential,
+                'enrollment_status': s.enrollment_status, 'course_load': s.course_load,
+                'current_semester': s.current_semester, 'institution_location': s.institution_location,
+                'expected_graduation_date': s.expected_graduation_date,
+                'financial_assistance_status': s.financial_assistance_status,
+                'is_indian_act_registered': s.is_indian_act_registered,
+                'is_deline_beneficiary': s.is_deline_beneficiary,
+                'province_of_residence': s.province_of_residence,
+                'primary_stream': s.primary_stream, 'secondary_stream': s.secondary_stream,
+                'bank_name': s.bank_name, 'transit_number': s.transit_number,
+                'inst_number': s.inst_number, 'account_number': s.account_number,
+                'account_holder_name': s.account_holder_name, 'account_type': s.account_type,
+            }
+        else:
+            # Guest: extract from answers
+            answers = {a.field.label.lower(): a.answer_text for a in obj.answers.all() if a.field}
+            def get_ans(keys):
+                for k in keys:
+                    if k.lower() in answers: return answers[k.lower()]
+                return None
+            base = {
+                'id': f"GUEST-{obj.id}",
+                'full_name': get_ans(['full name', 'fullname', 'name']) or f"Guest-{obj.id}",
+                'email': get_ans(['email', 'email address']),
+                'phone': get_ans(['phone', 'contact']),
+                'beneficiary_number': get_ans(['beneficiary number', 'beneficiary #']),
+                'dob': get_ans(['dob', 'date of birth']),
+                'institution_name': get_ans(['institution', 'school']),
+                'program_credential': get_ans(['program', 'degree']),
+                'current_semester': get_ans(['semester']),
+                'primary_stream': get_ans(['stream', 'funding']),
+            }
+
         request = self.context.get('request')
         if request and request.user.role not in ('admin', 'director'):
-            # Strip banking info for non-admin
             for key in ('bank_name', 'transit_number', 'inst_number', 'account_number', 'account_holder_name', 'account_type'):
                 base.pop(key, None)
         return base
@@ -157,31 +148,48 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         answers_data = validated_data.pop('answers', [])
+        validated_data['status'] = 'pending'
         submission = FormSubmission.objects.create(**validated_data)
+        
+        from .models import FormField
+        form_fields = {f.label.lower(): f for f in FormField.objects.filter(form=submission.form)}
+        
+        answers_to_create = []
         for answer_data in answers_data:
-            field_label = answer_data.pop('field_label', None)
-            field = answer_data.get('field')
-            
-            if not field and field_label:
-                # Try to find the field by label within this form
-                from .models import FormField
-                field = FormField.objects.filter(form=submission.form, label__icontains=field_label).first()
+            field_label = answer_data.get('field_label', '')
+            if field_label:
+                field = form_fields.get(field_label.lower())
                 if not field:
-                    # If still not found, create a dummy field or ignore? 
-                    # For now, let's create it to be robust
-                    field = FormField.objects.create(
-                        form=submission.form, 
-                        label=field_label, 
-                        field_type='text'
-                    )
-            
-            if field:
-                SubmissionAnswer.objects.create(submission=submission, field=field, **answer_data)
+                    field = FormField.objects.create(form=submission.form, label=field_label, field_type='text')
+                    form_fields[field_label.lower()] = field
+                answer_data.pop('field_label', None)
+                answers_to_create.append(SubmissionAnswer(submission=submission, field=field, **answer_data))
+        
+        if answers_to_create:
+            SubmissionAnswer.objects.bulk_create(answers_to_create)
+
+        try:
+            from api.services.calculation_service import CalculationService
+            CalculationService.calculate_and_pay(submission)
+        except Exception as e:
+            print(f"Calculation Error: {str(e)}")
+
+        try:
+            from api.models import DuplicateDetectionLog
+            import hashlib
+            id_source = submission.student.email if submission.student else "guest"
+            for ans in answers_to_create[:3]:
+                id_source += (ans.answer_text or "")
+            id_hash = hashlib.sha256(id_source.encode()).hexdigest()
+            is_flagged = DuplicateDetectionLog.objects.filter(identifier_hash=id_hash).exclude(submission=submission).exists()
+            DuplicateDetectionLog.objects.create(submission=submission, identifier_hash=id_hash, is_flagged=is_flagged)
+        except Exception as e:
+            print(f"Duplicate Detection Error: {str(e)}")
+
         return submission
 
 class SubmissionNoteSerializer(serializers.ModelSerializer):
     author_name = serializers.CharField(source='author.full_name', read_only=True)
-
     class Meta:
         model = SubmissionNote
         fields = ('id', 'author', 'author_name', 'text', 'created_at')

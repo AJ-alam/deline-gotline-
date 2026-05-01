@@ -108,7 +108,6 @@ class FormService:
             submission.office_use_data = extra_data['office_use_data']
 
         if new_status == 'more_info_required':
-            from django.utils import timezone
             submission.more_info_requested_at = timezone.now()
             submission.more_info_requested_by = performed_by
             submission.more_info_request_notes = extra_data.get('notes', '')
@@ -269,10 +268,15 @@ class FormService:
                 link="/staff/director-queue"
             )
             if director.email:
-                email_director_approval_request(
-                    director_email=director.email,
-                    student_name=submission.student.full_name if submission.student else 'Student',
-                    form_title=submission.form.title,
-                    amount=float(submission.amount or 0),
-                    submission_id=submission.id,
-                )
+                try:
+                    from api.services.email_service import email_director_approval_request
+                    email_director_approval_request(
+                        director_email=director.email,
+                        student_name=submission.student.full_name if submission.student else 'Student',
+                        form_title=submission.form.title,
+                        amount=float(submission.amount or 0),
+                        submission_id=submission.id,
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error("Director approval email failed: %s", e)

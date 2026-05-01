@@ -97,6 +97,7 @@ class FormSubmission(models.Model):
     more_info_responded_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        ordering = ['-submitted_at']
         db_table = 'form_submissions'
 
     def __str__(self):

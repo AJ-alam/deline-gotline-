@@ -307,7 +307,9 @@ const StaffDashboard: React.FC = () => {
 
     try {
       if (currentApp?._is_standard) {
-        await API.updateApplicationStatus(Number(selectedAppId), status, notesOverride ?? decisionNotes);
+        // Legacy applications use 'pending' for director approval
+        const mappedStatus = status === 'forwarded' ? 'pending' : status;
+        await API.updateApplicationStatus(Number(selectedAppId), mappedStatus, notesOverride ?? decisionNotes);
       } else {
         await API.updateSubmissionStatus(Number(selectedAppId), status, {
           decision_notes: notesOverride ?? decisionNotes,
@@ -514,7 +516,7 @@ const StaffDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    if (currentView === 'policy') {
+    if (currentView === 'policy' || currentView === 'detail' || currentView === 'director-detail') {
       fetchPolicySettings();
     }
     if (currentView === 'payments') {
@@ -1707,6 +1709,7 @@ const StaffDashboard: React.FC = () => {
                 <div className="staff-nav-title">Main</div>
                 {renderNavItem('dashboard', 'Dashboard', <AdminIcons.Dashboard />)}
                 {renderNavItem('director-queue', 'Approval Queue', <AdminIcons.Director />, applications.filter(a => a.status === 'forwarded').length || undefined)}
+                {renderNavItem('payments', 'Payments', <AdminIcons.Dashboard />)}
               </div>
 
               <div className="staff-nav-group">
@@ -2219,7 +2222,7 @@ const StaffDashboard: React.FC = () => {
           {/* end applications view for non-directors */}
 
           {/* Detail View (Shared by Staff and Director) */}
-          {((currentView === 'detail' || currentView === 'director-detail') && selectedAppId) && (
+          {(currentView === 'detail' && selectedAppId) && (
             <div className="fade-in">
               {/* Header Actions */}
               <div className="admin-detail-header">

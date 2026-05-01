@@ -307,9 +307,27 @@ class API {
     // Support for complex wizards
     static async submitApplication(data: any) {
         const forms = await this.getForms() as unknown as any[];
+        
         // Normalize: strip spaces, dashes, em-dashes, lowercase for matching
         const normalize = (s: string) => s.toLowerCase().replace(/[\s\-\u2014\u2013]+/g, '');
-        const target = normalize(data.form_type);
+        
+        // Map common frontend keys to match backend titles
+        const typeMap: Record<string, string> = {
+            'FormA': 'Form A',
+            'FormC': 'Form C',
+            'FormD': 'Form D',
+            'FormE': 'Form E',
+            'FormF': 'Form F',
+            'FormG': 'Form G',
+            'FormH': 'Form D', // Frontend H is Appeal, Backend D is Appeal
+            'Practicum': 'Form F',
+            'C-DFN PSSSP': 'Form A',
+            'Scholarship': 'Scholarship',
+            'Hardship': 'Hardship'
+        };
+
+        const mappedType = typeMap[data.form_type] || data.form_type;
+        const target = normalize(mappedType);
         
         const form = forms.find((f: any) => {
             const title = normalize(f.title);
@@ -317,7 +335,7 @@ class API {
         });
         
         if (!form) {
-            throw new Error(`Form template '${data.form_type}' not found. Registered forms: ${forms.map(f => f.title).join(', ')}`);
+            throw new Error(`Form template '${data.form_type}' (mapped to '${mappedType}') not found. Registered forms: ${forms.map(f => f.title).join(', ')}`);
         }
 
         const answers = data.form_data instanceof FormData 

@@ -3,7 +3,7 @@ Create admin or director accounts from the command line.
 
 Usage:
     python manage.py create_staff
-    python manage.py create_staff --email director@deline.ca --role director --name "Jane Smith" --password MyPass123
+    python manage.py create_staff --email director@deline.ca --role director --name "Wajiha Shah" --password MyPass123
     python manage.py create_staff --email admin@deline.ca --role admin --name "John Admin" --password MyPass123
 """
 from django.core.management.base import BaseCommand
