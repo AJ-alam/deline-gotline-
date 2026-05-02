@@ -767,28 +767,34 @@ const Dashboard: React.FC = () => {
                                     fontSize: '9px',
                                     fontWeight: '800',
                                     background: app.status === 'accepted' ? '#f0fdf4'
-                                      : app.status === 'rejected' ? '#fef2f2'
-                                        : app.status === 'more_info_required' ? '#fff7ed'
-                                          : '#f0f9ff',
+                                      : app.status === 'sent_to_finance' ? '#e0f2fe'
+                                        : app.status === 'rejected' ? '#fef2f2'
+                                          : app.status === 'more_info_required' ? '#fff7ed'
+                                            : '#f0f9ff',
                                     color: app.status === 'accepted' ? '#166534'
-                                      : app.status === 'rejected' ? '#991b1b'
-                                        : app.status === 'more_info_required' ? '#c2410c'
-                                          : '#075985',
+                                      : app.status === 'sent_to_finance' ? '#0369a1'
+                                        : app.status === 'rejected' ? '#991b1b'
+                                          : app.status === 'more_info_required' ? '#c2410c'
+                                            : '#075985',
                                     border: `1px solid ${app.status === 'accepted' ? '#bbf7d0'
-                                      : app.status === 'rejected' ? '#fecaca'
-                                        : app.status === 'more_info_required' ? '#fed7aa'
-                                          : '#bae6fd'}`
+                                      : app.status === 'sent_to_finance' ? '#7dd3fc'
+                                        : app.status === 'rejected' ? '#fecaca'
+                                          : app.status === 'more_info_required' ? '#fed7aa'
+                                            : '#bae6fd'}`
                                   }}>
-                                    {app.status === 'more_info_required' ? '⚠ ACTION REQUIRED' : app.status.toUpperCase()}
+                                    {app.status === 'more_info_required' ? '⚠ ACTION REQUIRED'
+                                      : app.status === 'sent_to_finance' ? '💰 SENT TO FINANCE'
+                                        : app.status.toUpperCase()}
                                   </span>
                                 </td>
                                 <td style={{ fontSize: '10px', color: '#64748b' }}>
                                   {app.status === 'pending' ? 'Under Review'
                                     : app.status === 'accepted' ? 'Funds Authorized'
-                                      : app.status === 'reviewed' ? 'SSW Reviewed'
-                                        : app.status === 'forwarded' ? 'Awaiting Director'
-                                          : app.status === 'more_info_required' ? 'Info Requested'
-                                            : 'Policy Non-Compliance'}
+                                      : app.status === 'sent_to_finance' ? 'Payment Processing (2–5 days)'
+                                        : app.status === 'reviewed' ? 'SSW Reviewed'
+                                          : app.status === 'forwarded' ? 'Awaiting Director'
+                                            : app.status === 'more_info_required' ? 'Info Requested'
+                                              : 'Policy Non-Compliance'}
                                 </td>
                                 <td>
                                   <div style={{ display: 'flex', gap: '8px' }}>

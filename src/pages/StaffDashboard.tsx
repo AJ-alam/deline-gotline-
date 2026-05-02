@@ -1046,10 +1046,12 @@ const StaffDashboard: React.FC = () => {
       forwarded: 'badge-forwarded',
       more_info_required: 'badge-pending',
       accepted: 'badge-accepted',
-      rejected: 'badge-rejected'
+      rejected: 'badge-rejected',
+      sent_to_finance: 'badge-finance',
     };
     const statusLabelMap: Record<string, string> = {
       more_info_required: 'More Info Required',
+      sent_to_finance: '💰 Sent to Finance',
     };
 
     const badgeClass = statusClassMap[status] || '';
