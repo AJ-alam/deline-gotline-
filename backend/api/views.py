@@ -30,13 +30,22 @@ def _is_staff(user):
 
 def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_statuses=False):
     """
-    Build the 21-column student records CSV.
+    Build the comprehensive student records CSV with personal + banking info.
+
+    Columns (35 total):
+      Submission info  (5)
+      Personal info    (12)  — from CustomUser + Profile
+      Banking info     (6)   — from CustomUser
+      Enrollment info  (4)   — from CustomUser
+      Application info (4)
+      Payment info     (5)
+      Timeline info    (3)
 
     Parameters
     ----------
     all_statuses : bool
-        False  → only accepted/approved records  (used by export_csv)
-        True   → every record regardless of status (used by dispatch_report)
+        False  → only accepted/approved records  (used by export_csv download)
+        True   → every record regardless of status (used by dispatch_report email)
 
     Returns
     -------
@@ -46,10 +55,23 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     from django.db.models import Q
 
     HEADERS = [
-        'Submission ID', 'Student Name', 'Student Email', 'Beneficiary #', 'Phone Number',
-        'Mailing Address', 'Town/City', 'Postal Code', 'Institute',
-        'Form/Type', 'Stream', 'Status', 'Approved Amount ($)',
+        # ── Submission ──
+        'Submission ID', 'Form/Type', 'Status', 'Approved Amount ($)', 'Stream',
+        # ── Personal ──
+        'Full Name', 'Email', 'Phone', 'Alternate Phone',
+        'Date of Birth', 'Gender', 'Pronouns',
+        'Beneficiary #', 'Treaty #', 'UPI',
+        'Mailing Address', 'Town/City', 'Postal Code', 'Province',
+        'No. of Dependents', 'Dependent Ages',
+        'Financial Assistance Status', 'SFA Active (Profile)',
+        # ── Banking ──
+        'Account Holder Name', 'Account Type',
+        'Bank Name', 'Transit #', 'Institution #', 'Account #',
+        # ── Enrollment ──
+        'Institute (Profile)', 'Institution Name', 'Program', 'Enrollment Status', 'Course Load (%)',
+        # ── Payment ──
         'Payment Type', 'Payment Amount ($)', 'Payment Status', 'Payment Reference #', 'Payment Date',
+        # ── Timeline ──
         'Submitted Date', 'Decision Date', 'Decided By',
     ]
 
@@ -63,7 +85,9 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     else:
         qs = FormSubmission.objects.filter(status='accepted')
 
-    qs = qs.select_related('student', 'form', 'decided_by').prefetch_related('student__payments', 'student__profile')
+    qs = qs.select_related('student', 'form', 'decided_by').prefetch_related(
+        'student__payments', 'student__profile'
+    )
 
     # ── Legacy applications ──
     if all_statuses:
@@ -71,9 +95,11 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     else:
         legacy_qs = Application.objects.filter(status='approved')
 
-    legacy_qs = legacy_qs.select_related('student').prefetch_related('student__payments', 'student__profile')
+    legacy_qs = legacy_qs.select_related('student').prefetch_related(
+        'student__payments', 'student__profile'
+    )
 
-    # ── Funding-type filter (only meaningful for approved export) ──
+    # ── Funding-type filter (only for approved download) ──
     if not all_statuses and funding_type != 'all':
         mapping = {
             'cdfn':  Q(form__title__icontains='FormA') | Q(form__title__icontains='FormC'),
@@ -99,84 +125,115 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
         qs = qs.filter(submitted_at__date__lte=date_to)
         legacy_qs = legacy_qs.filter(created_at__date__lte=date_to)
 
+    D = '—'  # default for missing values
+
+    def _student_personal_banking(student, profile):
+        """Return the 28 personal + banking + enrollment columns for a student."""
+        u = student
+        p = profile
+        return [
+            # Personal (18 cols)
+            u.full_name if u else D,
+            u.email if u else D,
+            (u.phone or D) if u else D,
+            (u.alternate_phone or D) if u else D,
+            str(u.dob) if (u and u.dob) else D,
+            (u.gender or (p.gender if p else D) or D) if u else D,
+            (u.pronouns or (p.pronouns if p else D) or D) if u else D,
+            (u.beneficiary_number or (p.beneficiary_number if p else D) or D) if u else D,
+            (u.treaty_number or D) if u else D,
+            (u.upi or D) if u else D,
+            (u.mailing_address or (p.mailing_address if p else D) or D) if u else D,
+            (p.town_city or D) if p else D,
+            (p.postal_code or D) if p else D,
+            (u.province_of_residence or D) if u else D,
+            str(u.num_dependents) if u else D,
+            (u.dependent_ages or D) if u else D,
+            (u.financial_assistance_status or D) if u else D,
+            ('Yes' if p.is_sfa_active else 'No') if p else D,
+            # Banking (6 cols)
+            (u.account_holder_name or D) if u else D,
+            (u.account_type or D) if u else D,
+            (u.bank_name or D) if u else D,
+            (u.transit_number or D) if u else D,
+            (u.inst_number or D) if u else D,
+            (u.account_number or D) if u else D,
+            # Enrollment (5 cols)
+            (p.institute or D) if p else D,
+            (u.institution_name or D) if u else D,
+            (u.program_credential or D) if u else D,
+            (u.enrollment_status or D) if u else D,
+            str(u.course_load) if u else D,
+        ]
+
     row_count = 0
 
-    # ── Write new-model rows ──
+    # ── New-model submission rows ──
     for sub in qs.order_by('-submitted_at'):
         student = sub.student
         profile = getattr(student, 'profile', None) if student else None
         payments = student.payments.all() if student else []
 
-        base = [
+        submission_cols = [
             f"FS-{sub.id}",
-            student.full_name if student else '—',
-            student.email if student else '—',
-            profile.beneficiary_number if profile else '—',
-            profile.phone_number if profile else '—',
-            profile.mailing_address if profile else '—',
-            profile.town_city if profile else '—',
-            profile.postal_code if profile else '—',
-            profile.institute if profile else '—',
-            sub.form.title if sub.form else '—',
-            student.primary_stream if student else '—',
+            sub.form.title if sub.form else D,
             sub.status,
             sub.amount or 0,
+            student.primary_stream if student else D,
         ]
+        personal_banking = _student_personal_banking(student, profile)
         dates = [
-            sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '—',
-            sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '—',
-            sub.decided_by.full_name if sub.decided_by else '—',
+            sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else D,
+            sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else D,
+            sub.decided_by.full_name if sub.decided_by else D,
         ]
 
         if payments:
             for p in payments:
-                writer.writerow(base + [
-                    p.payment_type, p.amount, p.status,
-                    p.reference_number or '—',
-                    p.date_issued.strftime('%Y-%m-%d') if p.date_issued else '—',
-                ] + dates)
+                writer.writerow(
+                    submission_cols + personal_banking + [
+                        p.payment_type, p.amount, p.status,
+                        p.reference_number or D,
+                        p.date_issued.strftime('%Y-%m-%d') if p.date_issued else D,
+                    ] + dates
+                )
                 row_count += 1
         else:
-            writer.writerow(base + ['—', '—', '—', '—', '—'] + dates)
+            writer.writerow(submission_cols + personal_banking + [D, D, D, D, D] + dates)
             row_count += 1
 
-    # ── Write legacy-model rows ──
+    # ── Legacy application rows ──
     for app in legacy_qs.order_by('-created_at'):
         student = app.student
         profile = getattr(student, 'profile', None) if student else None
         payments = student.payments.filter(application=app) if student else []
 
-        base = [
+        submission_cols = [
             f"LEG-{app.id}",
-            student.full_name if student else '—',
-            student.email if student else '—',
-            profile.beneficiary_number if profile else '—',
-            profile.phone_number if profile else '—',
-            profile.mailing_address if profile else '—',
-            profile.town_city if profile else '—',
-            profile.postal_code if profile else '—',
-            profile.institute if profile else '—',
             app.form_type,
-            student.primary_stream if student else '—',
             app.status,
             0,
+            student.primary_stream if student else D,
         ]
+        personal_banking = _student_personal_banking(student, profile)
         dates = [
-            app.created_at.strftime('%Y-%m-%d') if app.created_at else '—',
-            app.decision_at.strftime('%Y-%m-%d') if app.decision_at else '—',
-            app.decision_by or '—',
+            app.created_at.strftime('%Y-%m-%d') if app.created_at else D,
+            app.decision_at.strftime('%Y-%m-%d') if app.decision_at else D,
+            app.decision_by or D,
         ]
 
         if payments:
             for p in payments:
-                writer.writerow(base + [
-                    p.payment_type, p.amount, p.status,
-                    p.reference_number or '—',
-                    p.date_issued.strftime('%Y-%m-%d') if p.date_issued else '—',
-                ] + dates)
+                writer.writerow(
+                    submission_cols + personal_banking + [
+                        p.payment_type, p.amount, p.status,
+                        p.reference_number or D,
+                        p.date_issued.strftime('%Y-%m-%d') if p.date_issued else D,
+                    ] + dates
+                )
                 row_count += 1
         else:
-            writer.writerow(base + ['—', '—', '—', '—', '—'] + dates)
+            writer.writerow(submission_cols + personal_banking + [D, D, D, D, D] + dates)
             row_count += 1
 
     return output.getvalue().encode('utf-8'), row_count
