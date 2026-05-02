@@ -285,4 +285,10 @@ class CalculationService:
             CalculationService._policy_cache[cache_key] = val
             return val
         except PolicySetting.DoesNotExist:
+            import logging
+            logging.getLogger(__name__).warning("Missing policy setting: %s:%s. Falling back to 0.", section, field_key)
+            return Decimal(0)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("Error fetching policy %s:%s - %s", section, field_key, e)
             return Decimal(0)

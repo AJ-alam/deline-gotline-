@@ -36,7 +36,7 @@ const Icons = {
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
   ),
   Files: () => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14.5 2 14.5 7.5 20 7.5" /></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2-2H12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14.5 2 14.5 7.5 20 7.5" /></svg>
   ),
   Payments: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="5" rx="2" /><line x1="2" x2="22" y1="10" y2="10" /></svg>
@@ -85,6 +85,9 @@ const Dashboard: React.FC = () => {
   const [documents, setDocuments] = useState<any[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
+  const [showPaperFormsModal, setShowPaperFormsModal] = useState(false);
+  const [submittedFormPopup, setSubmittedFormPopup] = useState<string | null>(null);
+  const [availableForms, setAvailableForms] = useState<any[]>([]);
 
   // More info response state
   const [infoResponseText, setInfoResponseText] = useState('');
@@ -189,29 +192,33 @@ const Dashboard: React.FC = () => {
   };
   const fetchDashboardData = async () => {
     // Start all requests in parallel
-    const subsPromise = API.getSubmissions().then((resp: any) => {
-      console.log('Submissions loaded:', resp);
-      if (Array.isArray(resp)) {
-        setApplications(resp);
-      } else if (resp && resp.results && Array.isArray(resp.results)) {
-        setApplications(resp.results);
-      } else {
-        setApplications([]);
-      }
+    const subsPromise = Promise.all([
+      API.getSubmissions().catch(() => ({ results: [] })),
+      API.getApplications().catch(() => ({ results: [] }))
+    ]).then(([subsResp, appsResp]: [any, any]) => {
+      const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
+      const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
+      
+      const merged = [
+        ...subs,
+        ...apps.map((a: any) => ({ ...a, _is_standard: true, form_title: a.form_type }))
+      ];
+      console.log('Merged applications:', merged);
+      setApplications(merged);
     });
 
     const userPromise = API.getMe().then((resp: any) => {
       setProfile(resp);
-    });
+    }).catch(() => {});
 
     const notifsPromise = API.getNotifications().then((resp: any) => {
       setNotifications(Array.isArray(resp) ? resp : []);
-    });
+    }).catch(() => {});
 
     const paymentsPromise = API.getPayments().then((resp: any) => {
       const list = Array.isArray(resp) ? resp : (resp?.results || []);
       setPayments(list);
-    }).catch(() => {});
+    }).catch(() => { });
 
     const policyPromise = API.getPolicySettings().then((resp: any) => {
       const deadlines = (resp?.application_deadlines || []) as any[];
@@ -227,26 +234,36 @@ const Dashboard: React.FC = () => {
         cfgMap[item.field_key] = item.unit || String(item.value);
       }
       setSysConfig(cfgMap);
-    }).catch(() => {});
+    }).catch(() => { });
+
+    // Only fetch forms once (they don't change often)
+    const formsPromise = availableForms.length === 0 
+      ? API.getForms().then((resp: any) => {
+          const formsList = Array.isArray(resp) ? resp : (resp?.results || []);
+          setAvailableForms(formsList);
+        }).catch(() => { })
+      : Promise.resolve();
 
     try {
-      // Wait for at least the essential profile/submissions to finish the loading state
-      // but let them all run in parallel
-      await Promise.allSettled([subsPromise, userPromise, notifsPromise, paymentsPromise, policyPromise]);
+      // Wait for essential data first (user and submissions)
+      await Promise.all([subsPromise, userPromise]);
+      setIsLoading(false);
+      
+      // Load non-essential data in background
+      Promise.allSettled([notifsPromise, paymentsPromise, policyPromise, formsPromise]);
     } catch (err: any) {
       console.error('Failed to fetch dashboard data:', err);
       if (err.status === 401) {
         handleLogout();
       }
-    } finally {
       setIsLoading(false);
     }
   };
 
-  // ── POLLING FOR REAL-TIME UPDATES ──
+  // \u2500\u2500 POLLING FOR REAL-TIME UPDATES \u2500\u2500
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 15000); // 15-second polling
+    const interval = setInterval(fetchDashboardData, 60000); // 60-second polling (reduced from 15s)
     return () => clearInterval(interval);
   }, []);
 
@@ -363,16 +380,29 @@ const Dashboard: React.FC = () => {
     }
   }, [showToast]);
 
-  const handleFormComplete = (_label?: string) => {
+  const handleFormComplete = async (_label?: string) => {
     setShowToast(`✓ Submission successful · You will receive an email confirmation`);
     navigate('/dashboard/applications');
     setIsMobileMenuOpen(false);
-    fetchDashboardData();
+    await fetchDashboardData();
   };
 
   const handleNavClick = (view: DashboardView) => {
     console.log('Navigating to:', view);
     setIsMobileMenuOpen(false);
+
+    // Block duplicate admission applications
+    if (view === 'admission') {
+      const admissionApp = applications.find((a: any) => {
+        const title = (a.form_title || '').toLowerCase();
+        const type = (a.form_type || '').toLowerCase();
+        return title.includes('admission') || title.includes('form a') || type.includes('psssp') || type.includes('form a');
+      });
+      if (admissionApp && admissionApp.status !== 'rejected') {
+        setSubmittedFormPopup('Admission Application');
+        return;
+      }
+    }
 
     // Always clear selected application when moving to a non-detail view
     if (view !== 'application-detail') {
@@ -421,7 +451,16 @@ const Dashboard: React.FC = () => {
         <div className="sidebar-divider"></div>
 
         <div className="sidebar-section-title">Applications</div>
-        {renderSidebarNav('admission', 'Admission Application', <Icons.Files />)}
+        {/* Only show Admission Application link if not submitted OR if rejected */}
+        {(() => {
+          const admissionApp = applications.find((a: any) => {
+            const title = (a.form_title || '').toLowerCase();
+            const type = (a.form_type || '').toLowerCase();
+            return title.includes('admission') || title.includes('form a') || type.includes('psssp') || type.includes('form a');
+          });
+          const shouldShow = !admissionApp || admissionApp.status === 'rejected';
+          return shouldShow ? renderSidebarNav('admission', 'Admission Application', <Icons.Files />) : null;
+        })()}
         {renderSidebarNav('continuing-funding', 'Continuing Funding', <Icons.Files />)}
         {renderSidebarNav('information-update', 'Information Update', <Icons.Files />)}
 
@@ -500,7 +539,12 @@ const Dashboard: React.FC = () => {
               <div className="view-content fade-in">
                 <div className="view-header">
                   <div className="view-title">Dashboard</div>
-                  <button className="btn-primary" onClick={() => handleNavClick('admission')}>+ Start Your Application</button>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <button className="btn-ghost" onClick={() => setShowPaperFormsModal(true)} style={{ padding: '10px 20px', border: '1px solid #e2e8f0' }}>
+                      📄 Download Paper Forms
+                    </button>
+                    <button className="btn-primary" onClick={() => handleNavClick('admission')}>+ Start Your Application</button>
+                  </div>
                 </div>
                 <div className="view-body">
                   {applications.length === 0 && (
@@ -549,49 +593,48 @@ const Dashboard: React.FC = () => {
                       </div>
                     </div>
                     <div className="form-cards-grid">
-                      <div
-                        className={`form-card primary-card ${(() => { const a = applications.find((a: any) => a.form_title?.toLowerCase().includes('admission')); return !a || a.status === 'rejected' ? 'active-step' : ''; })()}`}
-                        onClick={() => {
-                          const admissionApp = applications.find((a: any) => a.form_title?.toLowerCase().includes('admission'));
-                          if (admissionApp && admissionApp.status !== 'rejected') {
-                            handleViewApplication(admissionApp);
-                          } else {
-                            handleNavClick('admission');
-                          }
-                        }}
-                      >
-                        {(() => {
-                          const admissionApp = applications.find((a: any) => a.form_title?.toLowerCase().includes('admission'));
-                          const isRejected = admissionApp?.status === 'rejected';
-                          const isActive = admissionApp && !isRejected;
-                          return (
-                        <div className="form-card-inner">
-                          <div className="form-card-header">
-                            <span className="form-tag">New File</span>
-                            {!admissionApp && <span className="recommended-tag"><Icons.Star /> RECOMMENDED NEXT STEP</span>}
-                            {isActive && <span className="form-tag" style={{ background: '#f0fdf4', color: '#166534', borderColor: '#bbf7d0' }}>✓ SUBMITTED</span>}
-                            {isRejected && <span className="form-tag" style={{ background: '#fef2f2', color: '#991b1b', borderColor: '#fecaca' }}>✕ REJECTED — REAPPLY</span>}
+                      {/* Only show Form A card if not submitted OR if rejected */}
+                      {(() => {
+                        const admissionApp = applications.find((a: any) => {
+                          const title = (a.form_title || '').toLowerCase();
+                          const type = (a.form_type || '').toLowerCase();
+                          return title.includes('admission') || title.includes('form a') || type.includes('psssp') || type.includes('form a');
+                        });
+                        const isRejected = admissionApp?.status === 'rejected';
+                        const shouldShow = !admissionApp || isRejected;
+
+                        if (!shouldShow) {
+                          // Form A already submitted and not rejected - don't show the card
+                          return null;
+                        }
+
+                        return (
+                          <div
+                            className={`form-card primary-card active-step`}
+                            onClick={() => handleNavClick('admission')}
+                          >
+                            <div className="form-card-inner">
+                              <div className="form-card-header">
+                                <span className="form-tag">New File</span>
+                                {!admissionApp && <span className="recommended-tag"><Icons.Star /> RECOMMENDED NEXT STEP</span>}
+                                {isRejected && <span className="form-tag" style={{ background: '#fef2f2', color: '#991b1b', borderColor: '#fecaca' }}>✕ REJECTED — REAPPLY</span>}
+                              </div>
+                              <div className="form-card-title">Admission Application</div>
+                              <div className="form-card-desc">
+                                {isRejected
+                                  ? 'Your previous application was rejected. You may submit a new application.'
+                                  : 'Your gateway to all DGG funding. Complete this first to map your eligibility.'}
+                              </div>
+                              <div style={{ fontSize: '9px', color: '#718096', marginBottom: '12px' }}>Required once per program · Establishes your stream</div>
+                              {isRejected ? (
+                                <button className="btn-auth-primary form-btn" style={{ background: '#dc2626' }}>Reapply Now &nbsp;<Icons.ChevronRight /></button>
+                              ) : (
+                                <button className="btn-auth-primary form-btn">Start Application &nbsp;<Icons.ChevronRight /></button>
+                              )}
+                            </div>
                           </div>
-                          <div className="form-card-title">Admission Application</div>
-                          <div className="form-card-desc">
-                            {isActive
-                              ? 'Your admission application has been received and is currently being processed by staff.'
-                              : isRejected
-                                ? 'Your previous application was rejected. You may submit a new application.'
-                                : 'Your gateway to all DGG funding. Complete this first to map your eligibility.'}
-                          </div>
-                          <div style={{ fontSize: '9px', color: '#718096', marginBottom: '12px' }}>Required once per program · Establishes your stream</div>
-                          {isActive ? (
-                            <button className="btn-ghost form-btn" style={{ background: '#fff', borderColor: '#e2e8f0' }}>View Application &nbsp;<Icons.ChevronRight /></button>
-                          ) : isRejected ? (
-                            <button className="btn-auth-primary form-btn" style={{ background: '#dc2626' }}>Reapply Now &nbsp;<Icons.ChevronRight /></button>
-                          ) : (
-                            <button className="btn-auth-primary form-btn">Start Application &nbsp;<Icons.ChevronRight /></button>
-                          )}
-                        </div>
-                          );
-                        })()}
-                      </div>
+                        );
+                      })()}
                       <div className="form-card" style={{ borderLeft: '3px solid #3182ce', opacity: 0.9 }}>
                         <div className="form-card-inner">
                           <div className="form-card-header">
@@ -665,12 +708,16 @@ const Dashboard: React.FC = () => {
                   <div className="paper-forms-alert fade-in">
                     <div className="paper-icon">🖨️</div>
                     <div className="paper-text">
-                      <div className="paper-text-title">Prefer paper forms?</div>
+                      <div className="paper-text-title">Refer to Paper Forms?</div>
                       <div className="paper-text-desc">
                         You can download printable versions of all DGG forms to fill out by hand.
                         Once completed, you can mail them to the DGG office or drop them off in person.
                       </div>
-                      <button className="btn-ghost" style={{ fontWeight: 700, color: '#2b6cb0', borderColor: '#bee3f8' }}>
+                      <button 
+                        className="btn-ghost" 
+                        style={{ fontWeight: 700, color: '#2b6cb0', borderColor: '#bee3f8' }}
+                        onClick={() => setShowPaperFormsModal(true)}
+                      >
                         Download Printable Forms Packet (PDF) →
                       </button>
                       <div className="paper-meta">
@@ -721,16 +768,16 @@ const Dashboard: React.FC = () => {
                                     fontWeight: '800',
                                     background: app.status === 'accepted' ? '#f0fdf4'
                                       : app.status === 'rejected' ? '#fef2f2'
-                                      : app.status === 'more_info_required' ? '#fff7ed'
-                                      : '#f0f9ff',
+                                        : app.status === 'more_info_required' ? '#fff7ed'
+                                          : '#f0f9ff',
                                     color: app.status === 'accepted' ? '#166534'
                                       : app.status === 'rejected' ? '#991b1b'
-                                      : app.status === 'more_info_required' ? '#c2410c'
-                                      : '#075985',
+                                        : app.status === 'more_info_required' ? '#c2410c'
+                                          : '#075985',
                                     border: `1px solid ${app.status === 'accepted' ? '#bbf7d0'
                                       : app.status === 'rejected' ? '#fecaca'
-                                      : app.status === 'more_info_required' ? '#fed7aa'
-                                      : '#bae6fd'}`
+                                        : app.status === 'more_info_required' ? '#fed7aa'
+                                          : '#bae6fd'}`
                                   }}>
                                     {app.status === 'more_info_required' ? '⚠ ACTION REQUIRED' : app.status.toUpperCase()}
                                   </span>
@@ -738,19 +785,43 @@ const Dashboard: React.FC = () => {
                                 <td style={{ fontSize: '10px', color: '#64748b' }}>
                                   {app.status === 'pending' ? 'Under Review'
                                     : app.status === 'accepted' ? 'Funds Authorized'
-                                    : app.status === 'reviewed' ? 'SSW Reviewed'
-                                    : app.status === 'forwarded' ? 'Awaiting Director'
-                                    : app.status === 'more_info_required' ? 'Info Requested'
-                                    : 'Policy Non-Compliance'}
+                                      : app.status === 'reviewed' ? 'SSW Reviewed'
+                                        : app.status === 'forwarded' ? 'Awaiting Director'
+                                          : app.status === 'more_info_required' ? 'Info Requested'
+                                            : 'Policy Non-Compliance'}
                                 </td>
                                 <td>
-                                  <button
-                                    className="btn-ghost"
-                                    style={{ padding: '4px 8px', fontSize: '10px' }}
-                                    onClick={() => handleViewApplication(app)}
-                                  >
-                                    View Details
-                                  </button>
+                                  <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                      className="btn-ghost"
+                                      style={{ padding: '4px 8px', fontSize: '10px' }}
+                                      onClick={() => handleViewApplication(app)}
+                                    >
+                                      View Details
+                                    </button>
+                                    <button
+                                      className="btn-ghost"
+                                      style={{ padding: '4px 8px', fontSize: '10px', color: '#2b6cb0', borderColor: '#bee3f8' }}
+                                      onClick={async () => {
+                                        try {
+                                          const blob = await API.downloadSubmissionPDF(app.id);
+                                          const url = URL.createObjectURL(blob);
+                                          const link = document.createElement('a');
+                                          link.href = url;
+                                          link.download = `Submission_${app.id}.pdf`;
+                                          document.body.appendChild(link);
+                                          link.click();
+                                          document.body.removeChild(link);
+                                          URL.revokeObjectURL(url);
+                                          setShowToast('✓ PDF downloaded');
+                                        } catch (err: any) {
+                                          setErrorPopup(err.message || 'Failed to download PDF');
+                                        }
+                                      }}
+                                    >
+                                      📄 PDF
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -900,6 +971,28 @@ const Dashboard: React.FC = () => {
                 <div className="view-header">
                   <button className="btn-ghost" onClick={() => handleNavClick('applications')}>← Back to Applications</button>
                   <div className="view-title">Application Details</div>
+                  <button 
+                    className="btn-ghost" 
+                    style={{ marginLeft: 'auto', fontWeight: '700', color: '#2b6cb0', borderColor: '#bee3f8' }}
+                    onClick={async () => {
+                      try {
+                        const blob = await API.downloadSubmissionPDF(selectedApplication.id);
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `Submission_${selectedApplication.id}_${selectedApplication.form_title?.replace(/\s+/g, '_') || 'Application'}.pdf`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(url);
+                        setShowToast('✓ PDF downloaded successfully');
+                      } catch (err: any) {
+                        setErrorPopup(err.message || 'Failed to download PDF');
+                      }
+                    }}
+                  >
+                    📄 Download PDF
+                  </button>
                 </div>
                 <div className="view-body">
                   <div className="sec-card">
@@ -1224,9 +1317,15 @@ const Dashboard: React.FC = () => {
 
             {/* ── ADMISSION APPLICATION VIEW ── */}
             {currentView === 'admission' && (() => {
-              const admissionApp = applications.find((a: any) =>
-                a.form_title?.toLowerCase().includes('admission')
-              );
+              if (isLoading && applications.length === 0) {
+                return <div className="view-content fade-in" style={{ padding: '40px', textAlign: 'center' }}>Loading your application status...</div>;
+              }
+
+              const admissionApp = applications.find((a: any) => {
+                const title = (a.form_title || '').toLowerCase();
+                const type = (a.form_type || '').toLowerCase();
+                return title.includes('admission') || title.includes('form a') || type.includes('psssp') || type.includes('form a');
+              });
               const isRejected = admissionApp?.status === 'rejected';
               const isActive = admissionApp && !isRejected;
 
@@ -1370,6 +1469,166 @@ const Dashboard: React.FC = () => {
             <div className="error-popup-title">Upload Failed</div>
             <div className="error-popup-message">{errorPopup}</div>
             <button className="error-popup-close" onClick={() => setErrorPopup(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
+
+       {/* Submitted Form Restriction Modal */}
+      {submittedFormPopup && (
+        <div className="modal-overlay" style={{ zIndex: 3000 }}>
+          <div className="modal-card" style={{ maxWidth: '450px', textAlign: 'center', padding: '40px 32px' }}>
+             <div style={{ fontSize: '48px', marginBottom: '20px' }}>📄</div>
+             <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#1e293b', marginBottom: '12px' }}>Already Submitted</h2>
+             <p style={{ fontSize: '14px', color: '#64748b', lineHeight: '1.6', marginBottom: '24px' }}>
+               Your <strong>{submittedFormPopup}</strong> has already been submitted and is currently being reviewed by DGG staff. You cannot submit another until a decision has been reached.
+             </p>
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+               <button className="btn-primary" style={{ width: '100%' }} onClick={() => {
+                 const app = applications.find(a => a.form_title?.includes(submittedFormPopup));
+                 if (app) handleViewApplication(app);
+                 setSubmittedFormPopup(null);
+               }}>Track Application Status</button>
+               <button className="btn-ghost" style={{ width: '100%' }} onClick={() => setSubmittedFormPopup(null)}>Dismiss</button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Paper Forms Download Center Modal */}
+      {showPaperFormsModal && (
+        <div className="modal-overlay" style={{ zIndex: 3000 }} onClick={() => setShowPaperFormsModal(false)}>
+          <div className="modal-card" style={{ maxWidth: '700px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '16px' }}>
+              <div>
+                <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#1e293b', marginBottom: '4px' }}>Paper Forms Download Center</h3>
+                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Download official DGG forms as PDF documents</p>
+              </div>
+              <button 
+                onClick={() => setShowPaperFormsModal(false)}
+                style={{ 
+                  background: '#f1f5f9', 
+                  border: 'none', 
+                  borderRadius: '6px', 
+                  width: '32px', 
+                  height: '32px', 
+                  cursor: 'pointer',
+                  fontSize: '18px',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >✕</button>
+            </div>
+            
+            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+              <div style={{ 
+                padding: '16px', 
+                background: '#eff6ff', 
+                borderRadius: '8px', 
+                border: '1px solid #bfdbfe',
+                marginBottom: '20px' 
+              }}>
+                <div style={{ fontSize: '12px', color: '#1e40af', lineHeight: '1.6' }}>
+                  <strong>📍 Mail or deliver completed forms to:</strong><br />
+                  <div style={{ marginTop: '8px', paddingLeft: '20px' }}>
+                    Department of Education, Délı̨nę Got'ı̨nę Government<br />
+                    P.O. Box 156 Délı̨nę, NT X0E 0G0<br />
+                    Ph: (867) 589-3515 ext. 1110
+                  </div>
+                </div>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {availableForms.length > 0 ? (
+                  availableForms.map(form => (
+                    <div 
+                      key={form.id} 
+                      style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        padding: '14px 16px', 
+                        background: '#ffffff', 
+                        borderRadius: '8px', 
+                        border: '1px solid #e2e8f0',
+                        transition: 'all 0.2s',
+                        cursor: 'pointer'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = '#3b82f6';
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = '#e2e8f0';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: '700', fontSize: '14px', color: '#1e293b', marginBottom: '2px' }}>{form.title}</div>
+                        <div style={{ fontSize: '12px', color: '#64748b' }}>{form.description || 'Download this form'}</div>
+                      </div>
+                      <button
+                        className="btn-ghost" 
+                        style={{ 
+                          padding: '8px 16px', 
+                          fontSize: '12px', 
+                          fontWeight: '700', 
+                          color: '#3b82f6', 
+                          background: '#eff6ff',
+                          border: '1px solid #bfdbfe',
+                          whiteSpace: 'nowrap'
+                        }}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            // Download PDF from backend API
+                            const blob = await API.downloadFormPDF(form.id);
+                            const url = URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `${form.title.replace(/\s+/g, '_')}.pdf`;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            URL.revokeObjectURL(url);
+                            setShowToast(`✓ ${form.title} downloaded`);
+                          } catch (err: any) {
+                            console.error('PDF download failed:', err);
+                            setShowToast(`✕ Failed to download ${form.title}`);
+                          }
+                        }}
+                      >
+                        📄 Download PDF
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>
+                    Loading forms...
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="modal-footer" style={{ 
+              borderTop: '1px solid #e2e8f0', 
+              paddingTop: '16px',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
+                📄 PDFs are pre-formatted for standard letter paper
+              </div>
+              <button 
+                className="btn-primary" 
+                onClick={() => setShowPaperFormsModal(false)}
+                style={{ padding: '10px 24px' }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

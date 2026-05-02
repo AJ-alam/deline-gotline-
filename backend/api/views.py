@@ -70,6 +70,34 @@ class ApplicationViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(student=self.request.user)
 
+    def perform_update(self, serializer):
+        old_status = self.get_object().status
+        instance = serializer.save()
+        
+        # Trigger Director notification if status changed to pending (Forwarded)
+        if instance.status == 'pending' and old_status != 'pending':
+            directors = User.objects.filter(role='director')
+            for director in directors:
+                from notifications.models import Notification
+                Notification.objects.create(
+                    user=director,
+                    title="Legacy Application Awaiting Approval",
+                    message=f"Application #{instance.id} from {instance.student.full_name if instance.student else 'Student'} needs your decision.",
+                    link="/staff/director-queue"
+                )
+                if director.email:
+                    try:
+                        from notifications.utils import email_director_approval_request
+                        email_director_approval_request(
+                            director_email=director.email,
+                            student_name=instance.student.full_name if instance.student else 'Student',
+                            form_title=instance.form_type,
+                            amount=float(0),
+                            submission_id=f"legacy-{instance.id}",
+                        )
+                    except Exception:
+                        pass
+
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         application = self.get_object()
@@ -180,63 +208,148 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='export-csv')
     def export_csv(self, request):
-        """Return CSV of all approved FormSubmission records."""
+        """Return CSV of all approved records with detailed payment information."""
         import csv
         import io
         from django.http import HttpResponse
         from forms.models import FormSubmission
         from django.db.models import Q
+        from api.models import AuditLog
 
         funding_type = request.query_params.get('funding_type', 'all').lower()
         date_from = request.query_params.get('date_from')
         date_to = request.query_params.get('date_to')
 
-        qs = FormSubmission.objects.filter(status='accepted').select_related('student', 'form', 'decided_by')
+        # New model submissions
+        qs = FormSubmission.objects.filter(status='accepted').select_related('student', 'form', 'decided_by').prefetch_related('student__payments')
+        # Legacy model applications
+        legacy_qs = Application.objects.filter(status='approved').select_related('student').prefetch_related('student__payments')
 
         mapping = {
             'cdfn': Q(form__title__icontains='FormA') | Q(form__title__icontains='FormC'),
             'dggr': Q(form__title__icontains='DGGR') | Q(form__title__icontains='Scholarship') | Q(form__title__icontains='Hardship') | Q(form__title__icontains='Form D') | Q(form__title__icontains='Form F') | Q(form__title__icontains='Form G'),
             'ucepp': Q(form__title__icontains='UCEPP') | Q(form__title__icontains='Upgrading'),
         }
-        if funding_type in mapping:
+
+        if funding_type != 'all' and funding_type in mapping:
             qs = qs.filter(mapping[funding_type])
+            if funding_type == 'cdfn': legacy_qs = legacy_qs.filter(form_type__icontains='PSSSP')
+            elif funding_type == 'dggr': legacy_qs = legacy_qs.filter(form_type__icontains='DGGR')
+            elif funding_type == 'ucepp': legacy_qs = legacy_qs.filter(form_type__icontains='UCEPP')
+
         if date_from:
             qs = qs.filter(submitted_at__date__gte=date_from)
+            legacy_qs = legacy_qs.filter(created_at__date__gte=date_from)
         if date_to:
             qs = qs.filter(submitted_at__date__lte=date_to)
+            legacy_qs = legacy_qs.filter(created_at__date__lte=date_to)
 
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            'Submission ID', 'Student Name', 'Student Email', 'Beneficiary #',
-            'Form', 'Stream', 'Status', 'Approved Amount ($)',
+            'Submission ID', 'Student Name', 'Student Email', 'Beneficiary #', 'Phone Number',
+            'Mailing Address', 'Town/City', 'Postal Code', 'Institute',
+            'Form/Type', 'Stream', 'Status', 'Approved Amount ($)',
+            'Payment Type', 'Payment Amount ($)', 'Payment Status', 'Payment Reference #', 'Payment Date',
             'Submitted Date', 'Decision Date', 'Decided By'
         ])
-        for sub in qs.order_by('-decided_at'):
+
+        for sub in qs.order_by('-submitted_at'):
             student = sub.student
-            stream = ''
-            if student:
-                stream = student.primary_stream or ''
-            writer.writerow([
-                sub.id,
-                student.full_name if student else '',
-                student.email if student else '',
-                student.beneficiary_number if student else '',
-                sub.form.title if sub.form else '',
-                stream,
+            profile = student.profile if student and hasattr(student, 'profile') else None
+            
+            # Get all payments for this student
+            payments = student.payments.all() if student else []
+            
+            # Student info (common for all rows)
+            student_info = [
+                f"FS-{sub.id}",
+                student.full_name if student else '—',
+                student.email if student else '—',
+                profile.beneficiary_number if profile else '—',
+                profile.phone_number if profile else '—',
+                profile.mailing_address if profile else '—',
+                profile.town_city if profile else '—',
+                profile.postal_code if profile else '—',
+                profile.institute if profile else '—',
+                sub.form.title if sub.form else '—',
+                student.primary_stream if student else '—',
                 sub.status,
-                sub.amount,
-                sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '',
-                sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '',
-                sub.decided_by.full_name if sub.decided_by else '',
-            ])
+                sub.amount or 0,
+            ]
+            
+            if payments:
+                # Write one row per payment
+                for payment in payments:
+                    writer.writerow(student_info + [
+                        payment.payment_type,
+                        payment.amount,
+                        payment.status,
+                        payment.reference_number or '—',
+                        payment.date_issued.strftime('%Y-%m-%d') if payment.date_issued else '—',
+                        sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '—',
+                        sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '—',
+                        sub.decided_by.full_name if sub.decided_by else '—',
+                    ])
+            else:
+                # No payments, write single row
+                writer.writerow(student_info + [
+                    '—', '—', '—', '—', '—',
+                    sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '—',
+                    sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '—',
+                    sub.decided_by.full_name if sub.decided_by else '—',
+                ])
+
+        for app in legacy_qs.order_by('-created_at'):
+            student = app.student
+            profile = student.profile if student and hasattr(student, 'profile') else None
+            
+            # Get all payments for this student
+            payments = student.payments.filter(application=app) if student else []
+            
+            student_info = [
+                f"LEG-{app.id}",
+                student.full_name if student else '—',
+                student.email if student else '—',
+                profile.beneficiary_number if profile else '—',
+                profile.phone_number if profile else '—',
+                profile.mailing_address if profile else '—',
+                profile.town_city if profile else '—',
+                profile.postal_code if profile else '—',
+                profile.institute if profile else '—',
+                app.form_type,
+                student.primary_stream if student else '—',
+                app.status,
+                0, # Amount not stored in legacy model directly
+            ]
+            
+            if payments:
+                for payment in payments:
+                    writer.writerow(student_info + [
+                        payment.payment_type,
+                        payment.amount,
+                        payment.status,
+                        payment.reference_number or '—',
+                        payment.date_issued.strftime('%Y-%m-%d') if payment.date_issued else '—',
+                        app.created_at.strftime('%Y-%m-%d') if app.created_at else '—',
+                        app.decision_at.strftime('%Y-%m-%d') if app.decision_at else '—',
+                        app.decision_by or '—',
+                    ])
+            else:
+                writer.writerow(student_info + [
+                    '—', '—', '—', '—', '—',
+                    app.created_at.strftime('%Y-%m-%d') if app.created_at else '—',
+                    app.decision_at.strftime('%Y-%m-%d') if app.decision_at else '—',
+                    app.decision_by or '—',
+                ])
 
         response = HttpResponse(output.getvalue(), content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="approved_applications.csv"'
+        response['Content-Disposition'] = 'attachment; filename="payment_export.csv"'
+        
         AuditLog.objects.create(
-            action="Approved Applications CSV Exported",
+            action="Payment CSV Export Triggered",
             performed_by=request.user,
-            role=request.user.role,
+            details=f"Exported {qs.count() + legacy_qs.count()} records with payment details"
         )
         return response
 
@@ -244,62 +357,91 @@ class PaymentViewSet(viewsets.ModelViewSet):
     def dispatch_report(self, request):
         import csv
         import io
-        from django.core.mail import EmailMessage
         from forms.models import FormSubmission
-        from api.models import PolicySetting, AuditLog
+        from api.models import AuditLog
+        from email_sender import send_finance_report
 
-        email_config = PolicySetting.objects.filter(section='system_config', field_key='finance_email').first()
-        recipient = email_config.unit if email_config else "finance@deline.ca"
-
-        # Build CSV in memory
+        # Build the same rich 21-column CSV used by export_csv
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            'Submission ID', 'Student Name', 'Student Email', 'Beneficiary #',
-            'Form', 'Stream', 'Status', 'Approved Amount ($)',
+            'Submission ID', 'Student Name', 'Student Email', 'Beneficiary #', 'Phone Number',
+            'Mailing Address', 'Town/City', 'Postal Code', 'Institute',
+            'Form/Type', 'Stream', 'Status', 'Approved Amount ($)',
+            'Payment Type', 'Payment Amount ($)', 'Payment Status', 'Payment Reference #', 'Payment Date',
             'Submitted Date', 'Decision Date', 'Decided By'
         ])
-        qs = FormSubmission.objects.filter(status='accepted').select_related('student', 'form', 'decided_by').order_by('-decided_at')
+
+        qs = (
+            FormSubmission.objects
+            .filter(status='accepted')
+            .select_related('student', 'form', 'decided_by')
+            .prefetch_related('student__payments', 'student__profile')
+            .order_by('-decided_at')
+        )
+
+        student_count = 0
         for sub in qs:
             student = sub.student
-            writer.writerow([
-                sub.id,
-                student.full_name if student else '',
-                student.email if student else '',
-                student.beneficiary_number if student else '',
-                sub.form.title if sub.form else '',
-                student.primary_stream if student else '',
+            profile = getattr(student, 'profile', None) if student else None
+            payments = student.payments.all() if student else []
+            student_count += 1
+
+            base = [
+                f"FS-{sub.id}",
+                student.full_name if student else '—',
+                student.email if student else '—',
+                profile.beneficiary_number if profile else '—',
+                profile.phone_number if profile else '—',
+                profile.mailing_address if profile else '—',
+                profile.town_city if profile else '—',
+                profile.postal_code if profile else '—',
+                profile.institute if profile else '—',
+                sub.form.title if sub.form else '—',
+                student.primary_stream if student else '—',
                 sub.status,
-                sub.amount,
-                sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '',
-                sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '',
-                sub.decided_by.full_name if sub.decided_by else '',
-            ])
+                sub.amount or 0,
+            ]
+            dates = [
+                sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else '—',
+                sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else '—',
+                sub.decided_by.full_name if sub.decided_by else '—',
+            ]
+            if payments:
+                for p in payments:
+                    writer.writerow(base + [
+                        p.payment_type, p.amount, p.status,
+                        p.reference_number or '—',
+                        p.date_issued.strftime('%Y-%m-%d') if p.date_issued else '—',
+                    ] + dates)
+            else:
+                writer.writerow(base + ['—', '—', '—', '—', '—'] + dates)
 
         csv_bytes = output.getvalue().encode('utf-8')
-        count = qs.count()
+        triggered_by = getattr(request.user, 'full_name', '') or request.user.email
 
-        try:
-            email = EmailMessage(
-                subject='[DGG Funding] Approved Applications Report',
-                body=(
-                    f"Please find attached the approved applications export.\n\n"
-                    f"Total approved: {count}\n"
-                    f"Dispatched by: {request.user.full_name or request.user.email}\n"
-                ),
-                to=[recipient],
-            )
-            email.attach('approved_applications.csv', csv_bytes, 'text/csv')
-            email.send()
+        ok = send_finance_report(
+            csv_bytes=csv_bytes,
+            total_students=student_count,
+            triggered_by=triggered_by,
+        )
+
+        if ok:
             AuditLog.objects.create(
-                action=f"Finance Report Emailed to {recipient} ({count} records)",
+                action=f"Finance Report Emailed ({student_count} students)",
                 performed_by=request.user,
                 role=request.user.role,
             )
-            return Response({'status': 'success', 'recipient': recipient, 'count': count,
-                             'message': f'Report with {count} records sent to {recipient}'})
-        except Exception as e:
-            return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({
+                'status': 'success',
+                'count': student_count,
+                'message': f'Report with {student_count} student records sent to Finance Department',
+            })
+        else:
+            return Response(
+                {'status': 'error', 'message': 'Failed to send email. Check server logs for details.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 class AppealViewSet(viewsets.ModelViewSet):
     queryset = Appeal.objects.all()

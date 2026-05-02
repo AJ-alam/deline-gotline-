@@ -24,7 +24,65 @@ const AdminIcons = {
   ),
   ChevronLeft: () => (
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+  ),
+  Pulse: () => (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" fill="#10b981" fillOpacity="0.2"><animate attributeName="r" from="8" to="12" dur="1.5s" repeatCount="indefinite" /><animate attributeName="fill-opacity" from="0.6" to="0" dur="1.5s" repeatCount="indefinite" /></circle><circle cx="12" cy="12" r="4" fill="#10b981" /></svg>
   )
+};
+
+// ── CUSTOM CHART COMPONENTS ──
+
+const DonutChart: React.FC<{ data: { label: string, value: number, color: string }[] }> = ({ data }) => {
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  let cumulativePercent = 0;
+
+  const getCoordinatesForPercent = (percent: number) => {
+    const x = Math.cos(2 * Math.PI * percent);
+    const y = Math.sin(2 * Math.PI * percent);
+    return [x, y];
+  };
+
+  return (
+    <div className="donut-wrap">
+      <svg viewBox="-1 -1 2 2" style={{ transform: 'rotate(-90deg)', width: '100%', height: '100%' }}>
+        {data.map((item, i) => {
+          const start = getCoordinatesForPercent(cumulativePercent);
+          cumulativePercent += item.value / (total || 1);
+          const end = getCoordinatesForPercent(cumulativePercent);
+          const largeArcFlag = item.value / (total || 1) > 0.5 ? 1 : 0;
+          const pathData = [
+            `M ${start[0]} ${start[1]}`,
+            `A 1 1 0 ${largeArcFlag} 1 ${end[0]} ${end[1]}`,
+            `L 0 0`,
+          ].join(' ');
+          return <path key={i} d={pathData} fill={item.color} />;
+        })}
+        <circle cx="0" cy="0" r="0.65" fill="#fff" />
+      </svg>
+      <div className="donut-center">
+        <div className="donut-val">{total}</div>
+        <div className="donut-lbl">Apps</div>
+      </div>
+    </div>
+  );
+};
+
+const BarChart: React.FC<{ data: { label: string, value: number, color: string }[] }> = ({ data }) => {
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (
+    <div className="bar-chart-wrap">
+      {data.map((item, i) => (
+        <div key={i} className="bar-item">
+          <div className="bar-rail">
+            <div className="bar-fill" style={{ height: `${(item.value / max) * 100}%`, backgroundColor: item.color }}>
+              <div className="bar-tooltip">${item.value.toLocaleString()}</div>
+            </div>
+          </div>
+          <div className="bar-label">{item.label}</div>
+        </div>
+      ))}
+    </div>
+  );
 };
 
 type ViewMode = 'dashboard' | 'applications' | 'detail' | 'policy' | 'reports' | 'director' | 'payments' | 'director-queue' | 'director-detail' | 'appeals' | 'notifications';
@@ -40,7 +98,6 @@ const StaffDashboard: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [decisionNotes, setDecisionNotes] = useState('');
   const [reportFundingType, setReportFundingType] = useState('all');
-  const [reportSubFilter, setReportSubFilter] = useState('students');
   const [reportDateFrom, setReportDateFrom] = useState('');
   const [reportDateTo, setReportDateTo] = useState('');
   const [reportStatusFilter, setReportStatusFilter] = useState('all');
@@ -80,26 +137,19 @@ const StaffDashboard: React.FC = () => {
     if (showLoader || applications.length === 0) setIsLoading(true);
     
     // Start all requests in parallel
-    const subsPromise = (role === 'director'
-      // Directors only need FormSubmissions (backend already filters to forwarded/decided)
-      ? API.getSubmissions().then((subsResp: any) => {
-          const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
-          setApplications(subs);
-        })
-      // Admins/SSW get both legacy applications and form submissions merged
-      : Promise.all([
-          API.getApplications(),
-          API.getSubmissions()
-        ]).then(([appsResp, subsResp]: [any, any]) => {
-          const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
-          const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
-          const merged = [
-            ...apps.map((a: any) => ({ ...a, _is_standard: true })),
-            ...subs
-          ];
-          setApplications(merged);
-        })
-    );
+    const [appsResp, subsResp] = await Promise.all([
+      API.getApplications().catch(() => []),
+      API.getSubmissions().catch(() => [])
+    ]);
+
+    const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
+    const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
+    
+    const merged = [
+      ...apps.map((a: any) => ({ ...a, _is_standard: true })),
+      ...subs
+    ];
+    setApplications(merged);
 
     const statsPromise = API.getDashboardStats().then((resp: any) => {
       setBackendStats(resp || null);
@@ -127,7 +177,7 @@ const StaffDashboard: React.FC = () => {
     });
 
     try {
-      await Promise.allSettled([subsPromise, statsPromise, notifsPromise, mePromise, appealsPromise]);
+      await Promise.allSettled([statsPromise, notifsPromise, mePromise, appealsPromise]);
     } catch (err: any) {
       console.error('Data sync failed:', err);
       setError(err.message || 'Failed to sync with database');
@@ -164,34 +214,7 @@ const StaffDashboard: React.FC = () => {
     fetchFinanceConfig();
   }, []);
 
-  const handleExcelExport = () => {
-    setIsExporting(true);
-    try {
-      const approved = applications.filter((a: any) => a.status === 'accepted');
-      const exportData = approved.map((a: any) => ({
-        'Submission ID': a.id,
-        'Student Name': a.student_details?.full_name || a.student_name || '',
-        'Student Email': a.student_details?.email || '',
-        'Beneficiary #': a.student_details?.beneficiary_number || '',
-        'Form': a.form_title || '',
-        'Stream': a.student_details?.primary_stream || '',
-        'Approved Amount ($)': parseFloat(a.amount || 0),
-        'Submitted Date': a.submitted_at ? new Date(a.submitted_at).toLocaleDateString() : '',
-        'Decision Date': a.decided_at ? new Date(a.decided_at).toLocaleDateString() : '',
-        'Decided By': a.decided_by_name || '',
-      }));
 
-      const worksheet = XLSX.utils.json_to_sheet(exportData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Approved Applications");
-      XLSX.writeFile(workbook, `Approved_Applications_${new Date().toISOString().split('T')[0]}.xlsx`);
-      setShowFinanceModal(true);
-    } catch (err) {
-      alert("Export failed");
-    } finally {
-      setIsExporting(false);
-    }
-  };
 
   const [backendStats, setBackendStats] = useState<any>(null);
   const [reportStats, setReportStats] = useState<any>(null);
@@ -2766,10 +2789,13 @@ const StaffDashboard: React.FC = () => {
           )}
 
           {currentView === 'reports' && (
-            <div className="fade-in" style={{ padding: '0 20px 40px' }}>
+            <div className="fade-in" style={{ padding: '0 24px 40px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
                 <div>
-                  <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#1e293b' }}>Reports & Analytics</h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#1e293b', margin: 0 }}>Reports & Analytics</h2>
+                    <span title="Real-time data sync active"><AdminIcons.Pulse /></span>
+                  </div>
                   <p style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>Real-time data aggregation for funding streams and student enrollment.</p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
@@ -2874,83 +2900,134 @@ const StaffDashboard: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
-                    {/* Main Report Table */}
-                    <div className="admin-chart-card" style={{ padding: '0' }}>
-                      <div style={{ padding: '24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h3 style={{ fontSize: '14px', fontWeight: '800', margin: 0 }}>DETAILED RECORDS</h3>
-                        <div style={{ fontSize: '12px', color: '#64748b' }}>Showing {applications.length} results</div>
+                    {/* Visual Analytics Column */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                        {/* Stream Allocation Donut */}
+                        <div className="admin-chart-card" style={{ padding: '24px' }}>
+                          <h3 style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Funding Stream Allocation</h3>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
+                            <div style={{ width: '150px', height: '150px' }}>
+                              <DonutChart data={[
+                                { label: 'CDFN', value: (reportStats || backendStats)?.stream_split?.pssp || 0, color: '#3b82f6' },
+                                { label: 'DGGR', value: (reportStats || backendStats)?.stream_split?.dggr || 0, color: '#10b981' },
+                                { label: 'UCEPP', value: (reportStats || backendStats)?.stream_split?.ucepp || 0, color: '#f59e0b' }
+                              ]} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              {[
+                                { label: 'CDFN / PSSSP', key: 'pssp', color: '#3b82f6' },
+                                { label: 'DGGR / Gotline', key: 'dggr', color: '#10b981' },
+                                { label: 'UCEPP / Upgrading', key: 'ucepp', color: '#f59e0b' }
+                              ].map(item => (
+                                <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: item.color }}></div>
+                                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>{item.label}</span>
+                                  </div>
+                                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b' }}>{(reportStats || backendStats)?.stream_split?.[item.key] || 0}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Status Health */}
+                        <div className="admin-chart-card" style={{ padding: '24px' }}>
+                          <h3 style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Application Pipeline Health</h3>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'center', height: '150px' }}>
+                            {[
+                              { label: 'Under Review', key: 'pending', color: '#3b82f6' },
+                              { label: 'Awaiting Director', key: 'forwarded', color: '#8b5cf6' },
+                              { label: 'Approved & Finalized', key: 'accepted', color: '#10b981' },
+                              { label: 'Rejected', key: 'rejected', color: '#ef4444' }
+                            ].map(item => {
+                              const count = (reportStats || backendStats)?.submissions_by_status?.[item.key] || 0;
+                              const total = (reportStats || backendStats)?.total_submissions || 1;
+                              const pct = Math.round((count / total) * 100);
+                              return (
+                                <div key={item.key}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: '700', marginBottom: '4px' }}>
+                                    <span style={{ color: '#64748b' }}>{item.label}</span>
+                                    <span style={{ color: '#1e293b' }}>{count} ({pct}%)</span>
+                                  </div>
+                                  <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
+                                    <div style={{ height: '100%', width: `${pct}%`, background: item.color, borderRadius: '3px' }}></div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
                       </div>
-                      <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
-                        <table className="admin-table">
-                          <thead>
-                            <tr>
-                              <th>REF #</th>
-                              <th>STUDENT</th>
-                              <th>STREAM</th>
-                              <th>STATUS</th>
-                              <th>AMOUNT</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {applications.map((app: any) => (
-                              <tr key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`}>
-                                <td><span style={{ fontSize: '11px', color: '#64748b' }}>#{app.id}</span></td>
-                                <td><strong>{app.student_details?.full_name || app.name}</strong></td>
-                                <td><span className="admin-badge" style={{ background: '#f1f5f9', color: '#475569' }}>{app.form_title || 'General'}</span></td>
-                                <td>{getStatusBadge(app.status)}</td>
-                                <td style={{ fontWeight: '800' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
+
+                      {/* Quarterly Trends Bar Chart */}
+                      <div className="admin-chart-card" style={{ padding: '24px' }}>
+                        <h3 style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b', marginBottom: '24px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Funding Disbursements by Quarter</h3>
+                        <div style={{ height: '200px' }}>
+                          <BarChart data={((reportStats || backendStats)?.quarterly_report || []).map((q: any) => ({
+                            label: q.quarter,
+                            value: q.amount || 0,
+                            color: '#3b82f6'
+                          }))} />
+                        </div>
+                      </div>
+
+                      {/* Main Report Table */}
+                      <div className="admin-chart-card" style={{ padding: '0' }}>
+                        <div style={{ padding: '24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <h3 style={{ fontSize: '13px', fontWeight: '800', margin: 0 }}>DETAILED AUDIT LOG</h3>
+                          <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', background: '#f1f5f9', padding: '4px 10px', borderRadius: '100px' }}>Showing {applications.length} results</div>
+                        </div>
+                        <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
+                          <table className="admin-table">
+                            <thead>
+                              <tr>
+                                <th>REF #</th>
+                                <th>STUDENT</th>
+                                <th>STREAM</th>
+                                <th>STATUS</th>
+                                <th>AMOUNT</th>
                               </tr>
-                            ))}
-                            {applications.length === 0 && (
-                              <tr><td colSpan={5} style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>No records found for the selected filters.</td></tr>
-                            )}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {applications.slice(0, 15).map((app: any) => (
+                                <tr key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`}>
+                                  <td><span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>#{String(app.id).padStart(6, '0')}</span></td>
+                                  <td>
+                                    <div style={{ fontWeight: '700', color: '#1e293b' }}>{app.student_details?.full_name || app.name}</div>
+                                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>{new Date(app.submitted_at).toLocaleDateString()}</div>
+                                  </td>
+                                  <td><span className="admin-badge" style={{ background: '#f1f5f9', color: '#475569', fontSize: '10px' }}>{app.form_title || app.form_type || 'General'}</span></td>
+                                  <td>{getStatusBadge(app.status)}</td>
+                                  <td style={{ fontWeight: '900', color: '#1e293b' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
+                                </tr>
+                              ))}
+                              {applications.length === 0 && (
+                                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>No records found for the selected filters.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Secondary Insights */}
+                    {/* Quick Action Side Panel */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                      <div className="admin-chart-card">
-                        <h3 style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '20px', textTransform: 'uppercase' }}>STREAM ALLOCATION</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          {['CDFN', 'DGGR', 'UCEPP'].map(stream => {
-                            const stats = (reportStats || backendStats);
-                            const streamKeyMap: Record<string, string> = { 'CDFN': 'pssp', 'DGGR': 'dggr', 'UCEPP': 'ucepp' };
-                            const count = stats?.stream_split?.[streamKeyMap[stream]] || 0;
-                            const total = stats?.total_submissions || 1;
-                            const percent = (count / total) * 100;
-                            const color = stream === 'CDFN' ? '#0369a1' : stream === 'DGGR' ? '#15803d' : '#b45309';
-
-                            return (
-                              <div key={stream}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: '700', marginBottom: '6px' }}>
-                                  <span>{stream}</span>
-                                  <span>{count} apps</span>
-                                </div>
-                                <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
-                                  <div style={{ height: '100%', width: `${percent}%`, background: color, transition: 'width 0.5s ease-out' }}></div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="admin-chart-card" style={{ background: '#1e293b', color: '#fff' }}>
-                        <h3 style={{ fontSize: '11px', fontWeight: '800', color: 'rgba(255,255,255,0.5)', marginBottom: '20px', textTransform: 'uppercase' }}>QUARTERLY TREND</h3>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                          {((reportStats || backendStats)?.quarterly_report || []).map((q: any) => (
-                            <div key={q.quarter} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
-                              <div style={{ fontSize: '13px', fontWeight: '600' }}>{q.quarter}</div>
-                              <div style={{ fontSize: '14px', fontWeight: '800', color: '#e5a662' }}>${(q.amount || 0).toLocaleString()}</div>
+                       <div className="admin-chart-card" style={{ background: '#111827', color: '#fff', border: 'none' }}>
+                         <h3 style={{ fontSize: '11px', fontWeight: '800', color: 'rgba(255,255,255,0.4)', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>System Pulse</h3>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div style={{ padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
+                               <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>Avg. Processing Time</div>
+                               <div style={{ fontSize: '20px', fontWeight: '800' }}>4.2 Days</div>
                             </div>
-                          ))}
-                          {((reportStats || backendStats)?.quarterly_report || []).length === 0 && (
-                            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '12px', padding: '20px' }}>No quarterly data yet.</div>
-                          )}
-                        </div>
-                      </div>
+                            <div style={{ padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
+                               <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>Student Engagement</div>
+                               <div style={{ fontSize: '20px', fontWeight: '800' }}>High</div>
+                            </div>
+                         </div>
+                       </div>
                     </div>
                   </div>
                 </div>

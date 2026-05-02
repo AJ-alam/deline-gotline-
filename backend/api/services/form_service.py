@@ -31,7 +31,11 @@ class FormService:
                 link=None
             )
             if student.email:
-                email_application_received(student.email, student.full_name, form.title)
+                email_application_received(
+                    student.email, student.full_name, form.title,
+                    submission_id=submission.id,
+                    submitted_at=submission.submitted_at,
+                )
 
         # Trigger enrollment verification email for new student applications
         if 'new student application' in form_title_lower or 'psssp' in form_title_lower:
@@ -52,17 +56,21 @@ class FormService:
             submission.forwarded_at = timezone.now()
             submission.save(update_fields=['status', 'forwarded_at'])
             # Calculate award amount immediately from policy
-            from api.services.calculation_service import CalculationService
-            results = CalculationService.calculate_and_pay(submission)
-            # Store breakdown in office_use_data for director review
-            if results:
-                submission.office_use_data = {
-                    **(submission.office_use_data or {}),
-                    'auto_calculated': True,
-                    'award_type': results.get('award_type', ''),
-                    'breakdown': {k: str(v) for k, v in results.items() if k not in ('payment_items',)},
-                }
-                submission.save(update_fields=['office_use_data'])
+            try:
+                from api.services.calculation_service import CalculationService
+                results = CalculationService.calculate_and_pay(submission)
+                # Store breakdown in office_use_data for director review
+                if results:
+                    submission.office_use_data = {
+                        **(submission.office_use_data or {}),
+                        'auto_calculated': True,
+                        'award_type': results.get('award_type', ''),
+                        'breakdown': {k: str(v) for k, v in results.items() if k not in ('payment_items',)},
+                    }
+                    submission.save(update_fields=['office_use_data'])
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error("Automatic calculation failed for submission %s: %s", submission.id, e)
 
         # Notify Admins & Directors
         admins_and_directors = User.objects.filter(role__in=['admin', 'director'])
@@ -178,7 +186,8 @@ class FormService:
         if new_status == 'accepted':
             email_application_approved(
                 student.email, student.full_name,
-                submission.form.title, float(submission.amount or 0)
+                submission.form.title, float(submission.amount or 0),
+                submission_id=submission.id,
             )
             from api.models import PolicySetting
             finance_cfg = PolicySetting.objects.filter(
@@ -200,7 +209,8 @@ class FormService:
         elif new_status == 'rejected':
             email_application_rejected(
                 student.email, student.full_name,
-                submission.form.title, submission.decision_reason or ''
+                submission.form.title, submission.decision_reason or '',
+                submission_id=submission.id,
             )
         elif new_status == 'more_info_required':
             notes = extra_data.get('notes', '')
@@ -269,7 +279,6 @@ class FormService:
             )
             if director.email:
                 try:
-                    from api.services.email_service import email_director_approval_request
                     email_director_approval_request(
                         director_email=director.email,
                         student_name=submission.student.full_name if submission.student else 'Student',

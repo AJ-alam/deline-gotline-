@@ -1,5 +1,6 @@
 import logging
 from rest_framework import viewsets, permissions, status, decorators, parsers
+from django.http import HttpResponse
 
 from forms.models import Form, FormSubmission, SubmissionNote
 from forms.serializers import FormSerializer, FormSubmissionSerializer, SubmissionNoteSerializer
@@ -7,6 +8,7 @@ from api.services.form_service import FormService
 from api.services.eligibility_service import EligibilityService
 from api.services.duplicate_detection_service import DuplicateDetectionService
 from api.utils.responses import api_response
+from api.utils.pdf_generator import FormPDFGenerator
 from api.models import ShareableLink
 from users.permissions import IsAdminUser, IsOwnerOrAdmin
 from django.utils import timezone
@@ -30,11 +32,61 @@ class FormController(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    @decorators.action(detail=True, methods=['get'], url_path='download-pdf')
+    def download_pdf(self, request, pk=None):
+        """
+        Download a blank PDF template of the form for manual completion
+        """
+        form = self.get_object()
+        
+        try:
+            # Generate PDF
+            pdf_content = FormPDFGenerator.generate_form_template(form)
+            
+            # Create response
+            response = HttpResponse(pdf_content, content_type='application/pdf')
+            filename = f"{form.title.replace(' ', '_')}_Form.pdf"
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            # Log the download
+            from api.models import AuditLog
+            AuditLog.objects.create(
+                action=f"Downloaded PDF template for form: {form.title}",
+                performed_by=request.user if request.user.is_authenticated else None,
+                details=f"Form ID: {form.id}"
+            )
+            
+            return response
+        except Exception as e:
+            logger.error(f"Error generating PDF for form {form.id}: {str(e)}", exc_info=True)
+            return api_response(False, None, f"Failed to generate PDF: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @decorators.action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
         form = self.get_object()
         data = request.data.dict() if hasattr(request.data, 'dict') else request.data.copy()
         data['form'] = form.id
+
+        # Check if this is Form A and if user already has a non-rejected submission
+        if request.user.is_authenticated:
+            form_title_lower = form.title.lower()
+            is_form_a = 'form a' in form_title_lower or 'forma' in form_title_lower or 'psssp' in form_title_lower or 'admission' in form_title_lower
+            
+            if is_form_a:
+                # Check for existing Form A submissions that are not rejected
+                existing_submission = FormSubmission.objects.filter(
+                    student=request.user,
+                    form=form
+                ).exclude(status='rejected').first()
+                
+                if existing_submission:
+                    logger.warning(f"User {request.user.email} attempted to resubmit Form A (existing submission: {existing_submission.id})")
+                    return api_response(
+                        False, 
+                        {'existing_submission_id': existing_submission.id},
+                        "You have already submitted this form. Only one Form A submission is allowed unless your previous submission was rejected.",
+                        status.HTTP_400_BAD_REQUEST
+                    )
 
         # Map FormData indexed answers
         if 'answers[0]field_label' in data:
@@ -81,7 +133,7 @@ class SubmissionController(viewsets.ModelViewSet):
     
     def get_permissions(self):
         # Directors can only approve/reject (update_status) — not SSW-only actions
-        director_allowed = ['update_status', 'list', 'retrieve', 'respond_info']
+        director_allowed = ['update_status', 'respond_info']
         admin_only = ['add_note', 'share', 'check_eligibility', 'check_duplicates', 'mark_legitimate', 'mark_duplicate']
 
         if self.action in admin_only:
@@ -93,6 +145,10 @@ class SubmissionController(viewsets.ModelViewSet):
 
         if self.action in director_allowed:
             return [IsAdminUser()]  # both admin and director
+
+        # For list and retrieve, allow students to see their own + staff to see all
+        if self.action in ['list', 'retrieve']:
+            return [permissions.IsAuthenticated()]
 
         return [IsOwnerOrAdmin()]
 
@@ -383,3 +439,32 @@ class SubmissionController(viewsets.ModelViewSet):
         ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
 
         return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Information submitted successfully")
+
+    @decorators.action(detail=True, methods=['get'], url_path='download-pdf')
+    def download_pdf(self, request, pk=None):
+        """
+        Download a PDF of the submitted form with all answers filled in
+        """
+        submission = self.get_object()
+        
+        try:
+            # Generate filled PDF
+            pdf_content = FormPDFGenerator.generate_filled_form(submission)
+            
+            # Create response
+            response = HttpResponse(pdf_content, content_type='application/pdf')
+            filename = f"Submission_FS-{submission.id}_{submission.form.title.replace(' ', '_')}.pdf"
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            # Log the download
+            from api.models import AuditLog
+            AuditLog.objects.create(
+                action=f"Downloaded PDF for submission: FS-{submission.id}",
+                performed_by=request.user,
+                details=f"Submission ID: {submission.id}, Form: {submission.form.title}"
+            )
+            
+            return response
+        except Exception as e:
+            logger.error(f"Error generating PDF for submission {submission.id}: {str(e)}", exc_info=True)
+            return api_response(False, None, f"Failed to generate PDF: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)

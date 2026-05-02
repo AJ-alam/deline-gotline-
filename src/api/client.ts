@@ -376,6 +376,19 @@ class API {
     static getAuditLogs(params?: { submission?: number; application?: number }): Promise<any> {
         return apiClient.get('/audit-logs/', { params });
     }
+
+    // PDF Downloads
+    static downloadFormPDF(formId: number): Promise<Blob> {
+        return apiClient.get(`/forms/forms/${formId}/download-pdf/`, {
+            responseType: 'blob',
+        });
+    }
+
+    static downloadSubmissionPDF(submissionId: number): Promise<Blob> {
+        return apiClient.get(`/forms/submissions/${submissionId}/download-pdf/`, {
+            responseType: 'blob',
+        });
+    }
 }
 
 export default API;

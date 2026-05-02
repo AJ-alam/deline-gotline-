@@ -105,7 +105,8 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         programEnd: prev.programEnd || profile.expected_graduation_date || '',
         courseLoad: prev.courseLoad || profile.enrollment_status || 'Full-time',
         semester: prev.semester || profile.current_semester || 'Fall 2026',
-        institutionLocation: prev.institutionLocation || profile.institution_location || ''
+        institutionLocation: prev.institutionLocation || profile.institution_location || '',
+        studentId: prev.studentId || profile.student_id || `DGG-${new Date().getFullYear()}-${profile.id || Math.floor(Math.random() * 1000)}`
       }));
     }
   }, [profile]);
@@ -234,6 +235,49 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
     if (currentStep > 1) setCurrentStep(currentStep - 1);
     else onBack();
   };
+
+  // Check for existing application on mount
+  const [existingApp, setExistingApp] = useState<any>(null);
+  useEffect(() => {
+    const checkExisting = async () => {
+      try {
+        const subsResp = await API.getSubmissions() as any;
+        const appsResp = await API.getApplications() as any;
+        const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
+        const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
+        const merged = [...subs, ...apps];
+        
+        const admission = merged.find((a: any) => {
+          const title = (a.form_title || a.form_type || '').toLowerCase();
+          return title.includes('admission') || title.includes('form a') || title.includes('psssp');
+        });
+        
+        if (admission && admission.status !== 'rejected') {
+          setExistingApp(admission);
+        }
+      } catch (err) {
+        console.error('Error checking existing app:', err);
+      }
+    };
+    checkExisting();
+  }, []);
+
+  if (existingApp) {
+    return (
+      <div className="wizard-root fade-in">
+        <div className="wizard-shell" style={{ textAlign: 'center', padding: '60px 40px' }}>
+          <div style={{ fontSize: '48px', marginBottom: '20px' }}>📄</div>
+          <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#1e293b', marginBottom: '12px' }}>Application Already Submitted</h2>
+          <p style={{ fontSize: '14px', color: '#64748b', lineHeight: '1.6', marginBottom: '24px' }}>
+            You have already submitted an Admission Application. You cannot submit another until a decision has been reached.
+          </p>
+          <button className="wizard-btn-next" style={{ margin: '0 auto' }} onClick={onBack}>
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isSubmitted) {
     return (

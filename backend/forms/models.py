@@ -99,6 +99,11 @@ class FormSubmission(models.Model):
     class Meta:
         ordering = ['-submitted_at']
         db_table = 'form_submissions'
+        indexes = [
+            models.Index(fields=['student', 'status']),
+            models.Index(fields=['status', '-submitted_at']),
+            models.Index(fields=['form', 'student']),
+        ]
 
     def __str__(self):
         return f"Submission for {self.form.title} by {self.student.email}"

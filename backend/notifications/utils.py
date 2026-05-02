@@ -1,7 +1,5 @@
 import logging
 import threading
-from django.core.mail import send_mail
-from django.conf import settings
 from .models import Notification
 
 logger = logging.getLogger(__name__)
@@ -17,27 +15,26 @@ def create_notification(user, title, message, link=None):
 
 
 def send_email_notification(recipient_email: str, subject: str, html_body: str, plain_body: str = '') -> bool:
-    """Send email notification in a background thread."""
-    if not getattr(settings, 'EMAIL_HOST_USER', ''):
-        logger.warning("EMAIL_HOST_USER not configured — email not sent to %s", recipient_email)
+    """Send email notification via email_sender (smtplib/Gmail) in a background thread."""
+    try:
+        from email_sender import send_email as _send
+    except ImportError:
+        logger.error("email_sender module not found — email not sent to %s", recipient_email)
         return False
 
-    def _send():
-        try:
-            send_mail(
-                subject=subject,
-                message=plain_body or html_body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[recipient_email],
-                html_message=html_body,
-                fail_silently=False,
-            )
-            logger.info("Successfully sent background email to %s", recipient_email)
-        except Exception as exc:
-            logger.error("Failed to send background email to %s: %s", recipient_email, exc)
+    def _bg():
+        ok = _send(
+            to=recipient_email,
+            subject=subject,
+            html_body=html_body,
+            plain_body=plain_body or '',
+        )
+        if ok:
+            logger.info("Email sent to %s: %s", recipient_email, subject)
+        else:
+            logger.error("Email failed to %s: %s", recipient_email, subject)
 
-    thread = threading.Thread(target=_send)
-    thread.start()
+    threading.Thread(target=_bg, daemon=True).start()
     return True
 
 
@@ -124,75 +121,82 @@ def email_form_b_registrar(
     )
 
 
-def email_application_received(student_email: str, student_name: str, form_title: str):
-    """Task 9.3: Application received notification"""
-    body = f"""
-    <h2 style="color: #1e293b;">Application Received</h2>
-    <p>Dear {student_name},</p>
-    <p>Your application for <strong>{form_title}</strong> has been successfully submitted and is now under review by our Student Support Workers.</p>
-    <p>You will receive further updates as your application is processed. You can track the status of your application by logging into the student portal.</p>
-    <p style="margin-top: 24px; color: #64748b;">Estimated review time: 5–10 business days.</p>
-    """
-    return send_email_notification(
-        recipient_email=student_email,
-        subject="Application Received — DGG Student Funding",
-        html_body=_base_template(body),
-    )
+def email_application_received(student_email: str, student_name: str, form_title: str, submission_id: int = 0, submitted_at=None):
+    """Application received — delegates to email_sender for real SMTP delivery."""
+    try:
+        from email_sender import send_application_received
+        from datetime import datetime
+        dt = submitted_at if submitted_at else datetime.now()
+        return send_application_received(
+            student_email=student_email,
+            student_name=student_name,
+            reference_number=f"FS-{submission_id:04d}" if submission_id else "FS-????",
+            program_name=form_title,
+            submitted_at=dt,
+        )
+    except Exception as exc:
+        logger.error("email_application_received failed: %s", exc)
+        return False
 
 
-def email_application_approved(student_email: str, student_name: str, form_title: str, amount: float):
-    """Task 9.4: Application approved notification"""
-    body = f"""
-    <h2 style="color: #1a6b3a;">Congratulations — Application Approved!</h2>
-    <p>Dear {student_name},</p>
-    <p>We are pleased to inform you that your application for <strong>{form_title}</strong> has been <strong style="color: #1a6b3a;">approved</strong>.</p>
-    <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 16px; margin: 24px 0;">
-      <p style="margin: 0; font-size: 13px; color: #64748b;">Approved Funding Amount</p>
-      <p style="margin: 8px 0 0; font-size: 28px; font-weight: 900; color: #166534;">${amount:,.2f}</p>
-    </div>
-    <p>Your funding will be processed and disbursed to your account on file. You will receive a separate notification once payment has been issued.</p>
-    """
-    return send_email_notification(
-        recipient_email=student_email,
-        subject="Application Approved — DGG Student Funding",
-        html_body=_base_template(body),
-    )
+def email_application_approved(student_email: str, student_name: str, form_title: str, amount: float,
+                                submission_id: int = 0, semester: str = "", year: str = "",
+                                funding_breakdown: list = None):
+    """Application approved — delegates to email_sender."""
+    try:
+        from email_sender import send_application_decision
+        return send_application_decision(
+            student_email=student_email,
+            student_name=student_name,
+            reference_number=f"FS-{submission_id:04d}" if submission_id else "FS-????",
+            program_name=form_title,
+            approved=True,
+            semester=semester,
+            year=year,
+            funding_breakdown=funding_breakdown or [{"name": "Approved Funding", "amount": amount}],
+            total_amount=amount,
+        )
+    except Exception as exc:
+        logger.error("email_application_approved failed: %s", exc)
+        return False
 
 
-def email_application_rejected(student_email: str, student_name: str, form_title: str, reason: str = ''):
-    """Task 9.5: Application rejected notification"""
-    reason_section = f'<p><strong>Reason:</strong> {reason}</p>' if reason else ''
-    body = f"""
-    <h2 style="color: #b91c1c;">Application Update</h2>
-    <p>Dear {student_name},</p>
-    <p>After careful review, we regret to inform you that your application for <strong>{form_title}</strong> has not been approved at this time.</p>
-    {reason_section}
-    <p>If you believe this decision is in error, you may submit an appeal through the student portal within 30 days of this notice.</p>
-    <p style="margin-top: 24px; color: #64748b;">Please contact your Student Support Worker if you have any questions.</p>
-    """
-    return send_email_notification(
-        recipient_email=student_email,
-        subject="Application Update — DGG Student Funding",
-        html_body=_base_template(body),
-    )
+def email_application_rejected(student_email: str, student_name: str, form_title: str, reason: str = '',
+                                submission_id: int = 0):
+    """Application rejected — delegates to email_sender."""
+    try:
+        from email_sender import send_application_decision
+        return send_application_decision(
+            student_email=student_email,
+            student_name=student_name,
+            reference_number=f"FS-{submission_id:04d}" if submission_id else "FS-????",
+            program_name=form_title,
+            approved=False,
+            rejection_reason=reason,
+        )
+    except Exception as exc:
+        logger.error("email_application_rejected failed: %s", exc)
+        return False
 
 
-def email_payment_processed(student_email: str, student_name: str, amount: float, payment_type: str):
-    """Task 9.6: Payment processed notification"""
-    body = f"""
-    <h2 style="color: #1e293b;">Payment Processed</h2>
-    <p>Dear {student_name},</p>
-    <p>A payment of <strong style="color: #166534;">${amount:,.2f}</strong> ({payment_type}) has been processed and will be deposited to your account on file within 3–5 business days.</p>
-    <div style="background: #f0fdf4; border: 1px solid #dcfce7; border-radius: 8px; padding: 16px; margin: 24px 0;">
-      <p style="margin: 0; font-size: 13px; color: #64748b;">Payment Amount</p>
-      <p style="margin: 8px 0 0; font-size: 28px; font-weight: 900; color: #166534;">${amount:,.2f}</p>
-    </div>
-    """
-    return send_email_notification(
-        recipient_email=student_email,
-        subject="Payment Processed — DGG Student Funding",
-        html_body=_base_template(body),
-    )
+def email_payment_processed(student_email: str, student_name: str, amount: float, payment_type: str,
+                             program_name: str = "", semester: str = "", year: str = "",
+                             funding_breakdown: list = None):
+    """Payment processed — delegates to email_sender."""
+    try:
+        from email_sender import send_funding_processed
+        return send_funding_processed(
+            student_email=student_email,
+            student_name=student_name,
+            program_name=program_name or payment_type,
+            semester=semester,
+            year=year,
+            total_amount=amount,
+            funding_breakdown=funding_breakdown or [{"name": payment_type, "amount": amount}],
+        )
+    except Exception as exc:
+        logger.error("email_payment_processed failed: %s", exc)
+        return False
 
 
 def email_more_info_requested(student_email: str, student_name: str, form_title: str, notes: str = ''):
