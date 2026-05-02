@@ -8,6 +8,7 @@ import InternalSignIn from './pages/InternalSignIn';
 import HardshipBursary from './pages/Forms/HardshipBursary';
 import FormF from './pages/Forms/FormF';
 import FormG from './pages/Forms/FormG';
+import FormBPublic from './pages/FormBPublic';
 import StandaloneFormWrapper from './components/Forms/StandaloneFormWrapper';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 
@@ -23,6 +24,9 @@ function App() {
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/internal/login" element={<InternalSignIn />} />
+
+        {/* Public Form B — Registrar Enrollment Verification (no login required) */}
+        <Route path="/form-b/:token" element={<FormBPublic />} />
 
         {/* Protected Student Routes */}
         <Route path="/dashboard/*" element={
