@@ -372,7 +372,7 @@ class SubmissionController(viewsets.ModelViewSet):
         if not new_answers and 'response_text' not in data:
             return api_response(False, None, "No information provided", status.HTTP_400_BAD_REQUEST)
 
-        from forms.models import FormField, SubmissionAnswer
+        from forms.models import FormField, SubmissionAnswer as SA
         from django.utils import timezone
 
         # Add a general response note if provided
@@ -383,7 +383,7 @@ class SubmissionController(viewsets.ModelViewSet):
                 label='Student Response',
                 defaults={'field_type': 'textarea', 'is_required': False, 'order': 100}
             )
-            SubmissionAnswer.objects.create(
+            SA.objects.create(
                 submission=submission,
                 field=field,
                 answer_text=response_text
@@ -397,7 +397,7 @@ class SubmissionController(viewsets.ModelViewSet):
                 label=field_label,
                 defaults={'field_type': 'text', 'is_required': False, 'order': 101}
             )
-            answer = SubmissionAnswer(
+            answer = SA(
                 submission=submission,
                 field=field,
                 answer_text=ans_data.get('answer_text', '')
@@ -412,12 +412,12 @@ class SubmissionController(viewsets.ModelViewSet):
         submission.save(update_fields=['more_info_responded_at', 'status'])
 
         # Notify staff
-        from django.contrib.auth import get_user_model
+        from django.contrib.auth import get_user_model as _gum
         from notifications.models import Notification
         from api.models import AuditLog
-        User = get_user_model()
+        _User = _gum()
 
-        staff = User.objects.filter(role__in=['admin', 'director'])
+        staff = _User.objects.filter(role__in=['admin', 'director'])
         for s in staff:
             Notification.objects.create(
                 user=s,
@@ -432,7 +432,7 @@ class SubmissionController(viewsets.ModelViewSet):
             role=request.user.role,
         )
 
-        # Return updated submission
+        # Return updated submission — use module-level FormSubmission (no local re-import)
         submission = FormSubmission.objects.select_related(
             'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by', 'more_info_requested_by'
         ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
