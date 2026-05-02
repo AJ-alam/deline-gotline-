@@ -122,6 +122,14 @@ class API {
         return apiClient.get('/auth/me/');
     }
 
+    static forgotPassword(email: string) {
+        return apiClient.post('/auth/forgot-password/', { email });
+    }
+
+    static resetPassword(token: string, password: string) {
+        return apiClient.post('/auth/reset-password/', { token, password });
+    }
+
     static updateMe(data: any) {
         // Strip only truly read-only/file fields that fail backend validation.
         // town_city, postal_code, institute ARE sent — the backend serializer
