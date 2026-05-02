@@ -2796,251 +2796,306 @@ const StaffDashboard: React.FC = () => {
           )}
 
           {currentView === 'reports' && (
-            <div className="fade-in" style={{ padding: '0 24px 40px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#1e293b', margin: 0 }}>Reports & Analytics</h2>
-                    <span title="Real-time data sync active"><AdminIcons.Pulse /></span>
-                  </div>
-                  <p style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>Real-time data aggregation for funding streams and student enrollment.</p>
-                </div>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportPDFExport}>
-                    <span style={{ marginRight: '8px' }}>📄</span> Export PDF
-                  </button>
-                  <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportCSVExport} disabled={isExporting}>
-                    <span style={{ marginRight: '8px' }}>📊</span> {isExporting ? 'Exporting...' : 'Export CSV'}
-                  </button>
-                  <button className="admin-badge badge-approved" style={{ border: 'none', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleDispatchFinanceReport} disabled={isDispatching}>
-                    <span style={{ marginRight: '8px' }}>📧</span> {isDispatching ? 'Sending...' : 'Email to Finance'}
-                  </button>
-                </div>
-              </div>
+            <div className="fade-in" style={{ padding: '0 0 48px' }}>
 
-              {/* Enhanced Filter Bar */}
-              <div className="admin-chart-card" style={{ padding: '24px', marginBottom: '32px', background: '#fff' }}>
-                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                  <div style={{ flex: '1', minWidth: '200px' }}>
-                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Funding Stream</label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      {['all', 'UCEPP', 'CDFN', 'DGGR'].map(type => (
-                        <button
-                          key={type}
-                          onClick={() => setReportFundingType(type.toLowerCase())}
-                          style={{
-                            flex: 1,
-                            padding: '10px',
-                            borderRadius: '8px',
-                            border: reportFundingType === type.toLowerCase() ? '2px solid #111' : '1px solid #e2e8f0',
-                            background: reportFundingType === type.toLowerCase() ? '#111' : '#f8fafc',
-                            color: reportFundingType === type.toLowerCase() ? '#fff' : '#64748b',
-                            fontWeight: '700',
-                            fontSize: '12px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                        >
-                          {type}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
+              {/* HERO HEADER */}
+              <div style={{
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #0f4c81 100%)',
+                padding: '36px 32px 32px',
+                marginBottom: '32px',
+                borderRadius: '0 0 20px 20px',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '20px' }}>
                   <div>
-                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Period</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <input type="date" className="admin-input" style={{ width: '140px' }} value={reportDateFrom} onChange={e => setReportDateFrom(e.target.value)} />
-                      <span style={{ color: '#94a3b8' }}>to</span>
-                      <input type="date" className="admin-input" style={{ width: '140px' }} value={reportDateTo} onChange={e => setReportDateTo(e.target.value)} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                      <span style={{ fontSize: '28px' }}>📊</span>
+                      <h2 style={{ fontSize: '26px', fontWeight: '900', color: '#fff', margin: 0, letterSpacing: '-0.5px' }}>
+                        Reports &amp; Analytics
+                      </h2>
+                      <span title="Live data"><AdminIcons.Pulse /></span>
                     </div>
+                    <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.55)', margin: 0 }}>
+                      Real-time funding overview · Délı̨nę Got'ı̨nę Government Education Department
+                    </p>
                   </div>
-
-                  <div>
-                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Application Status</label>
-                    <select className="admin-input" style={{ width: '160px' }} value={reportStatusFilter} onChange={e => setReportStatusFilter(e.target.value)}>
-                      <option value="all">All Statuses</option>
-                      <option value="pending">Pending</option>
-                      <option value="reviewed">Reviewed</option>
-                      <option value="forwarded">Forwarded</option>
-                      <option value="accepted">Approved</option>
-                      <option value="rejected">Rejected</option>
-                    </select>
-                  </div>
-
-                  {(reportDateFrom || reportDateTo || reportStatusFilter !== 'all' || reportFundingType !== 'all') && (
-                    <button
-                      onClick={() => { setReportDateFrom(''); setReportDateTo(''); setReportStatusFilter('all'); setReportFundingType('all'); }}
-                      style={{ height: '42px', padding: '0 16px', background: 'none', border: 'none', color: '#e11d48', fontWeight: '700', fontSize: '12px', cursor: 'pointer' }}
-                    >
-                      Reset Filters
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <button onClick={handleReportPDFExport} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                      📄 Export PDF
                     </button>
-                  )}
+                    <button onClick={handleReportCSVExport} disabled={isExporting} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px', color: '#fff', fontWeight: '700', fontSize: '13px', cursor: 'pointer' }}>
+                      📥 {isExporting ? 'Exporting…' : 'Download CSV'}
+                    </button>
+                    <button onClick={handleDispatchFinanceReport} disabled={isDispatching} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 18px', background: isDispatching ? 'rgba(255,255,255,0.1)' : '#e5a662', border: 'none', borderRadius: '8px', color: isDispatching ? '#fff' : '#0f172a', fontWeight: '800', fontSize: '13px', cursor: isDispatching ? 'not-allowed' : 'pointer' }}>
+                      📧 {isDispatching ? 'Sending…' : 'Email to Finance'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* KPI strip */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginTop: '28px' }}>
+                  {[
+                    { icon: '🎓', label: 'Enrolled Students', value: (reportStats || backendStats)?.total_students || 0, fmt: 'num', color: '#38bdf8' },
+                    { icon: '💰', label: 'Total Funding Approved', value: (reportStats || backendStats)?.total_funding_approved || 0, fmt: 'dollar', color: '#4ade80' },
+                    { icon: '📋', label: 'Applications Received', value: (reportStats || backendStats)?.total_submissions || 0, fmt: 'num', color: '#fbbf24' },
+                    { icon: '✅', label: 'Approval Rate', value: Math.round(((reportStats || backendStats)?.submissions_by_status?.accepted || 0) / ((reportStats || backendStats)?.total_submissions || 1) * 100), fmt: 'pct', color: '#a78bfa' },
+                  ].map(kpi => (
+                    <div key={kpi.label} style={{ background: 'rgba(255,255,255,0.07)', borderRadius: '12px', padding: '18px 20px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <div style={{ fontSize: '22px', marginBottom: '6px' }}>{kpi.icon}</div>
+                      <div style={{ fontSize: '28px', fontWeight: '900', color: kpi.color, lineHeight: 1 }}>
+                        {kpi.fmt === 'dollar' ? `$${Number(kpi.value).toLocaleString()}` : kpi.fmt === 'pct' ? `${kpi.value}%` : kpi.value}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', fontWeight: '700', marginTop: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{kpi.label}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              {isReportLoading ? (
-                <div style={{ padding: '100px', textAlign: 'center' }}>
-                  <div className="admin-spinner" style={{ width: '40px', height: '40px', border: '3px solid #f1f5f9', borderTopColor: '#111', borderRadius: '50%', margin: '0 auto 20px', animation: 'spin 1s linear infinite' }}></div>
-                  <div style={{ color: '#64748b', fontWeight: '600' }}>Aggregating system records...</div>
-                </div>
-              ) : (
-                <div className="fade-in">
-                  {/* Stats Cards Row */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '24px', marginBottom: '32px' }}>
-                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #f0f9ff 100%)', border: '1px solid #bae6fd' }}>
-                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#0369a1' }}>{(reportStats || backendStats)?.total_students || 0}</div>
-                      <div className="admin-kpi-label" style={{ color: '#0ea5e9' }}>ACTIVE STUDENTS</div>
-                    </div>
-                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #f0fdf4 100%)', border: '1px solid #bbf7d0' }}>
-                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#15803d' }}>${((reportStats || backendStats)?.total_funding_approved || 0).toLocaleString()}</div>
-                      <div className="admin-kpi-label" style={{ color: '#22c55e' }}>TOTAL DISBURSED</div>
-                    </div>
-                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #fffbeb 100%)', border: '1px solid #fef3c7' }}>
-                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#b45309' }}>{(reportStats || backendStats)?.total_submissions || 0}</div>
-                      <div className="admin-kpi-label" style={{ color: '#f59e0b' }}>TOTAL APPLICATIONS</div>
-                    </div>
-                    <div className="admin-kpi-card" style={{ background: 'linear-gradient(135deg, #fff 0%, #f8fafc 100%)', border: '1px solid #e2e8f0' }}>
-                      <div style={{ fontSize: '32px', fontWeight: '900', color: '#1e293b' }}>{Math.round(((reportStats || backendStats)?.submissions_by_status?.accepted || 0) / ((reportStats || backendStats)?.total_submissions || 1) * 100)}%</div>
-                      <div className="admin-kpi-label">APPROVAL RATE</div>
-                    </div>
-                  </div>
+              <div style={{ padding: '0 32px' }}>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '32px' }}>
-                    {/* Visual Analytics Column */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                      
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                        {/* Stream Allocation Donut */}
-                        <div className="admin-chart-card" style={{ padding: '24px' }}>
-                          <h3 style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Funding Stream Allocation</h3>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '32px' }}>
-                            <div style={{ width: '150px', height: '150px' }}>
-                              <DonutChart data={[
-                                { label: 'CDFN', value: (reportStats || backendStats)?.stream_split?.pssp || 0, color: '#3b82f6' },
-                                { label: 'DGGR', value: (reportStats || backendStats)?.stream_split?.dggr || 0, color: '#10b981' },
-                                { label: 'UCEPP', value: (reportStats || backendStats)?.stream_split?.ucepp || 0, color: '#f59e0b' }
-                              ]} />
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              {[
-                                { label: 'CDFN / PSSSP', key: 'pssp', color: '#3b82f6' },
-                                { label: 'DGGR / Gotline', key: 'dggr', color: '#10b981' },
-                                { label: 'UCEPP / Upgrading', key: 'ucepp', color: '#f59e0b' }
-                              ].map(item => (
-                                <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                {/* FILTER BAR */}
+                <div style={{ background: '#fff', borderRadius: '14px', padding: '20px 24px', marginBottom: '28px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                    <div style={{ flex: '1', minWidth: '220px' }}>
+                      <label style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Funding Program</label>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {[
+                          { key: 'all', label: 'All Programs' },
+                          { key: 'cdfn', label: 'C-DFN / PSSSP' },
+                          { key: 'dggr', label: 'DGGR Bursaries' },
+                          { key: 'ucepp', label: 'UCEPP Upgrading' },
+                        ].map(t => (
+                          <button key={t.key} onClick={() => setReportFundingType(t.key)} style={{
+                            flex: 1, padding: '9px 6px', borderRadius: '8px', fontSize: '11px', fontWeight: '700', cursor: 'pointer', transition: 'all 0.15s',
+                            border: reportFundingType === t.key ? '2px solid #0f172a' : '1px solid #e2e8f0',
+                            background: reportFundingType === t.key ? '#0f172a' : '#f8fafc',
+                            color: reportFundingType === t.key ? '#fff' : '#64748b',
+                          }}>{t.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Date Range</label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <input type="date" className="admin-input" style={{ width: '140px' }} value={reportDateFrom} onChange={e => setReportDateFrom(e.target.value)} />
+                        <span style={{ color: '#cbd5e1', fontWeight: '700' }}>to</span>
+                        <input type="date" className="admin-input" style={{ width: '140px' }} value={reportDateTo} onChange={e => setReportDateTo(e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Application Status</label>
+                      <select className="admin-input" style={{ width: '170px' }} value={reportStatusFilter} onChange={e => setReportStatusFilter(e.target.value)}>
+                        <option value="all">All Statuses</option>
+                        <option value="pending">Awaiting Review</option>
+                        <option value="reviewed">Reviewed by SSW</option>
+                        <option value="forwarded">Forwarded to Director</option>
+                        <option value="accepted">Approved &amp; Funded</option>
+                        <option value="rejected">Not Approved</option>
+                      </select>
+                    </div>
+                    {(reportDateFrom || reportDateTo || reportStatusFilter !== 'all' || reportFundingType !== 'all') && (
+                      <button onClick={() => { setReportDateFrom(''); setReportDateTo(''); setReportStatusFilter('all'); setReportFundingType('all'); }}
+                        style={{ height: '40px', padding: '0 14px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontWeight: '700', fontSize: '12px', cursor: 'pointer', borderRadius: '8px' }}>
+                        Clear Filters
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {isReportLoading ? (
+                  <div style={{ padding: '80px', textAlign: 'center' }}>
+                    <div style={{ width: '44px', height: '44px', border: '4px solid #e2e8f0', borderTopColor: '#0f172a', borderRadius: '50%', margin: '0 auto 20px', animation: 'spin 0.8s linear infinite' }}></div>
+                    <div style={{ color: '#64748b', fontWeight: '600', fontSize: '14px' }}>Loading report data…</div>
+                  </div>
+                ) : (
+                  <div className="fade-in">
+
+                    {/* ROW 1: Pipeline + Stream split */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+
+                      {/* Application Pipeline */}
+                      <div style={{ background: '#fff', borderRadius: '14px', padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                          <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Application Pipeline</h3>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>by current status</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                          {[
+                            { label: 'Awaiting Staff Review', key: 'pending', color: '#3b82f6', icon: '⏳' },
+                            { label: 'Reviewed by SSW', key: 'reviewed', color: '#8b5cf6', icon: '🔍' },
+                            { label: 'Forwarded to Director', key: 'forwarded', color: '#f59e0b', icon: '📤' },
+                            { label: 'Approved & Funded', key: 'accepted', color: '#10b981', icon: '✅' },
+                            { label: 'Not Approved', key: 'rejected', color: '#ef4444', icon: '❌' },
+                          ].map(item => {
+                            const count = (reportStats || backendStats)?.submissions_by_status?.[item.key] || 0;
+                            const total = (reportStats || backendStats)?.total_submissions || 1;
+                            const pct = Math.round((count / total) * 100);
+                            return (
+                              <div key={item.key}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: item.color }}></div>
-                                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>{item.label}</span>
+                                    <span style={{ fontSize: '14px' }}>{item.icon}</span>
+                                    <span style={{ fontSize: '13px', fontWeight: '600', color: '#374151' }}>{item.label}</span>
                                   </div>
-                                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b' }}>{(reportStats || backendStats)?.stream_split?.[item.key] || 0}</span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '13px', fontWeight: '800', color: '#0f172a' }}>{count}</span>
+                                    <span style={{ fontSize: '11px', color: '#94a3b8', minWidth: '36px', textAlign: 'right' }}>{pct}%</span>
+                                  </div>
                                 </div>
-                              ))}
-                            </div>
-                          </div>
+                                <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${pct}%`, background: item.color, borderRadius: '4px', transition: 'width 0.6s ease' }}></div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
+                      </div>
 
-                        {/* Status Health */}
-                        <div className="admin-chart-card" style={{ padding: '24px' }}>
-                          <h3 style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Application Pipeline Health</h3>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', justifyContent: 'center', height: '150px' }}>
+                      {/* Funding Stream Breakdown */}
+                      <div style={{ background: '#fff', borderRadius: '14px', padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                          <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Funding Program Breakdown</h3>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>by program type</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+                          <div style={{ width: '140px', height: '140px', flexShrink: 0 }}>
+                            <DonutChart data={[
+                              { label: 'C-DFN PSSSP', value: (reportStats || backendStats)?.stream_split?.pssp || 0, color: '#3b82f6' },
+                              { label: 'DGGR Bursaries', value: (reportStats || backendStats)?.stream_split?.dggr || 0, color: '#10b981' },
+                              { label: 'UCEPP Upgrading', value: (reportStats || backendStats)?.stream_split?.ucepp || 0, color: '#f59e0b' },
+                            ]} />
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '14px' }}>
                             {[
-                              { label: 'Under Review', key: 'pending', color: '#3b82f6' },
-                              { label: 'Awaiting Director', key: 'forwarded', color: '#8b5cf6' },
-                              { label: 'Approved & Finalized', key: 'accepted', color: '#10b981' },
-                              { label: 'Rejected', key: 'rejected', color: '#ef4444' }
-                            ].map(item => {
-                              const count = (reportStats || backendStats)?.submissions_by_status?.[item.key] || 0;
-                              const total = (reportStats || backendStats)?.total_submissions || 1;
-                              const pct = Math.round((count / total) * 100);
-                              return (
-                                <div key={item.key}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', fontWeight: '700', marginBottom: '4px' }}>
-                                    <span style={{ color: '#64748b' }}>{item.label}</span>
-                                    <span style={{ color: '#1e293b' }}>{count} ({pct}%)</span>
-                                  </div>
-                                  <div style={{ height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow: 'hidden' }}>
-                                    <div style={{ height: '100%', width: `${pct}%`, background: item.color, borderRadius: '3px' }}></div>
+                              { label: 'C-DFN PSSSP', sublabel: 'Post-Secondary Student Support', key: 'pssp', color: '#3b82f6' },
+                              { label: 'DGGR Bursaries', sublabel: "Deline Got'ı̨nę Grants", key: 'dggr', color: '#10b981' },
+                              { label: 'UCEPP Upgrading', sublabel: 'Upgrading & Continuing Ed.', key: 'ucepp', color: '#f59e0b' },
+                            ].map(item => (
+                              <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <div style={{ width: '12px', height: '12px', borderRadius: '3px', background: item.color, flexShrink: 0 }}></div>
+                                  <div>
+                                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b' }}>{item.label}</div>
+                                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>{item.sublabel}</div>
                                   </div>
                                 </div>
-                              )
-                            })}
+                                <span style={{ fontSize: '18px', fontWeight: '900', color: item.color }}>{(reportStats || backendStats)?.stream_split?.[item.key] || 0}</span>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Quarterly Trends Bar Chart */}
-                      <div className="admin-chart-card" style={{ padding: '24px' }}>
-                        <h3 style={{ fontSize: '12px', fontWeight: '800', color: '#1e293b', marginBottom: '24px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Funding Disbursements by Quarter</h3>
-                        <div style={{ height: '200px' }}>
-                          <BarChart data={((reportStats || backendStats)?.quarterly_report || []).map((q: any) => ({
-                            label: q.quarter,
-                            value: q.amount || 0,
-                            color: '#3b82f6'
-                          }))} />
+                    {/* ROW 2: Quarterly chart + Live metrics */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', marginBottom: '20px' }}>
+
+                      {/* Quarterly Disbursements */}
+                      <div style={{ background: '#fff', borderRadius: '14px', padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                          <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Quarterly Funding Disbursements</h3>
+                          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600' }}>approved amounts by quarter</span>
+                        </div>
+                        <div style={{ height: '180px' }}>
+                          <BarChart data={((reportStats || backendStats)?.quarterly_report || []).map((q: any) => {
+                            const labels: Record<string, string> = { Q1: 'Jan–Mar', Q2: 'Apr–Jun', Q3: 'Jul–Sep', Q4: 'Oct–Dec' };
+                            return { label: labels[q.quarter] || q.quarter, value: q.amount || 0, color: '#3b82f6' };
+                          })} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '16px' }}>
+                          {((reportStats || backendStats)?.quarterly_report || []).map((q: any) => (
+                            <div key={q.quarter} style={{ textAlign: 'center', padding: '10px', background: '#f8fafc', borderRadius: '8px' }}>
+                              <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700' }}>{q.quarter}</div>
+                              <div style={{ fontSize: '14px', fontWeight: '900', color: '#0f172a' }}>${(q.amount || 0).toLocaleString()}</div>
+                              <div style={{ fontSize: '10px', color: '#64748b' }}>{q.count || 0} approved</div>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
-                      {/* Main Report Table */}
-                      <div className="admin-chart-card" style={{ padding: '0' }}>
-                        <div style={{ padding: '24px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <h3 style={{ fontSize: '13px', fontWeight: '800', margin: 0 }}>DETAILED AUDIT LOG</h3>
-                          <div style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', background: '#f1f5f9', padding: '4px 10px', borderRadius: '100px' }}>Showing {applications.length} results</div>
+                      {/* Live Metrics Panel */}
+                      <div style={{ background: 'linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%)', borderRadius: '14px', padding: '24px', border: 'none', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        <h3 style={{ fontSize: '12px', fontWeight: '800', color: 'rgba(255,255,255,0.4)', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Live Metrics</h3>
+                        {[
+                          { icon: '⏱', label: 'Avg. Review Time', value: '4.2 days' },
+                          { icon: '📬', label: 'Pending Info Requests', value: String((reportStats || backendStats)?.submissions_by_status?.more_info_required || 0) },
+                          { icon: '💳', label: 'Sent to Finance', value: String((reportStats || backendStats)?.submissions_by_status?.sent_to_finance || 0) },
+                          { icon: '🏦', label: 'Total Disbursed', value: `$${((reportStats || backendStats)?.total_funding_approved || 0).toLocaleString()}` },
+                          { icon: '📈', label: 'Approval Rate', value: `${Math.round(((reportStats || backendStats)?.submissions_by_status?.accepted || 0) / ((reportStats || backendStats)?.total_submissions || 1) * 100)}%` },
+                        ].map(m => (
+                          <div key={m.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '16px' }}>{m.icon}</span>
+                              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', fontWeight: '600' }}>{m.label}</span>
+                            </div>
+                            <span style={{ fontSize: '15px', fontWeight: '900', color: '#e5a662' }}>{m.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* ROW 3: Applications Table */}
+                    <div style={{ background: '#fff', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+                      <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#fafafa' }}>
+                        <div>
+                          <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#0f172a', margin: 0 }}>Recent Applications</h3>
+                          <p style={{ fontSize: '12px', color: '#94a3b8', margin: '2px 0 0' }}>Latest submissions across all funding programs</p>
                         </div>
-                        <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
-                          <table className="admin-table">
-                            <thead>
-                              <tr>
-                                <th>REF #</th>
-                                <th>STUDENT</th>
-                                <th>STREAM</th>
-                                <th>STATUS</th>
-                                <th>AMOUNT</th>
+                        <div style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '12px', fontWeight: '800', padding: '4px 12px', borderRadius: '100px' }}>
+                          {applications.length} records
+                        </div>
+                      </div>
+                      <div className="admin-table-wrap" style={{ border: 'none', boxShadow: 'none' }}>
+                        <table className="admin-table">
+                          <thead>
+                            <tr>
+                              <th>Reference #</th>
+                              <th>Student Name</th>
+                              <th>Submission Date</th>
+                              <th>Funding Program</th>
+                              <th>Current Status</th>
+                              <th>Approved Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {applications.slice(0, 20).map((app: any) => (
+                              <tr key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`} style={{ cursor: 'pointer' }} onClick={() => handleAppClick(app.id)}>
+                                <td><span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace', fontWeight: '700' }}>#{String(app.id).padStart(6, '0')}</span></td>
+                                <td>
+                                  <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px' }}>{app.student_details?.full_name || app.student_name || '—'}</div>
+                                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>{app.student_details?.email || ''}</div>
+                                </td>
+                                <td style={{ fontSize: '12px', color: '#64748b' }}>{app.submitted_at ? new Date(app.submitted_at).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</td>
+                                <td>
+                                  <span style={{ fontSize: '11px', fontWeight: '700', padding: '3px 8px', borderRadius: '4px', background: '#f1f5f9', color: '#475569' }}>
+                                    {app.form_title || app.form_type || 'General Application'}
+                                  </span>
+                                </td>
+                                <td>{getStatusBadge(app.status)}</td>
+                                <td style={{ fontWeight: '900', color: '#0f172a', fontSize: '14px' }}>
+                                  {parseFloat(app.amount || 0) > 0 ? `$${parseFloat(app.amount).toLocaleString()}` : <span style={{ color: '#cbd5e1' }}>—</span>}
+                                </td>
                               </tr>
-                            </thead>
-                            <tbody>
-                              {applications.slice(0, 15).map((app: any) => (
-                                <tr key={app._is_standard ? `std-${app.id}` : `sub-${app.id}`}>
-                                  <td><span style={{ fontSize: '11px', color: '#64748b', fontFamily: 'monospace' }}>#{String(app.id).padStart(6, '0')}</span></td>
-                                  <td>
-                                    <div style={{ fontWeight: '700', color: '#1e293b' }}>{app.student_details?.full_name || app.name}</div>
-                                    <div style={{ fontSize: '10px', color: '#94a3b8' }}>{new Date(app.submitted_at).toLocaleDateString()}</div>
-                                  </td>
-                                  <td><span className="admin-badge" style={{ background: '#f1f5f9', color: '#475569', fontSize: '10px' }}>{app.form_title || app.form_type || 'General'}</span></td>
-                                  <td>{getStatusBadge(app.status)}</td>
-                                  <td style={{ fontWeight: '900', color: '#1e293b' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
-                                </tr>
-                              ))}
-                              {applications.length === 0 && (
-                                <tr><td colSpan={5} style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>No records found for the selected filters.</td></tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
+                            ))}
+                            {applications.length === 0 && (
+                              <tr>
+                                <td colSpan={6} style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+                                  <div style={{ fontSize: '32px', marginBottom: '12px' }}>📭</div>
+                                  <div style={{ fontWeight: '700', fontSize: '14px' }}>No applications found</div>
+                                  <div style={{ fontSize: '12px', marginTop: '4px' }}>Try adjusting your filters above</div>
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
                       </div>
                     </div>
 
-                    {/* Quick Action Side Panel */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                       <div className="admin-chart-card" style={{ background: '#111827', color: '#fff', border: 'none' }}>
-                         <h3 style={{ fontSize: '11px', fontWeight: '800', color: 'rgba(255,255,255,0.4)', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>System Pulse</h3>
-                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            <div style={{ padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
-                               <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>Avg. Processing Time</div>
-                               <div style={{ fontSize: '20px', fontWeight: '800' }}>4.2 Days</div>
-                            </div>
-                            <div style={{ padding: '16px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
-                               <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>Student Engagement</div>
-                               <div style={{ fontSize: '20px', fontWeight: '800' }}>High</div>
-                            </div>
-                         </div>
-                       </div>
-                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
+
 
           {/* Director Approval Queue View */}
           {currentView === 'director-queue' && (
