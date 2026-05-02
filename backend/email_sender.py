@@ -26,8 +26,16 @@ from email import encoders
 # Load .env (python-dotenv); silently skip if not installed
 try:
     from dotenv import load_dotenv
-    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    load_dotenv(_env_path)
+    # Try the file's own directory first, then one level up (Django runserver cwd)
+    _here = os.path.dirname(os.path.abspath(__file__))
+    for _candidate in [
+        os.path.join(_here, ".env"),           # backend/.env  (when file is in backend/)
+        os.path.join(_here, "backend", ".env"), # project root run
+        os.path.join(os.getcwd(), ".env"),      # whatever cwd Django uses
+    ]:
+        if os.path.isfile(_candidate):
+            load_dotenv(_candidate, override=False)
+            break
 except ImportError:
     pass
 

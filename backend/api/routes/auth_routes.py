@@ -3,6 +3,7 @@ from api.controllers.auth_controller import (
     RegisterController, LoginController,
     TokenRefreshController, MeController,
     ForgotPasswordController, ResetPasswordController,
+    TestEmailController,
 )
 
 urlpatterns = [
@@ -12,4 +13,5 @@ urlpatterns = [
     path('me/', MeController.as_view(), name='user_me'),
     path('forgot-password/', ForgotPasswordController.as_view(), name='forgot_password'),
     path('reset-password/', ResetPasswordController.as_view(), name='reset_password'),
+    path('test-email/', TestEmailController.as_view(), name='test_email'),
 ]

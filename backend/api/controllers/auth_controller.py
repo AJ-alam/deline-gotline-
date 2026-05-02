@@ -145,3 +145,77 @@ class ResetPasswordController(generics.GenericAPIView):
 
         logger.info("Password reset successful for user %s", user.email)
         return api_response(True, None, "Password has been reset successfully. You can now log in.")
+
+
+class TestEmailController(generics.GenericAPIView):
+    """
+    POST /api/auth/test-email/
+    Body: { "type": "received|approved|rejected|processed|reset|finance" }
+    Staff-only endpoint to verify email delivery end-to-end.
+    """
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request, *args, **kwargs):
+        email_type = (request.data.get('type') or 'received').strip()
+        target = request.user.email
+        name   = getattr(request.user, 'full_name', None) or request.user.get_full_name() or request.user.email
+
+        try:
+            from email_sender import (
+                send_application_received,
+                send_application_decision,
+                send_funding_processed,
+                send_password_reset,
+                send_finance_report,
+            )
+            from datetime import datetime
+
+            if email_type == 'received':
+                ok = send_application_received(target, name, 'FS-0001', 'Admission Application', datetime.now())
+
+            elif email_type == 'approved':
+                ok = send_application_decision(
+                    target, name, 'FS-0001', 'Admission Application',
+                    approved=True, semester='Fall', year='2025',
+                    funding_breakdown=[
+                        {'name': 'Tuition Bursary', 'amount': 3500},
+                        {'name': 'Living Allowance', 'amount': 1200},
+                    ],
+                    total_amount=4700,
+                )
+
+            elif email_type == 'rejected':
+                ok = send_application_decision(
+                    target, name, 'FS-0001', 'Admission Application',
+                    approved=False,
+                    rejection_reason='Incomplete documentation submitted.',
+                )
+
+            elif email_type == 'processed':
+                ok = send_funding_processed(
+                    target, name, 'Admission Application', 'Fall', '2025',
+                    total_amount=4700,
+                    funding_breakdown=[
+                        {'name': 'Tuition Bursary', 'amount': 3500},
+                        {'name': 'Living Allowance', 'amount': 1200},
+                    ],
+                )
+
+            elif email_type == 'reset':
+                ok = send_password_reset(target, name, 'http://localhost:5173/reset-password?token=test-token-123')
+
+            elif email_type == 'finance':
+                csv_bytes = b'Submission ID,Student Name,Status\nFS-0001,Test Student,accepted\n'
+                ok = send_finance_report(csv_bytes=csv_bytes, total_students=1, triggered_by=name)
+
+            else:
+                return api_response(False, None, f"Unknown type '{email_type}'. Use: received|approved|rejected|processed|reset|finance", status.HTTP_400_BAD_REQUEST)
+
+            if ok:
+                return api_response(True, {'sent_to': target, 'type': email_type}, f"Test email '{email_type}' sent to {target}")
+            else:
+                return api_response(False, None, "email_sender returned False — check server logs for SMTP errors", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as exc:
+            logger.exception("TestEmailController error: %s", exc)
+            return api_response(False, None, f"Exception: {exc}", status.HTTP_500_INTERNAL_SERVER_ERROR)

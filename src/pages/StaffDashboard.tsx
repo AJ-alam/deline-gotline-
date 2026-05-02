@@ -280,13 +280,18 @@ const StaffDashboard: React.FC = () => {
 
   // ── DISPATCH APPROVED CSV TO FINANCE EMAIL ──
   const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchToast, setDispatchToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+
   const handleDispatchFinanceReport = async () => {
     try {
       setIsDispatching(true);
+      setDispatchToast(null);
       const resp = await API.dispatchFinanceReport() as any;
-      alert(`Report sent to ${resp?.recipient || financeEmail}`);
+      setDispatchToast({ type: 'success', msg: `✓ Report sent to Finance (${resp?.count ?? ''} records)` });
+      setTimeout(() => setDispatchToast(null), 5000);
     } catch (err: any) {
-      alert('Dispatch failed: ' + (err.message || 'Unknown error'));
+      setDispatchToast({ type: 'error', msg: `✕ Failed to send: ${err.message || 'Unknown error'}` });
+      setTimeout(() => setDispatchToast(null), 6000);
     } finally {
       setIsDispatching(false);
     }
@@ -2805,8 +2810,8 @@ const StaffDashboard: React.FC = () => {
                   <button className="admin-badge" style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleReportCSVExport} disabled={isExporting}>
                     <span style={{ marginRight: '8px' }}>📊</span> {isExporting ? 'Exporting...' : 'Export CSV'}
                   </button>
-                  <button className="admin-badge badge-approved" style={{ border: 'none', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={() => setShowFinanceModal(true)}>
-                    <span style={{ marginRight: '8px' }}>📧</span> Email to Finance
+                  <button className="admin-badge badge-approved" style={{ border: 'none', cursor: 'pointer', padding: '10px 20px', fontWeight: '700' }} onClick={handleDispatchFinanceReport} disabled={isDispatching}>
+                    <span style={{ marginRight: '8px' }}>📧</span> {isDispatching ? 'Sending...' : 'Email to Finance'}
                   </button>
                 </div>
               </div>
@@ -3567,10 +3572,11 @@ const StaffDashboard: React.FC = () => {
                   </button>
                   <button
                     className="admin-badge"
-                    onClick={() => setShowFinanceModal(true)}
-                    style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', padding: '10px 20px', fontWeight: '800' }}
+                    onClick={handleDispatchFinanceReport}
+                    disabled={isDispatching}
+                    style={{ border: '1px solid #e2e8f0', background: '#fff', cursor: isDispatching ? 'not-allowed' : 'pointer', padding: '10px 20px', fontWeight: '800' }}
                   >
-                    EMAIL TO FINANCE
+                    {isDispatching ? '⏳ SENDING...' : '📧 EMAIL TO FINANCE'}
                   </button>
                 </div>
               </div>
@@ -3610,42 +3616,16 @@ const StaffDashboard: React.FC = () => {
             </div>
           )}
 
-          {/* Finance Email Modal */}
-          {showFinanceModal && (
-            <div className="admin-modal-overlay">
-              <div className="admin-modal-card" style={{ maxWidth: '400px', textAlign: 'center' }}>
-                <div style={{ padding: '32px' }}>
-                  <div style={{ fontSize: '48px', marginBottom: '16px' }}>📧</div>
-                  <h3 style={{ fontSize: '20px', fontWeight: '800', marginBottom: '12px' }}>Send Report to Finance?</h3>
-                  <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '24px', lineHeight: '1.6' }}>
-                    The report has been generated. Send it to the Finance Department email?
-                  </p>
-                  <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '32px', textAlign: 'left' }}>
-                    <div style={{ fontSize: '9px', fontWeight: '800', color: '#94a3b8', textTransform: 'uppercase' }}>Recipient</div>
-                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#1e293b' }}>{financeEmail}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button
-                      className="admin-input"
-                      style={{ background: 'var(--admin-accent)', color: '#111', fontWeight: '800', border: 'none', cursor: isDispatching ? 'not-allowed' : 'pointer' }}
-                      disabled={isDispatching}
-                      onClick={async () => {
-                        setShowFinanceModal(false);
-                        await handleDispatchFinanceReport();
-                      }}
-                    >
-                      {isDispatching ? 'SENDING...' : 'SEND EMAIL'}
-                    </button>
-                    <button
-                      className="admin-input"
-                      style={{ background: 'white', border: '1px solid #e2e8f0', color: '#64748b' }}
-                      onClick={() => setShowFinanceModal(false)}
-                    >
-                      CLOSE
-                    </button>
-                  </div>
-                </div>
-              </div>
+          {/* Finance Email Toast */}
+          {dispatchToast && (
+            <div style={{
+              position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999,
+              background: dispatchToast.type === 'success' ? '#166534' : '#991b1b',
+              color: '#fff', padding: '14px 24px', borderRadius: '10px',
+              fontWeight: '700', fontSize: '14px', boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+              maxWidth: '380px', lineHeight: '1.5'
+            }}>
+              {dispatchToast.msg}
             </div>
           )}
 
