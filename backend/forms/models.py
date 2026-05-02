@@ -61,6 +61,7 @@ class FormSubmission(models.Model):
         ('more_info_required', 'More Info Required'),
         ('accepted', 'Accepted'),
         ('rejected', 'Rejected'),
+        ('sent_to_finance', 'Sent to Finance'),
     )
     
     # Core Fields
@@ -70,6 +71,13 @@ class FormSubmission(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     office_use_data = models.JSONField(blank=True, null=True, default=dict)
+    
+    # Finance dispatch tracking — prevents duplicate sends
+    finance_sent_at = models.DateTimeField(null=True, blank=True)
+    finance_sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='finance_dispatched_submissions'
+    )
     
     # Approval Timeline Tracker (Staff Review)
     reviewed_at = models.DateTimeField(null=True, blank=True)

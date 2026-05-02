@@ -239,6 +239,88 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     return output.getvalue().encode('utf-8'), row_count
 
 
+def _build_full_csv_from_qs(qs):
+    """
+    Same 42-column CSV but built from an already-filtered FormSubmission queryset.
+    Used by dispatch_report so it only includes the exact unsent submissions.
+    Returns (csv_bytes, row_count).
+    """
+    HEADERS = [
+        'Submission ID', 'Form/Type', 'Status', 'Approved Amount ($)', 'Stream',
+        'Full Name', 'Email', 'Phone', 'Alternate Phone',
+        'Date of Birth', 'Gender', 'Pronouns',
+        'Beneficiary #', 'Treaty #', 'UPI',
+        'Mailing Address', 'Town/City', 'Postal Code', 'Province',
+        'No. of Dependents', 'Dependent Ages',
+        'Financial Assistance Status', 'SFA Active (Profile)',
+        'Account Holder Name', 'Account Type',
+        'Bank Name', 'Transit #', 'Institution #', 'Account #',
+        'Institute (Profile)', 'Institution Name', 'Program', 'Enrollment Status', 'Course Load (%)',
+        'Payment Type', 'Payment Amount ($)', 'Payment Status', 'Payment Reference #', 'Payment Date',
+        'Submitted Date', 'Decision Date', 'Decided By',
+    ]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(HEADERS)
+
+    D = '—'
+
+    def _pb(student, profile):
+        u, p = student, profile
+        return [
+            u.full_name if u else D, u.email if u else D,
+            (u.phone or D) if u else D, (u.alternate_phone or D) if u else D,
+            str(u.dob) if (u and u.dob) else D,
+            (u.gender or (p.gender if p else D) or D) if u else D,
+            (u.pronouns or (p.pronouns if p else D) or D) if u else D,
+            (u.beneficiary_number or (p.beneficiary_number if p else D) or D) if u else D,
+            (u.treaty_number or D) if u else D, (u.upi or D) if u else D,
+            (u.mailing_address or (p.mailing_address if p else D) or D) if u else D,
+            (p.town_city or D) if p else D, (p.postal_code or D) if p else D,
+            (u.province_of_residence or D) if u else D,
+            str(u.num_dependents) if u else D, (u.dependent_ages or D) if u else D,
+            (u.financial_assistance_status or D) if u else D,
+            ('Yes' if p.is_sfa_active else 'No') if p else D,
+            (u.account_holder_name or D) if u else D, (u.account_type or D) if u else D,
+            (u.bank_name or D) if u else D, (u.transit_number or D) if u else D,
+            (u.inst_number or D) if u else D, (u.account_number or D) if u else D,
+            (p.institute or D) if p else D,
+            (u.institution_name or D) if u else D, (u.program_credential or D) if u else D,
+            (u.enrollment_status or D) if u else D, str(u.course_load) if u else D,
+        ]
+
+    row_count = 0
+    for sub in qs.order_by('-submitted_at'):
+        student = sub.student
+        profile = getattr(student, 'profile', None) if student else None
+        payments = student.payments.all() if student else []
+        sub_cols = [
+            f"FS-{sub.id}", sub.form.title if sub.form else D,
+            sub.status, sub.amount or 0,
+            student.primary_stream if student else D,
+        ]
+        pb = _pb(student, profile)
+        dates = [
+            sub.submitted_at.strftime('%Y-%m-%d') if sub.submitted_at else D,
+            sub.decided_at.strftime('%Y-%m-%d') if sub.decided_at else D,
+            sub.decided_by.full_name if sub.decided_by else D,
+        ]
+        if payments:
+            for p in payments:
+                writer.writerow(sub_cols + pb + [
+                    p.payment_type, p.amount, p.status,
+                    p.reference_number or D,
+                    p.date_issued.strftime('%Y-%m-%d') if p.date_issued else D,
+                ] + dates)
+                row_count += 1
+        else:
+            writer.writerow(sub_cols + pb + [D, D, D, D, D] + dates)
+            row_count += 1
+
+    return output.getvalue().encode('utf-8'), row_count
+
+
 # ---------------------------------------------------------------------------
 # VIEWS
 # ---------------------------------------------------------------------------
@@ -441,42 +523,129 @@ class PaymentViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def dispatch_report(self, request):
         """
-        Email the COMPLETE student records CSV (ALL statuses, new + legacy)
-        to the Finance Department email defined in .env (FINANCE_EMAIL).
-        """
-        from email_sender import send_finance_report
+        Email ONLY director-approved submissions that have NOT yet been sent to finance.
 
-        # ALL records — every status, every submission, every legacy application
-        csv_bytes, total_rows = _build_full_csv(all_statuses=True)
+        After a successful send:
+          - submission.status  → 'sent_to_finance'
+          - submission.finance_sent_at / finance_sent_by  set
+          - Payment record updated to 'issued'
+          - Student notified (in-app + email)
+          - AuditLog entry created
+        """
+        from django.utils import timezone as tz
+        from forms.models import FormSubmission
+        from notifications.models import Notification
+        from email_sender import send_finance_report, send_funding_processed
+
+        # ── 1. Find accepted submissions never sent to finance ──
+        unsent_qs = (
+            FormSubmission.objects
+            .filter(status='accepted', finance_sent_at__isnull=True)
+            .select_related('student', 'form', 'decided_by')
+            .prefetch_related('student__payments', 'student__profile')
+        )
+
+        if not unsent_qs.exists():
+            return Response({
+                'status': 'nothing_to_send',
+                'count': 0,
+                'message': 'No new approved applications to send — all have already been dispatched.',
+            })
+
+        # ── 2. Build CSV from ONLY those unsent submissions ──
+        csv_bytes, total_rows = _build_full_csv_from_qs(unsent_qs)
 
         triggered_by = getattr(request.user, 'full_name', '') or request.user.email
 
+        # ── 3. Send email ──
         ok = send_finance_report(
             csv_bytes=csv_bytes,
             total_students=total_rows,
             triggered_by=triggered_by,
         )
 
-        if ok:
-            AuditLog.objects.create(
-                action=f"Finance Report Emailed — ALL records ({total_rows} rows)",
-                performed_by=request.user,
-                role=request.user.role,
+        if not ok:
+            return Response(
+                {'status': 'error', 'message': 'Failed to send email — check server logs.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-            return Response({
-                'status': 'success',
-                'count': total_rows,
-                'message': f'Full report ({total_rows} records, all statuses) sent to Finance Department',
-            })
-        return Response(
-            {'status': 'error', 'message': 'Failed to send email — check server logs.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+        # ── 4. Post-send: update each submission + notify students ──
+        now = tz.now()
+        submission_ids = list(unsent_qs.values_list('id', flat=True))
+
+        # Bulk-update status + finance timestamps
+        FormSubmission.objects.filter(id__in=submission_ids).update(
+            status='sent_to_finance',
+            finance_sent_at=now,
+            finance_sent_by=request.user,
         )
 
-    @action(detail=False, methods=['post'])
-    def dispatch_report_legacy(self, request):
-        # kept for backwards compat — delegates to dispatch_report
-        return self.dispatch_report(request)
+        # Per-submission: update payment, notify student
+        for sub in unsent_qs:
+            student = sub.student
+            if not student:
+                continue
+
+            # Mark any pending payments for this student as issued
+            student.payments.filter(status='pending').update(status='issued')
+
+            # In-app notification
+            Notification.objects.create(
+                user=student,
+                title='Payment Sent to Finance 💰',
+                message=(
+                    f"Your approved funding for '{sub.form.title}' "
+                    f"(${sub.amount}) has been sent to the Finance Department. "
+                    f"Expect payment within 2–5 working days."
+                ),
+                link=None,
+            )
+
+            # Email notification
+            if student.email:
+                try:
+                    # Build breakdown from payments if available, else single line
+                    payments = list(student.payments.filter(status='issued').order_by('-date_issued')[:10])
+                    if payments:
+                        breakdown = [{'name': p.payment_type, 'amount': float(p.amount)} for p in payments]
+                        total = sum(b['amount'] for b in breakdown)
+                    else:
+                        breakdown = [{'name': sub.form.title, 'amount': float(sub.amount or 0)}]
+                        total = float(sub.amount or 0)
+
+                    send_funding_processed(
+                        student_email=student.email,
+                        student_name=student.full_name,
+                        program_name=sub.form.title,
+                        semester=sub.office_use_data.get('semester', '') if sub.office_use_data else '',
+                        year=sub.office_use_data.get('year', '') if sub.office_use_data else '',
+                        total_amount=total,
+                        funding_breakdown=breakdown,
+                    )
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        'send_funding_processed failed for submission %s: %s', sub.id, exc
+                    )
+
+        # ── 5. Audit log ──
+        AuditLog.objects.create(
+            action=f"Finance Report Dispatched — {total_rows} new approved records",
+            performed_by=request.user,
+            role=request.user.role,
+            details=f"Submission IDs: {submission_ids}",
+        )
+
+        return Response({
+            'status': 'success',
+            'count': total_rows,
+            'message': (
+                f'{total_rows} approved application(s) sent to Finance. '
+                f'Students have been notified. '
+                f'Payments updated to Issued.'
+            ),
+        })
 
 
 class AppealViewSet(viewsets.ModelViewSet):
