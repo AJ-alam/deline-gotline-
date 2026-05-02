@@ -113,7 +113,6 @@ class FormController(viewsets.ModelViewSet):
                 logger.info(f"Successfully created submission {submission.id} for user {user.email if user else 'Anonymous'}")
                 FormService.send_submission_notifications(submission)
                 # Reload with prefetch to avoid N+1 in response serialization
-                from forms.models import FormSubmission
                 submission = FormSubmission.objects.select_related(
                     'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
                 ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
