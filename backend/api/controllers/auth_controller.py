@@ -95,10 +95,12 @@ class ForgotPasswordController(generics.GenericAPIView):
         cache_key = f"pwd_reset_{token}"
         cache.set(cache_key, user.pk, timeout=1800)  # 30 min
 
-        # Build reset URL
-        from django.conf import settings as django_settings
-        frontend_url = getattr(django_settings, 'FRONTEND_URL', 'http://localhost:5173')
-        reset_link = f"{frontend_url}/reset-password?token={token}"
+        # Build reset URL — use request Origin so it works on any dev port
+        origin = request.META.get('HTTP_ORIGIN', '').rstrip('/')
+        if not origin:
+            from django.conf import settings as django_settings
+            origin = getattr(django_settings, 'FRONTEND_URL', 'http://localhost:5173')
+        reset_link = f"{origin}/reset-password?token={token}"
 
         try:
             from email_sender import send_password_reset
