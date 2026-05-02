@@ -37,8 +37,9 @@ class FormService:
                     submitted_at=submission.submitted_at,
                 )
 
-        # Trigger enrollment verification email for new student applications
-        if 'new student application' in form_title_lower or 'psssp' in form_title_lower:
+        # Trigger enrollment verification email for Form A / PSSSP submissions
+        if ('new student application' in form_title_lower or 'psssp' in form_title_lower
+                or 'form a' in form_title_lower or 'admission' in form_title_lower):
             FormService._send_form_b_email(submission)
 
         # Auto-forward one-off awards directly to director queue
@@ -106,6 +107,21 @@ class FormService:
     def update_submission_status(submission, new_status, performed_by, extra_data=None):
         if not extra_data:
             extra_data = {}
+
+        # Block forwarding Form A until Form B is received
+        if new_status == 'forwarded':
+            form_title_lower = (submission.form.title or '').lower()
+            is_form_a = ('form a' in form_title_lower or 'psssp' in form_title_lower
+                         or 'admission' in form_title_lower)
+            if is_form_a:
+                from forms.models import FormBResponse
+                form_b = FormBResponse.objects.filter(submission=submission).first()
+                if not form_b or form_b.status != 'received':
+                    from rest_framework.exceptions import ValidationError
+                    raise ValidationError(
+                        "Cannot forward this Admission Application — "
+                        "Form B (Enrollment Verification) has not been received from the registrar yet."
+                    )
             
         submission.status = new_status
         
@@ -221,39 +237,83 @@ class FormService:
 
     @staticmethod
     def _send_form_b_email(submission):
-        """Send enrollment verification (Form B) to institution registrar on Form A submission."""
+        """
+        Send Form B (Enrollment Verification) to the registrar.
+        - Reads registrar email from the student's form answers
+        - Creates a FormBResponse record with a unique token
+        - Emails the registrar a link to fill in the form online
+        - Form A cannot be forwarded until Form B is received
+        """
+        import uuid
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.conf import settings as django_settings
+
         try:
-            from api.models import PolicySetting
-            registrar_cfg = PolicySetting.objects.filter(
-                section='system_config', field_key='registrar_email'
-            ).first()
-            registrar_email = registrar_cfg.unit if registrar_cfg else ''
+            student = submission.student
+            answers = {
+                a.field.label.lower(): a.answer_text
+                for a in submission.answers.select_related('field').all()
+                if a.field
+            }
+
+            def get(keys):
+                for k in keys:
+                    v = answers.get(k.lower())
+                    if v:
+                        return v
+                return ''
+
+            registrar_email = get(['registrar email', 'registrar / official email', 'registrar_email'])
+            if not registrar_email and student:
+                # Fall back to PolicySetting
+                from api.models import PolicySetting
+                cfg = PolicySetting.objects.filter(section='system_config', field_key='registrar_email').first()
+                registrar_email = cfg.unit if cfg else ''
+
             if not registrar_email:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "No registrar email found for submission %s — Form B not sent", submission.id
+                )
                 return
 
-            student = submission.student
-            answers = {a.field.label.lower(): a.answer_text for a in submission.answers.select_related('field').all()}
+            institution = get(['institution name', 'institution', 'school']) or (student.institution_name if student else '')
+            program     = get(['program', 'program name']) or (student.program_credential if student else '')
+            sem_start   = get(['semester start date', 'semester start', 'start date'])
+            sem_end     = get(['semester end date', 'semester end', 'end date'])
+            student_dob = str(student.dob or '') if student else ''
+            student_id  = get(['student id', 'student number', 'student #']) or (student.upi or student.beneficiary_number or '') if student else ''
 
-            institution = (
-                answers.get('institution name') or answers.get('institution') or
-                getattr(student, 'institution_name', '') or 'Not specified'
-            )
-            program = (
-                answers.get('program') or answers.get('program name') or
-                getattr(student, 'program_credential', '') or 'Not specified'
-            )
-            sem_start = answers.get('semester start') or answers.get('start date') or 'Not specified'
-            sem_end = answers.get('semester end') or answers.get('end date') or 'Not specified'
-            student_dob = str(getattr(student, 'dob', '') or '')
-            student_id = (
-                answers.get('student id') or answers.get('studentid') or
-                answers.get('student number') or answers.get('student #') or
-                str(getattr(student, 'upi', '') or getattr(student, 'beneficiary_number', '') or '')
+            # Create FormBResponse record
+            from forms.models import FormBResponse
+            token = uuid.uuid4().hex
+            expires_at = timezone.now() + timedelta(days=21)  # 21 days to respond
+
+            form_b, _ = FormBResponse.objects.update_or_create(
+                submission=submission,
+                defaults={
+                    'token': token,
+                    'registrar_email': registrar_email,
+                    'status': 'sent',
+                    'student_name': student.full_name if student else '',
+                    'institution': institution,
+                    'program': program,
+                    'sem_start': sem_start,
+                    'sem_end': sem_end,
+                    'expires_at': expires_at,
+                }
             )
 
-            email_form_b_registrar(
+            # Build the public Form B link
+            frontend_url = getattr(django_settings, 'FRONTEND_URL', 'http://localhost:5173')
+            form_b_link = f"{frontend_url}/form-b/{token}"
+
+            # Send email to registrar
+            from notifications.utils import email_form_b_registrar_with_link
+            email_form_b_registrar_with_link(
                 registrar_email=registrar_email,
-                student_name=student.full_name,
+                student_name=student.full_name if student else 'Student',
                 student_dob=student_dob,
                 student_id=student_id,
                 institution=institution,
@@ -261,10 +321,12 @@ class FormService:
                 sem_start=sem_start,
                 sem_end=sem_end,
                 submission_id=submission.id,
+                form_b_link=form_b_link,
             )
+
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error("Form B email failed: %s", e)
+            logging.getLogger(__name__).error("Form B email failed for submission %s: %s", submission.id, e, exc_info=True)
 
     @staticmethod
     def _notify_directors_for_approval(submission):

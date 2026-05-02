@@ -468,3 +468,119 @@ class SubmissionController(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Error generating PDF for submission {submission.id}: {str(e)}", exc_info=True)
             return api_response(False, None, f"Failed to generate PDF: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ---------------------------------------------------------------------------
+# PUBLIC FORM B VIEWS  (no authentication required — accessed via token link)
+# ---------------------------------------------------------------------------
+
+from rest_framework.views import APIView
+from rest_framework.response import Response as DRFResponse
+from rest_framework import permissions as drf_permissions
+
+
+class FormBPublicView(APIView):
+    """
+    GET  /api/forms/form-b/<token>/   — return pre-filled Form B data for registrar
+    POST /api/forms/form-b/<token>/   — registrar submits completed Form B
+    """
+    permission_classes = [drf_permissions.AllowAny]
+
+    def get(self, request, token):
+        from forms.models import FormBResponse
+        try:
+            form_b = FormBResponse.objects.select_related('submission__student').get(token=token)
+        except FormBResponse.DoesNotExist:
+            return DRFResponse({'error': 'Invalid or expired link.'}, status=404)
+
+        if not form_b.is_valid():
+            return DRFResponse({'error': 'This link has expired. Please contact education@deline.ca.'}, status=410)
+
+        return DRFResponse({
+            'token': token,
+            'reference': f"DGG-{form_b.submission_id:04d}" if form_b.submission_id else '',
+            'student_name': form_b.student_name,
+            'institution': form_b.institution,
+            'program': form_b.program,
+            'sem_start': form_b.sem_start,
+            'sem_end': form_b.sem_end,
+            'status': form_b.status,
+            'already_submitted': form_b.status == 'received',
+        })
+
+    def post(self, request, token):
+        from forms.models import FormBResponse
+        from django.utils import timezone
+        from notifications.models import Notification
+        from django.contrib.auth import get_user_model
+        from api.models import AuditLog
+        User = get_user_model()
+
+        try:
+            form_b = FormBResponse.objects.select_related('submission__student', 'submission__form').get(token=token)
+        except FormBResponse.DoesNotExist:
+            return DRFResponse({'error': 'Invalid or expired link.'}, status=404)
+
+        if not form_b.is_valid():
+            return DRFResponse({'error': 'This link has expired.'}, status=410)
+
+        if form_b.status == 'received':
+            return DRFResponse({'error': 'Form B has already been submitted for this student.'}, status=400)
+
+        d = request.data
+
+        # Save registrar's response
+        form_b.is_enrolled = d.get('is_enrolled', True)
+        form_b.enrollment_status = d.get('enrollment_status', '')
+        form_b.course_load_percent = d.get('course_load_percent') or None
+        form_b.confirmed_program = d.get('confirmed_program', form_b.program)
+        form_b.confirmed_sem_start = d.get('confirmed_sem_start', form_b.sem_start)
+        form_b.confirmed_sem_end = d.get('confirmed_sem_end', form_b.sem_end)
+        form_b.official_tuition = d.get('official_tuition') or None
+        form_b.registrar_notes = d.get('registrar_notes', '')
+        form_b.registrar_name = d.get('registrar_name', '')
+        form_b.registrar_title = d.get('registrar_title', '')
+        form_b.status = 'received'
+        form_b.received_at = timezone.now()
+        form_b.save()
+
+        submission = form_b.submission
+        student = submission.student if submission else None
+
+        # Notify all staff (admin) — Form B received, but Form A still cannot be forwarded
+        staff = User.objects.filter(role='admin')
+        for s in staff:
+            Notification.objects.create(
+                user=s,
+                title=f"Form B Received — {form_b.student_name}",
+                message=(
+                    f"The registrar at {form_b.institution} has completed enrollment verification "
+                    f"for {form_b.student_name} (Ref: DGG-{form_b.submission_id:04d}). "
+                    f"Enrolled: {'Yes' if form_b.is_enrolled else 'No'}, "
+                    f"Status: {form_b.enrollment_status}, "
+                    f"Tuition: ${form_b.official_tuition or 'N/A'}. "
+                    f"You may now review and forward the Admission Application."
+                ),
+                link=f"/staff/applications?id={form_b.submission_id}",
+            )
+
+        # Audit log
+        if submission:
+            AuditLog.objects.create(
+                action=f"Form B received for Submission #{form_b.submission_id} from {form_b.registrar_email}",
+                performed_by=None,
+                details=(
+                    f"Registrar: {form_b.registrar_name} ({form_b.registrar_title}), "
+                    f"Enrolled: {form_b.is_enrolled}, "
+                    f"Tuition: {form_b.official_tuition}"
+                ),
+            )
+
+        return DRFResponse({
+            'success': True,
+            'message': (
+                f"Thank you, {form_b.registrar_name or 'Registrar'}. "
+                f"The enrollment verification for {form_b.student_name} has been received. "
+                f"The DGG Education Department will be in touch if further information is needed."
+            ),
+        })

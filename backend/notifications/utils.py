@@ -59,7 +59,7 @@ def _base_template(content: str) -> str:
     """
 
 
-def email_form_b_registrar(
+def email_form_b_registrar_with_link(
     registrar_email: str,
     student_name: str,
     student_dob: str,
@@ -69,8 +69,12 @@ def email_form_b_registrar(
     sem_start: str,
     sem_end: str,
     submission_id: int,
+    form_b_link: str,
 ):
-    """Form B — Enrollment Verification request sent to institution registrar on Form A submission."""
+    """
+    Form B — Enrollment Verification request with an online form link.
+    Registrar clicks the link, fills in the form, and submits it back.
+    """
     body = f"""
     <h2 style="color: #1e293b;">Enrollment Verification Request — Form B</h2>
     <p>Dear Registrar,</p>
@@ -91,25 +95,29 @@ def email_form_b_registrar(
       </table>
     </div>
 
-    <p style="font-weight: 600; color: #1e293b;">Please confirm the following by replying to this email within <u>14 calendar days</u>:</p>
-    <ol style="font-size: 13px; color: #374151; line-height: 2;">
-      <li>Is the student currently enrolled in good standing?</li>
-      <li>Confirm the program name and credential level</li>
-      <li>Confirm enrollment status (Full-time / Part-time) and course load percentage</li>
-      <li>Confirm semester start and end dates</li>
-      <li>Provide official tuition amount for the semester</li>
-    </ol>
+    <p style="font-weight: 600; color: #1e293b;">Please complete the online verification form using the button below:</p>
+
+    <div style="text-align: center; margin: 32px 0;">
+      <a href="{form_b_link}"
+         style="background: #1e293b; color: #e5a662; padding: 16px 36px; border-radius: 8px;
+                text-decoration: none; font-weight: 800; font-size: 15px; display: inline-block;">
+        Complete Enrollment Verification →
+      </a>
+    </div>
+
+    <p style="font-size: 13px; color: #64748b;">Or copy and paste this link into your browser:</p>
+    <p style="font-size: 12px; color: #3b82f6; word-break: break-all;">{form_b_link}</p>
 
     <div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 16px; margin: 24px 0;">
       <p style="margin: 0; font-size: 12px; color: #92400e;">
-        <strong>Important:</strong> Funding disbursement to this student is contingent on receipt of this verification.
-        Please reply to <strong>education@deline.ca</strong> or contact your DGG Student Support Worker directly.
+        <strong>Important:</strong> This link expires in <strong>21 days</strong>.
+        Funding disbursement to this student is contingent on receipt of this verification.
         Reference number <strong>DGG-{submission_id:04d}</strong> must appear in all correspondence.
       </p>
     </div>
 
     <p style="font-size: 13px; color: #64748b;">
-      Thank you for your prompt attention to this matter. The DGG Education Department is committed to
+      Thank you for your prompt attention. The DGG Education Department is committed to
       supporting Indigenous students in their academic journey.
     </p>
     """
@@ -117,7 +125,38 @@ def email_form_b_registrar(
         recipient_email=registrar_email,
         subject=f"Enrollment Verification Request — {student_name} (Ref: DGG-{submission_id:04d})",
         html_body=_base_template(body),
-        plain_body=f"Enrollment Verification Request for {student_name}. Reference: DGG-{submission_id:04d}. Please confirm enrollment at {institution} for {program} ({sem_start} to {sem_end}). Reply to education@deline.ca within 14 days.",
+        plain_body=(
+            f"Enrollment Verification Request for {student_name}. "
+            f"Reference: DGG-{submission_id:04d}. "
+            f"Please complete the online form at: {form_b_link} "
+            f"(expires in 21 days)."
+        ),
+    )
+
+
+def email_form_b_registrar(
+    registrar_email: str,
+    student_name: str,
+    student_dob: str,
+    student_id: str,
+    institution: str,
+    program: str,
+    sem_start: str,
+    sem_end: str,
+    submission_id: int,
+):
+    """Legacy wrapper — kept for backwards compatibility."""
+    return email_form_b_registrar_with_link(
+        registrar_email=registrar_email,
+        student_name=student_name,
+        student_dob=student_dob,
+        student_id=student_id,
+        institution=institution,
+        program=program,
+        sem_start=sem_start,
+        sem_end=sem_end,
+        submission_id=submission_id,
+        form_b_link='(link not available — please contact education@deline.ca)',
     )
 
 

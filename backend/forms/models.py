@@ -204,3 +204,57 @@ class ApplicationDeadline(models.Model):
     
     def __str__(self):
         return f"{self.get_funding_stream_display()} - {self.semester}"
+
+
+class FormBResponse(models.Model):
+    """
+    Tracks the Form B (Enrollment Verification) sent to a registrar
+    and their response when they fill it in via the public link.
+    """
+    STATUS_CHOICES = (
+        ('sent', 'Sent to Registrar'),
+        ('received', 'Received from Registrar'),
+        ('expired', 'Link Expired'),
+    )
+
+    submission = models.OneToOneField(
+        FormSubmission, on_delete=models.CASCADE,
+        related_name='form_b', null=True, blank=True
+    )
+    token = models.CharField(max_length=64, unique=True)
+    registrar_email = models.EmailField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='sent')
+
+    # Pre-filled data sent to registrar
+    student_name = models.CharField(max_length=255, blank=True)
+    institution = models.CharField(max_length=255, blank=True)
+    program = models.CharField(max_length=255, blank=True)
+    sem_start = models.CharField(max_length=50, blank=True)
+    sem_end = models.CharField(max_length=50, blank=True)
+
+    # Registrar-filled response fields
+    is_enrolled = models.BooleanField(null=True, blank=True)
+    enrollment_status = models.CharField(max_length=50, blank=True)   # Full-time / Part-time
+    course_load_percent = models.IntegerField(null=True, blank=True)
+    confirmed_program = models.CharField(max_length=255, blank=True)
+    confirmed_sem_start = models.CharField(max_length=50, blank=True)
+    confirmed_sem_end = models.CharField(max_length=50, blank=True)
+    official_tuition = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    registrar_notes = models.TextField(blank=True)
+    registrar_name = models.CharField(max_length=255, blank=True)
+    registrar_title = models.CharField(max_length=255, blank=True)
+
+    sent_at = models.DateTimeField(auto_now_add=True)
+    received_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'form_b_responses'
+        ordering = ['-sent_at']
+
+    def is_valid(self):
+        from django.utils import timezone
+        return self.status == 'sent' and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"Form B for submission {self.submission_id} — {self.status}"

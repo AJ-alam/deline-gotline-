@@ -51,8 +51,9 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             'more_info_requested_at', 'more_info_requested_by',
             'more_info_requested_by_name', 'more_info_request_notes',
             'more_info_responded_at',
+            'finance_sent_at', 'finance_sent_by',
         )
-        read_only_fields = ('student', 'submitted_at')
+        read_only_fields = ('student', 'submitted_at', 'finance_sent_at', 'finance_sent_by')
 
     def get_reviewed_by_name(self, obj):
         return obj.reviewed_by.full_name if obj.reviewed_by else None
