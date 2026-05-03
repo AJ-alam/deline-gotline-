@@ -305,7 +305,8 @@ class FormService:
                 }
             )
 
-            # Build the public Form B link
+            # Build the public Form B link — use FRONTEND_URL from settings
+            from django.conf import settings as django_settings
             frontend_url = getattr(django_settings, 'FRONTEND_URL', 'http://localhost:5173')
             form_b_link = f"{frontend_url}/form-b/{token}"
 

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Form, FormField, FormSubmission, SubmissionAnswer, SubmissionNote
+from .models import Form, FormField, FormSubmission, SubmissionAnswer, SubmissionNote, FormBResponse
 
 class FormFieldSerializer(serializers.ModelSerializer):
     class Meta:
@@ -26,6 +26,19 @@ class SubmissionAnswerSerializer(serializers.ModelSerializer):
     def get_label(self, obj):
         return obj.field.label if obj.field else None
 
+class FormBResponseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FormBResponse
+        fields = (
+            'id', 'token', 'registrar_email', 'status',
+            'student_name', 'institution', 'program', 'sem_start', 'sem_end',
+            'is_enrolled', 'enrollment_status', 'course_load_percent',
+            'confirmed_program', 'confirmed_sem_start', 'confirmed_sem_end',
+            'official_tuition', 'registrar_notes', 'registrar_name', 'registrar_title',
+            'sent_at', 'received_at', 'expires_at',
+        )
+
+
 class FormSubmissionSerializer(serializers.ModelSerializer):
     answers = SubmissionAnswerSerializer(many=True, required=False)
     form_title = serializers.SerializerMethodField()
@@ -38,6 +51,8 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
     more_info_requested_by_name = serializers.SerializerMethodField()
 
     form_type = serializers.CharField(source='form.title', read_only=True)
+    form_b_status = serializers.SerializerMethodField()
+    form_b = serializers.SerializerMethodField()
 
     class Meta:
         model = FormSubmission
@@ -52,8 +67,30 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             'more_info_requested_by_name', 'more_info_request_notes',
             'more_info_responded_at',
             'finance_sent_at', 'finance_sent_by',
+            'form_b_status', 'form_b',
         )
         read_only_fields = ('student', 'submitted_at', 'finance_sent_at', 'finance_sent_by')
+
+    def get_form_b_status(self, obj):
+        """Returns 'waiting', 'received', 'not_applicable', or None."""
+        try:
+            fb = obj.form_b
+            return fb.status  # 'sent' | 'received' | 'expired'
+        except Exception:
+            return None
+
+    def get_form_b(self, obj):
+        """Returns full Form B data for staff; None for students."""
+        request = self.context.get('request')
+        if not request or not hasattr(request.user, 'role'):
+            return None
+        if request.user.role not in ('admin', 'director'):
+            return None
+        try:
+            fb = obj.form_b
+            return FormBResponseSerializer(fb).data
+        except Exception:
+            return None
 
     def get_reviewed_by_name(self, obj):
         return obj.reviewed_by.full_name if obj.reviewed_by else None

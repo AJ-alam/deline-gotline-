@@ -158,7 +158,8 @@ class SubmissionController(viewsets.ModelViewSet):
             'more_info_requested_by'
         ).prefetch_related(
             'answers__field',
-            'notes__author'
+            'notes__author',
+            'form_b',
         ).order_by('-submitted_at')
 
         if user.role == 'director':
@@ -509,11 +510,11 @@ class FormBPublicView(APIView):
 
     def post(self, request, token):
         from forms.models import FormBResponse
-        from django.utils import timezone
+        from django.utils import timezone as tz
         from notifications.models import Notification
-        from django.contrib.auth import get_user_model
+        from django.contrib.auth import get_user_model as _gum
         from api.models import AuditLog
-        User = get_user_model()
+        _User = _gum()
 
         try:
             form_b = FormBResponse.objects.select_related('submission__student', 'submission__form').get(token=token)
@@ -540,30 +541,72 @@ class FormBPublicView(APIView):
         form_b.registrar_name = d.get('registrar_name', '')
         form_b.registrar_title = d.get('registrar_title', '')
         form_b.status = 'received'
-        form_b.received_at = timezone.now()
+        form_b.received_at = tz.now()
         form_b.save()
 
         submission = form_b.submission
-        student = submission.student if submission else None
 
-        # Notify all staff (admin) — Form B received, but Form A still cannot be forwarded
-        staff = User.objects.filter(role='admin')
+        # ── Notify all admin staff ──
+        staff = _User.objects.filter(role='admin')
         for s in staff:
             Notification.objects.create(
                 user=s,
-                title=f"Form B Received — {form_b.student_name}",
+                title=f"📋 Form B Received — {form_b.student_name}",
                 message=(
-                    f"The registrar at {form_b.institution} has completed enrollment verification "
-                    f"for {form_b.student_name} (Ref: DGG-{form_b.submission_id:04d}). "
+                    f"Enrollment verification received from {form_b.registrar_name or 'the registrar'} "
+                    f"at {form_b.institution} for {form_b.student_name} "
+                    f"(Ref: DGG-{form_b.submission_id:04d}). "
                     f"Enrolled: {'Yes' if form_b.is_enrolled else 'No'}, "
                     f"Status: {form_b.enrollment_status}, "
                     f"Tuition: ${form_b.official_tuition or 'N/A'}. "
-                    f"You may now review and forward the Admission Application."
+                    f"You may now forward the Admission Application to the Director."
                 ),
                 link=f"/staff/applications?id={form_b.submission_id}",
             )
 
-        # Audit log
+        # ── Email directors at rajahammad9897@gmail.com ──
+        directors = _User.objects.filter(role='director')
+        director_emails = [d.email for d in directors if d.email]
+        # Always include the hardcoded director email
+        DIRECTOR_EMAIL = 'rajahammad9897@gmail.com'
+        if DIRECTOR_EMAIL not in director_emails:
+            director_emails.append(DIRECTOR_EMAIL)
+
+        try:
+            from email_sender import send_email
+            from notifications.utils import _base_template
+            body = f"""
+            <h2 style="color: #1e293b;">Form B Received — Enrollment Verified</h2>
+            <p>The registrar has completed the enrollment verification for the following student.</p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 24px 0;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                <tr><td style="padding: 6px 0; color: #64748b; width: 180px;">Student</td><td style="padding: 6px 0; font-weight: 600;">{form_b.student_name}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Reference #</td><td style="padding: 6px 0; font-weight: 600;">DGG-{form_b.submission_id:04d}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Institution</td><td style="padding: 6px 0; font-weight: 600;">{form_b.institution}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Program</td><td style="padding: 6px 0; font-weight: 600;">{form_b.confirmed_program or form_b.program}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Enrolled</td><td style="padding: 6px 0; font-weight: 600;">{'Yes' if form_b.is_enrolled else 'No'}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Enrollment Status</td><td style="padding: 6px 0; font-weight: 600;">{form_b.enrollment_status}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Course Load</td><td style="padding: 6px 0; font-weight: 600;">{form_b.course_load_percent or 'N/A'}%</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Official Tuition</td><td style="padding: 6px 0; font-weight: 600;">${form_b.official_tuition or 'N/A'}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Semester</td><td style="padding: 6px 0; font-weight: 600;">{form_b.confirmed_sem_start} — {form_b.confirmed_sem_end}</td></tr>
+                <tr><td style="padding: 6px 0; color: #64748b;">Verified by</td><td style="padding: 6px 0; font-weight: 600;">{form_b.registrar_name} ({form_b.registrar_title})</td></tr>
+                {'<tr><td style="padding: 6px 0; color: #64748b;">Notes</td><td style="padding: 6px 0;">' + form_b.registrar_notes + '</td></tr>' if form_b.registrar_notes else ''}
+              </table>
+            </div>
+            <p>The SSW can now forward this Admission Application to you for final approval.</p>
+            """
+            for email in director_emails:
+                send_email(
+                    to=email,
+                    subject=f"Form B Received — {form_b.student_name} (DGG-{form_b.submission_id:04d})",
+                    html_body=_base_template(body),
+                    plain_body=f"Form B received for {form_b.student_name} (DGG-{form_b.submission_id:04d}). Enrolled: {'Yes' if form_b.is_enrolled else 'No'}. Tuition: ${form_b.official_tuition or 'N/A'}.",
+                )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("Failed to email directors about Form B: %s", exc)
+
+        # ── Audit log ──
         if submission:
             AuditLog.objects.create(
                 action=f"Form B received for Submission #{form_b.submission_id} from {form_b.registrar_email}",

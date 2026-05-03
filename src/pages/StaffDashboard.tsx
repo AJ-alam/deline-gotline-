@@ -104,6 +104,7 @@ const StaffDashboard: React.FC = () => {
   const [showFinanceModal, setShowFinanceModal] = useState(false);
   const [financeEmail, setFinanceEmail] = useState('finance@deline.ca');
   const [isExporting, setIsExporting] = useState(false);
+  const [isForwarding, setIsForwarding] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -333,6 +334,9 @@ const StaffDashboard: React.FC = () => {
       }
     }
 
+    // Show loading state for forwarding
+    if (status === 'forwarded') setIsForwarding(true);
+
     try {
       if (currentApp?._is_standard) {
         // Legacy applications use 'pending' for director approval
@@ -352,6 +356,8 @@ const StaffDashboard: React.FC = () => {
       fetchApplications();
     } catch (err: any) {
       alert(err.message || 'Action failed');
+    } finally {
+      setIsForwarding(false);
     }
   };
 
@@ -1039,7 +1045,7 @@ const StaffDashboard: React.FC = () => {
     return mapping[title] || title;
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, app?: any) => {
     const statusClassMap: Record<string, string> = {
       pending: 'badge-pending',
       reviewed: 'badge-reviewed',
@@ -1053,6 +1059,15 @@ const StaffDashboard: React.FC = () => {
       more_info_required: 'More Info Required',
       sent_to_finance: '💰 Sent to Finance',
     };
+
+    // Show Form B waiting status for Form A submissions
+    if (app && status === 'pending' && app.form_b_status === 'sent') {
+      return (
+        <span className="admin-badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' }}>
+          📜 Waiting Form B
+        </span>
+      );
+    }
 
     const badgeClass = statusClassMap[status] || '';
     const label = statusLabelMap[status] || (status.charAt(0).toUpperCase() + status.slice(1));
@@ -2019,7 +2034,7 @@ const StaffDashboard: React.FC = () => {
                         <td><strong>{getStudentName(app)}</strong></td>
                         <td style={{ fontSize: '12px' }}>{app.form_title || app.form?.title || 'General App'}</td>
                         <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(app.submitted_at).toLocaleDateString()}</td>
-                        <td>{getStatusBadge(app.status)}</td>
+                        <td>{getStatusBadge(app.status, app)}</td>
                       </tr>
                     ))}
                     {applications.length === 0 && (
@@ -2183,7 +2198,7 @@ const StaffDashboard: React.FC = () => {
                         <td><strong>{getStudentName(app)}</strong></td>
                         <td style={{ fontSize: '12px' }}>{getFormDisplayName(app.form_title || app.form?.title)}</td>
                         <td style={{ fontSize: '12px' }}>{new Date(app.submitted_at).toLocaleDateString()}</td>
-                        <td>{getStatusBadge(app.status)}</td>
+                        <td>{getStatusBadge(app.status, app)}</td>
                         <td>
                           {app.status === 'accepted' ? (
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#166534' }}>
@@ -2285,10 +2300,27 @@ const StaffDashboard: React.FC = () => {
                   ) : (
                     <button
                       className="admin-input"
-                      style={{ width: 'auto', fontSize: '11px', fontWeight: '700', background: 'var(--admin-accent)', color: '#000', border: 'none' }}
+                      style={{
+                        width: 'auto', fontSize: '11px', fontWeight: '700',
+                        background: (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected') ? '#94a3b8' : isForwarding ? '#64748b' : 'var(--admin-accent)',
+                        color: (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected') ? '#fff' : '#000',
+                        border: 'none',
+                        cursor: (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected' || isForwarding) ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '8px',
+                      }}
+                      disabled={selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected' || isForwarding}
                       onClick={() => handleDecision('forwarded')}
                     >
-                      SEND TO DIRECTOR →
+                      {isForwarding ? (
+                        <>
+                          <span style={{ width: '12px', height: '12px', border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }} />
+                          SENDING...
+                        </>
+                      ) : (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected') ? (
+                        '✓ SENT TO DIRECTOR'
+                      ) : (
+                        'SEND TO DIRECTOR →'
+                      )}
                     </button>
                   )}
                 </div>
@@ -2314,7 +2346,7 @@ const StaffDashboard: React.FC = () => {
                                 Submitted {app?.submitted_at ? new Date(app.submitted_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
                               </div>
                             </div>
-                            {getStatusBadge(app?.status || 'pending')}
+                            {getStatusBadge(app?.status || 'pending', app)}
                           </div>
 
                           <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '10px' }}>
@@ -2360,6 +2392,93 @@ const StaffDashboard: React.FC = () => {
                           </div>
                         </>
                       );
+                    })()}
+
+                    {/* Form B Enrollment Verification Section */}
+                    {(() => {
+                      const app = applications.find(a => String(a.id) === String(selectedAppId));
+                      const fb = app?.form_b;
+                      const fbStatus = app?.form_b_status;
+                      if (!fbStatus) return null; // Not a Form A submission
+
+                      if (fbStatus === 'sent') {
+                        return (
+                          <div className="admin-chart-card" style={{ marginTop: '32px', background: '#fffbeb', border: '1px solid #fcd34d' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                              <span style={{ fontSize: '20px' }}>⏳</span>
+                              <div>
+                                <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#92400e', margin: 0 }}>WAITING FOR FORM B</h3>
+                                <p style={{ fontSize: '12px', color: '#a16207', margin: '4px 0 0' }}>Enrollment verification has been sent to the registrar and is awaiting response.</p>
+                              </div>
+                            </div>
+                            {fb?.registrar_email && (
+                              <div style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.6)', borderRadius: '8px', marginTop: '12px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: '700', color: '#92400e', textTransform: 'uppercase', marginBottom: '8px' }}>SENT TO</div>
+                                <div style={{ fontSize: '13px', fontWeight: '600', color: '#1e293b' }}>{fb.registrar_email}</div>
+                                {fb.sent_at && <div style={{ fontSize: '11px', color: '#a16207', marginTop: '4px' }}>Sent {new Date(fb.sent_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
+                                {fb.expires_at && <div style={{ fontSize: '11px', color: '#a16207' }}>Expires {new Date(fb.expires_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (fbStatus === 'received' && fb) {
+                        return (
+                          <div className="admin-chart-card" style={{ marginTop: '32px', background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                              <span style={{ fontSize: '20px' }}>✅</span>
+                              <div>
+                                <h3 style={{ fontSize: '14px', fontWeight: '800', color: '#166534', margin: 0 }}>FORM B RECEIVED — ENROLLMENT VERIFIED</h3>
+                                <p style={{ fontSize: '12px', color: '#15803d', margin: '4px 0 0' }}>
+                                  Verified by {fb.registrar_name || 'Registrar'}{fb.registrar_title ? ` (${fb.registrar_title})` : ''}
+                                  {fb.received_at && ` on ${new Date(fb.received_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                                </p>
+                              </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', padding: '16px', background: 'rgba(255,255,255,0.6)', borderRadius: '10px' }}>
+                              <div>
+                                <label style={{ fontSize: '9px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>ENROLLED</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700', color: fb.is_enrolled ? '#166534' : '#b91c1c' }}>
+                                  {fb.is_enrolled ? '✅ Yes' : '❌ No'}
+                                </div>
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '9px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>ENROLLMENT STATUS</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{fb.enrollment_status || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '9px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>COURSE LOAD</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{fb.course_load_percent != null ? `${fb.course_load_percent}%` : 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '9px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>CONFIRMED PROGRAM</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>{fb.confirmed_program || fb.program || 'N/A'}</div>
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '9px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>OFFICIAL TUITION</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700', color: '#166534' }}>
+                                  {fb.official_tuition != null ? `$${parseFloat(fb.official_tuition).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : 'N/A'}
+                                </div>
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '9px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>SEMESTER</label>
+                                <div style={{ fontSize: '13px', fontWeight: '700' }}>
+                                  {fb.confirmed_sem_start || fb.sem_start || '?'} — {fb.confirmed_sem_end || fb.sem_end || '?'}
+                                </div>
+                              </div>
+                            </div>
+                            {fb.registrar_notes && (
+                              <div style={{ marginTop: '16px', padding: '12px 16px', background: 'rgba(255,255,255,0.6)', borderRadius: '8px', border: '1px solid #dcfce7' }}>
+                                <div style={{ fontSize: '11px', fontWeight: '700', color: '#166534', textTransform: 'uppercase', marginBottom: '6px' }}>REGISTRAR NOTES</div>
+                                <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.5' }}>{fb.registrar_notes}</div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return null;
                     })()}
 
                     {/* Eligibility Determination Section */}
@@ -3070,7 +3189,7 @@ const StaffDashboard: React.FC = () => {
                                     {app.form_title || app.form_type || 'General Application'}
                                   </span>
                                 </td>
-                                <td>{getStatusBadge(app.status)}</td>
+                                <td>{getStatusBadge(app.status, app)}</td>
                                 <td style={{ fontWeight: '900', color: '#0f172a', fontSize: '14px' }}>
                                   {parseFloat(app.amount || 0) > 0 ? `$${parseFloat(app.amount).toLocaleString()}` : <span style={{ color: '#cbd5e1' }}>—</span>}
                                 </td>
@@ -3203,7 +3322,7 @@ const StaffDashboard: React.FC = () => {
                           <td><strong>{getStudentName(app)}</strong></td>
                           <td style={{ fontSize: '11px' }}>{app.form_title || 'N/A'}</td>
                           <td style={{ fontSize: '12px', fontWeight: '700' }}>${parseFloat(app.amount || 0).toLocaleString()}</td>
-                          <td>{getStatusBadge(app.status)}</td>
+                          <td>{getStatusBadge(app.status, app)}</td>
                           <td style={{ fontSize: '11px', color: '#64748b' }}>{app.decided_by_name || 'Director'}</td>
                           <td style={{ fontSize: '11px', color: '#64748b' }}>{app.decided_at ? new Date(app.decided_at).toLocaleDateString() : new Date(app.submitted_at || Date.now()).toLocaleDateString()}</td>
                         </tr>
@@ -3295,7 +3414,7 @@ const StaffDashboard: React.FC = () => {
                             </div>
                             <div>
                               <label style={{ fontSize: '9px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>STATUS</label>
-                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{getStatusBadge(app?.status || 'pending')}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '700' }}>{getStatusBadge(app?.status || 'pending', app)}</div>
                             </div>
                           </div>
                         );
