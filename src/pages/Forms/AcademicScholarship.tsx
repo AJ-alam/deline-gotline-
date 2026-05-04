@@ -117,6 +117,13 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
         submissionData.append(`answers[${answers.length}]answer_file`, selectedTranscript);
       }
 
+      // Sync profile data to ensure Student ID (Beneficiary Number) is updated in the system
+      await API.updateMe({
+        full_name: formData.studentName,
+        beneficiary_number: formData.studentId,
+        institution_name: formData.institution
+      });
+
       await API.submitApplication({
         form_type: 'Scholarship',
         form_data: submissionData
@@ -204,7 +211,7 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
                 </div>
                 <div>
                    <label className="field-label">Academic Year *</label>
-                   <input className="field-input" value={formData.year} onChange={e => handleInputChange('year', e.target.value)} placeholder="e.g. 2025" />
+                   <input className="field-input" type="number" value={formData.year} onChange={e => handleInputChange('year', e.target.value)} placeholder="e.g. 2025" />
                 </div>
              </div>
           </div>

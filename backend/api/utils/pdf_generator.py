@@ -75,11 +75,6 @@ class FormPDFGenerator:
             fontName='Helvetica-Oblique'
         )
         
-        # Add header
-        elements.append(Paragraph("Délı̨nę Got'ı̨nę Government", title_style))
-        elements.append(Paragraph("Education & Training Department", styles['Normal']))
-        elements.append(Spacer(1, 0.3*inch))
-        
         # Add form title
         elements.append(Paragraph(form.title, heading_style))
         
@@ -124,10 +119,6 @@ class FormPDFGenerator:
                 required_marker = "*" if field.is_required else ""
                 field_label = f"{field.label}{required_marker}:"
                 elements.append(Paragraph(field_label, label_style))
-                
-                # Add help text if available
-                if field.help_text:
-                    elements.append(Paragraph(field.help_text, instruction_style))
                 
                 # Add appropriate input space based on field type
                 if field.field_type == 'textarea':
@@ -246,11 +237,6 @@ class FormPDFGenerator:
             spaceBefore=15,
             fontName='Helvetica-Bold'
         )
-        
-        # Add header
-        elements.append(Paragraph("Délı̨nę Got'ı̨nę Government", title_style))
-        elements.append(Paragraph("Education & Training Department", styles['Normal']))
-        elements.append(Spacer(1, 0.3*inch))
         
         # Add form title
         elements.append(Paragraph(submission.form.title, heading_style))

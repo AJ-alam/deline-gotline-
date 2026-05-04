@@ -28,7 +28,7 @@ def _is_staff(user):
 # dispatch_report (ALL records emailed to finance).
 # ---------------------------------------------------------------------------
 
-def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_statuses=False):
+def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_statuses=False, unsent_only=False):
     """
     Build the comprehensive student records CSV with personal + banking info.
 
@@ -46,6 +46,8 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     all_statuses : bool
         False  → only accepted/approved records  (used by export_csv download)
         True   → every record regardless of status (used by dispatch_report email)
+    unsent_only : bool
+        True   → only records never sent to finance (finance_sent_at__isnull=True)
 
     Returns
     -------
@@ -56,7 +58,7 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
 
     HEADERS = [
         # ── Submission ──
-        'Submission ID', 'Form/Type', 'Status', 'Approved Amount ($)', 'Stream',
+        'Submission ID', 'Form/Type', 'Status', 'Stream',
         # ── Personal ──
         'Full Name', 'Email', 'Phone', 'Alternate Phone',
         'Date of Birth', 'Gender', 'Pronouns',
@@ -69,8 +71,9 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
         'Bank Name', 'Transit #', 'Institution #', 'Account #',
         # ── Enrollment ──
         'Institute (Profile)', 'Institution Name', 'Program', 'Enrollment Status', 'Course Load (%)',
-        # ── Payment ──
-        'Payment Type', 'Payment Amount ($)', 'Payment Status', 'Payment Reference #', 'Payment Date',
+        # ── Funding Breakdown (Single Row) ──
+        'Tuition ($)', 'Living Allowance ($)', 'Books & Supplies ($)', 'Travel ($)', 'Special Awards ($)',
+        'TOTAL APPROVED ($)',
         # ── Timeline ──
         'Submitted Date', 'Decision Date', 'Decided By',
     ]
@@ -85,8 +88,11 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     else:
         qs = FormSubmission.objects.filter(status='accepted')
 
+    if unsent_only:
+        qs = qs.filter(finance_sent_at__isnull=True)
+
     qs = qs.select_related('student', 'form', 'decided_by').prefetch_related(
-        'student__payments', 'student__profile'
+        'payments', 'student__profile'
     )
 
     # ── Legacy applications ──
@@ -95,8 +101,11 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     else:
         legacy_qs = Application.objects.filter(status='approved')
 
+    if unsent_only:
+        legacy_qs = legacy_qs.filter(finance_sent_at__isnull=True)
+
     legacy_qs = legacy_qs.select_related('student').prefetch_related(
-        'student__payments', 'student__profile'
+        'payments', 'student__profile'
     )
 
     # ── Funding-type filter (only for approved download) ──
@@ -172,13 +181,12 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     for sub in qs.order_by('-submitted_at'):
         student = sub.student
         profile = getattr(student, 'profile', None) if student else None
-        payments = student.payments.all() if student else []
+        payments = sub.payments.all()
 
         submission_cols = [
             f"FS-{sub.id}",
             sub.form.title if sub.form else D,
             sub.status,
-            sub.amount or 0,
             student.primary_stream if student else D,
         ]
         personal_banking = _student_personal_banking(student, profile)
@@ -188,31 +196,37 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
             sub.decided_by.full_name if sub.decided_by else D,
         ]
 
-        if payments:
-            for p in payments:
-                writer.writerow(
-                    submission_cols + personal_banking + [
-                        p.payment_type, p.amount, p.status,
-                        p.reference_number or D,
-                        p.date_issued.strftime('%Y-%m-%d') if p.date_issued else D,
-                    ] + dates
-                )
-                row_count += 1
-        else:
-            writer.writerow(submission_cols + personal_banking + [D, D, D, D, D] + dates)
-            row_count += 1
+        # Consolidate payment breakdown into columns
+        breakdown = {'Tuition': 0, 'Living': 0, 'Books': 0, 'Travel': 0, 'Special': 0}
+        for p in payments:
+            pt = p.payment_type.lower()
+            if 'tuition' in pt: breakdown['Tuition'] += p.amount
+            elif 'living' in pt: breakdown['Living'] += p.amount
+            elif 'book' in pt: breakdown['Books'] += p.amount
+            elif 'travel' in pt: breakdown['Travel'] += p.amount
+            else: breakdown['Special'] += p.amount
+
+        breakdown_cols = [
+            breakdown['Tuition'] or D,
+            breakdown['Living'] or D,
+            breakdown['Books'] or D,
+            breakdown['Travel'] or D,
+            breakdown['Special'] or D,
+            sub.amount or sum(breakdown.values()) or 0
+        ]
+
+        writer.writerow(submission_cols + personal_banking + breakdown_cols + dates)
+        row_count += 1
 
     # ── Legacy application rows ──
     for app in legacy_qs.order_by('-created_at'):
         student = app.student
         profile = getattr(student, 'profile', None) if student else None
-        payments = student.payments.filter(application=app) if student else []
-
+        
         submission_cols = [
             f"LEG-{app.id}",
             app.form_type,
             app.status,
-            0,
             student.primary_stream if student else D,
         ]
         personal_banking = _student_personal_banking(student, profile)
@@ -222,19 +236,11 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
             app.decision_by or D,
         ]
 
-        if payments:
-            for p in payments:
-                writer.writerow(
-                    submission_cols + personal_banking + [
-                        p.payment_type, p.amount, p.status,
-                        p.reference_number or D,
-                        p.date_issued.strftime('%Y-%m-%d') if p.date_issued else D,
-                    ] + dates
-                )
-                row_count += 1
-        else:
-            writer.writerow(submission_cols + personal_banking + [D, D, D, D, D] + dates)
-            row_count += 1
+        # For legacy, just show the total in the last column
+        breakdown_cols = [D, D, D, D, D, app.amount or 0]
+
+        writer.writerow(submission_cols + personal_banking + breakdown_cols + dates)
+        row_count += 1
 
     return output.getvalue().encode('utf-8'), row_count
 
@@ -294,7 +300,7 @@ def _build_full_csv_from_qs(qs):
     for sub in qs.order_by('-submitted_at'):
         student = sub.student
         profile = getattr(student, 'profile', None) if student else None
-        payments = student.payments.all() if student else []
+        payments = sub.payments.all()
         sub_cols = [
             f"FS-{sub.id}", sub.form.title if sub.form else D,
             sub.status, sub.amount or 0,
@@ -370,11 +376,18 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        qs = Application.objects.select_related(
+            'student', 
+            'student__profile'
+        ).prefetch_related(
+            'documents'
+        ).order_by('-created_at')
+
         if user.role == 'director':
-            return self.queryset.filter(status__in=['pending', 'approved', 'denied'])
+            return qs.filter(status__in=['pending', 'approved', 'denied'])
         if user.role == 'admin':
-            return self.queryset.all()
-        return self.queryset.filter(student=user)
+            return qs
+        return qs.filter(student=user)
 
     def perform_create(self, serializer):
         serializer.save(student=self.request.user)
@@ -383,6 +396,14 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         old_status = self.get_object().status
         instance = serializer.save()
         if instance.status == 'pending' and old_status != 'pending':
+            if old_status != 'review' and self.request.user.role != 'director':
+                # Revert status if not approved by admin first
+                instance.status = old_status
+                instance.save()
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError("Application must be in 'Review' status before forwarding to Director.")
+            
+            directors = User.objects.filter(role='director')
             directors = User.objects.filter(role='director')
             for director in directors:
                 from notifications.models import Notification
@@ -508,6 +529,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
             date_from=date_from,
             date_to=date_to,
             all_statuses=False,   # approved-only for the download
+            unsent_only=True
         )
 
         AuditLog.objects.create(
@@ -520,40 +542,29 @@ class PaymentViewSet(viewsets.ModelViewSet):
         response['Content-Disposition'] = 'attachment; filename="payment_export.csv"'
         return response
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], url_path='dispatch_report')
     def dispatch_report(self, request):
         """
         Email ONLY director-approved submissions that have NOT yet been sent to finance.
-
-        After a successful send:
-          - submission.status  → 'sent_to_finance'
-          - submission.finance_sent_at / finance_sent_by  set
-          - Payment record updated to 'issued'
-          - Student notified (in-app + email)
-          - AuditLog entry created
+        Includes both modern FormSubmissions and legacy Applications.
         """
         from django.utils import timezone as tz
         from forms.models import FormSubmission
-        from notifications.models import Notification
         from email_sender import send_finance_report, send_funding_processed
 
-        # ── 1. Find accepted submissions never sent to finance ──
-        unsent_qs = (
-            FormSubmission.objects
-            .filter(status='accepted', finance_sent_at__isnull=True)
-            .select_related('student', 'form', 'decided_by')
-            .prefetch_related('student__payments', 'student__profile')
-        )
+        # ── 1. Identify all approved but unsent records ──
+        unsent_subs = FormSubmission.objects.filter(status='accepted', finance_sent_at__isnull=True)
+        unsent_legacy = Application.objects.filter(status='approved', finance_sent_at__isnull=True)
 
-        if not unsent_qs.exists():
+        if not unsent_subs.exists() and not unsent_legacy.exists():
             return Response({
                 'status': 'nothing_to_send',
                 'count': 0,
                 'message': 'No new approved applications to send — all have already been dispatched.',
             })
 
-        # ── 2. Build CSV from ONLY those unsent submissions ──
-        csv_bytes, total_rows = _build_full_csv_from_qs(unsent_qs)
+        # ── 2. Build combined CSV ──
+        csv_bytes, total_rows = _build_full_csv(all_statuses=False, unsent_only=True)
 
         triggered_by = getattr(request.user, 'full_name', '') or request.user.email
 
@@ -570,43 +581,49 @@ class PaymentViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # ── 4. Post-send: update each submission + notify students ──
+        # ── 4. Post-send: mark as sent and notify students ──
         now = tz.now()
-        submission_ids = list(unsent_qs.values_list('id', flat=True))
-
-        # Bulk-update status + finance timestamps
-        FormSubmission.objects.filter(id__in=submission_ids).update(
+        
+        # Update FormSubmissions
+        sub_ids = list(unsent_subs.values_list('id', flat=True))
+        FormSubmission.objects.filter(id__in=sub_ids).update(
             status='sent_to_finance',
             finance_sent_at=now,
             finance_sent_by=request.user,
         )
 
+        # Update Legacy Applications
+        legacy_ids = list(unsent_legacy.values_list('id', flat=True))
+        Application.objects.filter(id__in=legacy_ids).update(
+            finance_sent_at=now,
+            finance_sent_by=request.user,
+        )
+
         # Per-submission: update payment, notify student
-        for sub in unsent_qs:
+        for sub in unsent_subs.select_related('student', 'form'):
             student = sub.student
             if not student:
                 continue
 
-            # Mark any pending payments for this student as issued
-            student.payments.filter(status='pending').update(status='issued')
+            # Mark any pending payments for this submission as issued
+            # Use the new direct link to submission
+            from api.models import Payment
+            Payment.objects.filter(submission=sub, status=Payment.Status.PENDING).update(status=Payment.Status.ISSUED)
 
             # In-app notification
-            Notification.objects.create(
-                user=student,
-                title='Payment Sent to Finance 💰',
-                message=(
-                    f"Your approved funding for '{sub.form.title}' "
-                    f"(${sub.amount}) has been sent to the Finance Department. "
-                    f"Expect payment within 2–5 working days."
-                ),
-                link=None,
+            create_notification(
+                student,
+                'Payment Sent to Finance 💰',
+                f"Your approved funding for '{sub.form.title}' "
+                f"(${sub.amount}) has been sent to the Finance Department. "
+                f"Expect payment within 2–5 working days."
             )
 
             # Email notification
             if student.email:
                 try:
-                    # Build breakdown from payments if available, else single line
-                    payments = list(student.payments.filter(status='issued').order_by('-date_issued')[:10])
+                    # Build breakdown from payments
+                    payments = list(sub.payments.filter(status=Payment.Status.ISSUED))
                     if payments:
                         breakdown = [{'name': p.payment_type, 'amount': float(p.amount)} for p in payments]
                         total = sum(b['amount'] for b in breakdown)
@@ -634,17 +651,13 @@ class PaymentViewSet(viewsets.ModelViewSet):
             action=f"Finance Report Dispatched — {total_rows} new approved records",
             performed_by=request.user,
             role=request.user.role,
-            details=f"Submission IDs: {submission_ids}",
+            details=f"Record counts: FormSubmissions={len(sub_ids)}, LegacyApps={len(legacy_ids)}",
         )
 
         return Response({
             'status': 'success',
             'count': total_rows,
-            'message': (
-                f'{total_rows} approved application(s) sent to Finance. '
-                f'Students have been notified. '
-                f'Payments updated to Issued.'
-            ),
+            'message': f'Successfully dispatched {total_rows} records to Finance and marked them as sent.',
         })
 
 

@@ -78,19 +78,21 @@ class DashboardStatsView(APIView):
         # Approval Rate
         approval_rate = (base_agg['accepted_count'] / total_subs_count * 100) if total_subs_count > 0 else 0
         
-        # Quarters (Optimized loop)
-        quarterly_data = []
+        # Quarters (Optimized into a single aggregation)
+        quarter_filters = {}
         for q in range(1, 5):
             months = range((q-1)*3 + 1, q*3 + 1)
-            q_agg = submissions.filter(status='accepted', submitted_at__month__in=months).aggregate(
-                amount=Sum('amount'),
-                count=Count('id')
-            )
-            quarterly_data.append({
+            quarter_filters[f'q{q}_amount'] = Sum('amount', filter=Q(status='accepted', submitted_at__month__in=months))
+            quarter_filters[f'q{q}_count'] = Count('id', filter=Q(status='accepted', submitted_at__month__in=months))
+        
+        quarters_agg = submissions.aggregate(**quarter_filters)
+        quarterly_data = [
+            {
                 'quarter': f'Q{q}',
-                'amount': q_agg['amount'] or 0,
-                'count': q_agg['count'] or 0
-            })
+                'amount': quarters_agg[f'q{q}_amount'] or 0,
+                'count': quarters_agg[f'q{q}_count'] or 0
+            } for q in range(1, 5)
+        ]
 
         # Recent payouts (Limit to essential fields for speed)
         recent_payouts_list = list(submissions.filter(status='accepted').order_by('-decided_at')[:20].values(
@@ -102,7 +104,7 @@ class DashboardStatsView(APIView):
             'id', 'form__title', 'student__full_name', 'status', 'submitted_at'
         ))
 
-        # Per-form counts (used by KPIs and report allocation bars)
+        # Per-form counts (Optimized into single aggregation)
         from django.db.models import Q as Q2
         form_key_map = [
             ('FormA', Q2(form__title__icontains='FormA')),
@@ -115,14 +117,14 @@ class DashboardStatsView(APIView):
             ('FormH', Q2(form__title__icontains='FormH')),
             ('scholarship', Q2(form__title__icontains='scholarship')),
         ]
+        
+        form_agg_params = {f"count_{key}": Count('id', filter=q) for key, q in form_key_map}
+        form_counts_agg = FormSubmission.objects.aggregate(**form_agg_params)
+        submissions_by_form = {key: form_counts_agg[f"count_{key}"] for key, q in form_key_map}
+
         form_b_pending = FormSubmission.objects.filter(
             Q2(form__title__icontains='FormB')
         ).exclude(status__in=['accepted', 'rejected']).count()
-
-        agg_filters = {k: v for k, v in form_key_map}
-        submissions_by_form = {}
-        for key, q in form_key_map:
-            submissions_by_form[key] = FormSubmission.objects.filter(q).count()
 
         stats = {
             "total_students": User.objects.filter(role='student').count() if funding_type == 'all' else submissions.values('student').distinct().count(),

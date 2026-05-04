@@ -22,6 +22,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+from email.header import Header
 
 # Load .env (python-dotenv); silently skip if not installed
 try:
@@ -73,7 +74,7 @@ def send_email(
 
     try:
         msg = MIMEMultipart("mixed")
-        msg["Subject"] = subject
+        msg["Subject"] = Header(subject, "utf-8").encode()
         msg["From"]    = f"DGG Education Department <{sender}>"
         msg["To"]      = to
 

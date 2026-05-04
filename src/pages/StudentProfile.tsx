@@ -127,6 +127,12 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
     </div>
   );
 
+  const getStudentId = () => {
+    if (profile?.beneficiary_number) return profile.beneficiary_number;
+    if (profile?.id) return `DGG-${new Date().getFullYear()}-${profile.id.toString().padStart(4, '0')}`;
+    return 'Pending';
+  };
+
   if (!profile) return <div style={{ padding: '40px', textAlign: 'center' }}>Loading profile record...</div>;
 
   return (
@@ -262,8 +268,15 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           <div className="profile-field">
             <div className="p-label">Deline Beneficiary #</div>
             <div className="p-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {profile.beneficiary_number || <span className="p-val muted">PENDING</span>}
+              {profile.beneficiary_number || <span className="p-val muted" style={{ fontSize: '10px' }}>NOT PROVIDED</span>}
               {profile.beneficiary_number && <span className="status-pill verified">✓ VERIFIED</span>}
+            </div>
+          </div>
+
+          <div className="profile-field">
+            <div className="p-label">System Student ID</div>
+            <div className="p-val" style={{ fontWeight: '700', color: '#1e293b' }}>
+              {getStudentId()}
             </div>
           </div>
 

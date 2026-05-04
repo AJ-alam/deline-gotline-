@@ -9,6 +9,7 @@ import FormE from './Forms/FormE';
 import FormF from './Forms/FormF';
 import FormG from './Forms/FormG';
 import FormH from './Forms/FormH';
+import HardshipBursary from './Forms/HardshipBursary';
 import AcademicScholarship from './Forms/AcademicScholarship';
 import StudentProfile from './StudentProfile';
 
@@ -26,9 +27,11 @@ type DashboardView =
   | 'information-update'
   | 'travel-claim'
   | 'practicum-report'
+  | 'practicum-report'
   | 'graduation-award'
-  | 'appeal-request'
-  | 'scholarship';
+  | 'scholarship'
+  | 'hardship'
+  | 'appeal-request';
 
 // SVG Icons for professional look
 const Icons = {
@@ -203,7 +206,6 @@ const Dashboard: React.FC = () => {
         ...subs,
         ...apps.map((a: any) => ({ ...a, _is_standard: true, form_title: a.form_type }))
       ];
-      console.log('Merged applications:', merged);
       setApplications(merged);
     });
 
@@ -388,7 +390,6 @@ const Dashboard: React.FC = () => {
   };
 
   const handleNavClick = (view: DashboardView) => {
-    console.log('Navigating to:', view);
     setIsMobileMenuOpen(false);
 
     // Block duplicate admission applications
@@ -424,6 +425,12 @@ const Dashboard: React.FC = () => {
     </div>
   );
 
+  const getStudentId = () => {
+    if (profile?.beneficiary_number) return profile.beneficiary_number;
+    if (profile?.id) return `DGG-${new Date().getFullYear()}-${profile.id.toString().padStart(4, '0')}`;
+    return 'Pending';
+  };
+
   return (
     <div className={`dashboard-root ${isMobileMenuOpen ? 'mobile-menu-open' : ''}`}>
       {/* Mobile Overlay */}
@@ -437,7 +444,7 @@ const Dashboard: React.FC = () => {
         <div className="user-block" onClick={() => handleNavClick('profile')} style={{ cursor: 'pointer' }}>
           <div className="user-avatar">{profile?.full_name?.[0] || 'S'}</div>
           <div className="user-name">{profile ? profile.full_name : 'Student User'}</div>
-          <div className="user-meta">{profile?.beneficiary_number ? `ID: ${profile.beneficiary_number}` : 'ID: Pending'} · Student</div>
+          <div className="user-meta">{`ID: ${getStudentId()}`} · Student</div>
         </div>
 
         <div className="sidebar-section-title">Main</div>
@@ -472,10 +479,12 @@ const Dashboard: React.FC = () => {
         {renderSidebarNav('graduation-award', 'Graduation Award', <Icons.Files />)}
         {renderSidebarNav('appeal-request', 'Appeal Request', <Icons.Files />)}
 
+
         <div className="sidebar-divider"></div>
 
         <div className="sidebar-section-title">Special</div>
         {renderSidebarNav('scholarship', 'Academic Scholarship', <Icons.Files />)}
+        {renderSidebarNav('hardship', 'Hardship Bursary', <Icons.Files />)}
 
         <div className="sidebar-divider"></div>
 
@@ -538,12 +547,19 @@ const Dashboard: React.FC = () => {
             {currentView === 'dashboard' && (
               <div className="view-content fade-in">
                 <div className="view-header">
-                  <div className="view-title">Dashboard</div>
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <button className="btn-ghost" onClick={() => setShowPaperFormsModal(true)} style={{ padding: '10px 20px', border: '1px solid #e2e8f0' }}>
+                  <div className="view-title">
+                    <div style={{ fontSize: '24px', fontWeight: '800', color: '#1e293b' }}>
+                      Welcome back, {profile?.full_name?.split(' ')[0] || 'Student'}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#64748b', fontWeight: '500', marginTop: '4px' }}>
+                      Student ID: <span style={{ color: '#0f172a', fontWeight: '700' }}>{getStudentId()}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <button className="btn-ghost" onClick={() => setShowPaperFormsModal(true)} style={{ padding: '10px 20px', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                       📄 Download Paper Forms
                     </button>
-                    <button className="btn-primary" onClick={() => handleNavClick('admission')}>+ Start Your Application</button>
+                    <button className="btn-primary" onClick={() => handleNavClick('admission')} style={{ borderRadius: '8px' }}>+ Start Your Application</button>
                   </div>
                 </div>
                 <div className="view-body">
@@ -1429,12 +1445,35 @@ const Dashboard: React.FC = () => {
               />
             )}
 
+            {/* \u2500\u2500 PROFILE VIEW \u2500\u2500 */}
+            {currentView === 'profile' && (
+              <StudentProfile profile={profile} />
+            )}
+
             {/* ── GRADUATION AWARD VIEW ── */}
             {currentView === 'graduation-award' && (
               <FormG
                 profile={profile}
                 onBack={() => setCurrentView('dashboard')}
                 onComplete={() => handleFormComplete('Graduation Award')}
+              />
+            )}
+
+            {/* ── SCHOLARSHIP VIEW ── */}
+            {currentView === 'scholarship' && (
+              <AcademicScholarship
+                profile={profile}
+                onBack={() => setCurrentView('dashboard')}
+                onComplete={() => handleFormComplete('Scholarship')}
+              />
+            )}
+
+            {/* ── HARDSHIP BURSARY VIEW ── */}
+            {currentView === 'hardship' && (
+              <HardshipBursary
+                profile={profile}
+                onBack={() => setCurrentView('dashboard')}
+                onComplete={() => handleFormComplete('Hardship Bursary')}
               />
             )}
 
@@ -1445,22 +1484,6 @@ const Dashboard: React.FC = () => {
                 onBack={() => setCurrentView('dashboard')}
                 onComplete={() => handleFormComplete('Appeal Request')}
               />
-            )}
-
-            {/* \u2500\u2500 ACADEMIC SCHOLARSHIP VIEW \u2500\u2500 */}
-
-            {/* \u2500\u2500 SCHOLARSHIP VIEW \u2500\u2500 */}
-            {currentView === 'scholarship' && (
-              <AcademicScholarship
-                profile={profile}
-                onBack={() => setCurrentView('dashboard')}
-                onComplete={() => handleFormComplete('Scholarship')}
-              />
-            )}
-
-            {/* \u2500\u2500 PROFILE VIEW \u2500\u2500 */}
-            {currentView === 'profile' && (
-              <StudentProfile profile={profile} />
             )}
 
           </div>
@@ -1503,31 +1526,29 @@ const Dashboard: React.FC = () => {
       {/* Paper Forms Download Center Modal */}
       {showPaperFormsModal && (
         <div className="modal-overlay" style={{ zIndex: 3000 }} onClick={() => setShowPaperFormsModal(false)}>
-          <div className="modal-card" style={{ maxWidth: '700px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '16px' }}>
-              <div>
-                <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#1e293b', marginBottom: '4px' }}>Paper Forms Download Center</h3>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>Download official DGG forms as PDF documents</p>
-              </div>
-              <button 
-                onClick={() => setShowPaperFormsModal(false)}
-                style={{ 
-                  background: '#f1f5f9', 
-                  border: 'none', 
-                  borderRadius: '6px', 
-                  width: '32px', 
-                  height: '32px', 
-                  cursor: 'pointer',
-                  fontSize: '18px',
-                  color: '#64748b',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >✕</button>
-            </div>
+          <div className="modal-card" style={{ maxWidth: '700px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', position: 'relative', padding: '24px' }} onClick={(e) => e.stopPropagation()}>
+            <button 
+              onClick={() => setShowPaperFormsModal(false)}
+              style={{ 
+                position: 'absolute', 
+                top: '12px', 
+                right: '12px', 
+                background: '#f1f5f9', 
+                border: 'none', 
+                borderRadius: '6px', 
+                width: '32px', 
+                height: '32px', 
+                cursor: 'pointer',
+                fontSize: '18px',
+                color: '#64748b',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10
+              }}
+            >✕</button>
             
-            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+            <div className="modal-body" style={{ flex: 1, overflowY: 'auto', padding: 0 }}>
               <div style={{ 
                 padding: '16px', 
                 background: '#eff6ff', 

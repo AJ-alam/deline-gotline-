@@ -371,8 +371,7 @@ const SignUp: React.FC = () => {
                     <label className="field-label">Date of Birth <span className="required">*</span></label>
                     <input 
                       className="field-input" 
-                      type="text" 
-                      placeholder="DD / MM / YYYY" 
+                      type="date" 
                       value={formData.dob} 
                       onChange={e => updateFormData('dob', e.target.value)} 
                     />
@@ -422,7 +421,7 @@ const SignUp: React.FC = () => {
                       <div className="field-row">
                         <div className="field-group">
                           <label className="field-label">Date of Birth <span className="required">*</span></label>
-                          <input className="field-input" type="text" placeholder="DD / MM / YYYY" value={dep.dob} onChange={e => updateDependent(dep.id, 'dob', e.target.value)} />
+                          <input className="field-input" type="date" value={dep.dob} onChange={e => updateDependent(dep.id, 'dob', e.target.value)} />
                         </div>
                         <div className="field-group">
                           <label className="field-label">Relationship <span className="required">*</span></label>

@@ -182,6 +182,26 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         }
       });
 
+      // Sync profile data to ensure Student ID (Beneficiary Number) is updated in the system
+      await API.updateMe({
+        full_name: `${formData.firstName} ${formData.lastName}`.trim(),
+        phone: formData.phone,
+        mailing_address: formData.address,
+        town_city: formData.city,
+        postal_code: formData.postalCode,
+        upi: formData.sin,
+        gender: formData.sex,
+        beneficiary_number: formData.beneficiaryNo,
+        institution_name: formData.institution,
+        program_credential: formData.program,
+        account_holder_name: formData.accountHolder,
+        transit_number: formData.transitNumber,
+        inst_number: formData.instNumber,
+        account_number: formData.accountNumber,
+        expected_graduation_date: formData.programEnd,
+        institution_location: formData.institutionLocation
+      });
+
       await API.submitApplication({
         form_type: 'C-DFN PSSSP',
         form_data: formDataObj
@@ -423,7 +443,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                 <td width="50%">
                   <label className="field-label">Date of Birth *</label>
                   <input
-                    className="field-input" type="text" placeholder="YYYY/MM/DD"
+                    className="field-input" type="date"
                     value={formData.dob} onChange={e => setFormData({ ...formData, dob: e.target.value })}
                   />
                 </td>
@@ -568,14 +588,14 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                 <td width="33%">
                   <label className="field-label">Semester Start (YY/MM/DD) *</label>
                   <input
-                    className="field-input" type="text" placeholder="26/09/01"
+                    className="field-input" type="date"
                     value={formData.semStart} onChange={e => setFormData({ ...formData, semStart: e.target.value })}
                   />
                 </td>
                 <td width="33%">
                   <label className="field-label">Semester End (YY/MM/DD) *</label>
                   <input
-                    className="field-input" type="text" placeholder="26/12/15"
+                    className="field-input" type="date"
                     value={formData.semEnd} onChange={e => setFormData({ ...formData, semEnd: e.target.value })}
                   />
                 </td>
@@ -584,14 +604,14 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                 <td width="50%">
                   <label className="field-label">Total Program Start *</label>
                   <input
-                    className="field-input" type="text" placeholder="26/09/01"
+                    className="field-input" type="date"
                     value={formData.programStart} onChange={e => setFormData({ ...formData, programStart: e.target.value })}
                   />
                 </td>
                 <td width="50%">
                   <label className="field-label">Total Program End (Expected) *</label>
                   <input
-                    className="field-input" type="text" placeholder="28/05/15"
+                    className="field-input" type="date"
                     value={formData.programEnd} onChange={e => setFormData({ ...formData, programEnd: e.target.value })}
                   />
                 </td>
@@ -728,7 +748,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                 </td>
                 <td width="30%">
                   <label className="field-label">Date *</label>
-                  <input className="field-input" type="text" defaultValue="2026/03/28" readOnly />
+                  <input className="field-input" type="date" defaultValue={new Date().toISOString().split('T')[0]} readOnly />
                 </td>
               </tr>
             </tbody>

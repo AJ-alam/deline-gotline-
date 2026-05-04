@@ -5,10 +5,10 @@ from forms.models import FormSubmission
 
 class CalculationService:
     @staticmethod
-    def calculate_and_pay(submission):
+    def calculate_and_pay(submission, create_payments=True):
         """
         Calculates funding based on submission answers and policy settings,
-        then creates individual payment records.
+        then optionally creates individual payment records.
         """
         # Clear cache to ensure fresh policy values
         CalculationService._policy_cache = {}
@@ -36,12 +36,16 @@ class CalculationService:
         submission.amount = results['total']
         submission.save()
 
-        # Create Payment records for each component (only if a student is linked)
-        if submission.student:
+        # Create Payment records for each component (only if a student is linked AND create_payments is True)
+        if submission.student and create_payments:
+            # Clear existing pending payments for this submission to avoid duplicates
+            Payment.objects.filter(submission=submission, status=Payment.Status.PENDING).delete()
+            
             for p_type, amount in results.get('payment_items', []):
                 if amount and amount > 0:
                     Payment.objects.create(
                         user=submission.student,
+                        submission=submission,
                         application_id=None,
                         amount=amount,
                         payment_type=p_type,

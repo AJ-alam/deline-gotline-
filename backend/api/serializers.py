@@ -75,11 +75,13 @@ class PolicySettingSerializer(serializers.ModelSerializer):
         return None
 
 class PaymentSerializer(serializers.ModelSerializer):
+    student_details = UserSerializer(source='user', read_only=True)
     class Meta:
         model = Payment
         fields = '__all__'
 
 class AppealSerializer(serializers.ModelSerializer):
+    student_details = UserSerializer(source='user', read_only=True)
     class Meta:
         model = Appeal
         fields = '__all__'

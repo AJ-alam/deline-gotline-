@@ -63,22 +63,47 @@ apiClient.interceptors.response.use(
 
         return response.data;
     },
-    (error) => {
+    async (error) => {
+        const originalRequest = error.config;
+
         // Handle 401: Unauthorized (Token expired or missing)
-        if (error.response && error.response.status === 401) {
-            console.error('Unauthorized session detected. Redirecting to login.');
+        if (error.response && error.response.status === 401 && !originalRequest._retry) {
             
-            // Avoid infinite redirect loop if already on login page
-            if (!window.location.pathname.includes('/signin') && !window.location.pathname.includes('/internal/login')) {
-                localStorage.removeItem('dgg_token');
-                localStorage.removeItem('dgg_role');
-                window.location.href = window.location.pathname.startsWith('/staff') ? '/internal/login' : '/signin';
+            const refreshToken = localStorage.getItem('dgg_refresh');
+            
+            if (refreshToken) {
+                originalRequest._retry = true;
+                try {
+                    // Attempt to refresh the access token
+                    const response = await axios.post(`${BASE_URL}/auth/refresh/`, {
+                        refresh: refreshToken
+                    });
+                    
+                    const newToken = response.data.access;
+                    localStorage.setItem('dgg_token', newToken);
+                    
+                    // Update header and retry original request
+                    originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+                    return apiClient(originalRequest);
+                } catch (refreshError) {
+                    // Refresh failed, clear tokens and redirect
+                    localStorage.removeItem('dgg_token');
+                    localStorage.removeItem('dgg_refresh');
+                    localStorage.removeItem('dgg_role');
+                    if (!window.location.pathname.includes('/signin') && !window.location.pathname.includes('/internal/login')) {
+                        window.location.href = window.location.pathname.startsWith('/staff') ? '/internal/login' : '/signin';
+                    }
+                }
+            } else {
+                // No refresh token available, redirect to login
+                if (!window.location.pathname.includes('/signin') && !window.location.pathname.includes('/internal/login')) {
+                    localStorage.removeItem('dgg_token');
+                    localStorage.removeItem('dgg_role');
+                    window.location.href = window.location.pathname.startsWith('/staff') ? '/internal/login' : '/signin';
+                }
             }
         }
         
-        if (error.response && error.response.status !== 401) {
-            console.error('[API Error]', error.response.status, error.config?.url, error.response.data);
-        }
         return Promise.reject({
             status: error.response?.status,
             message: error.response?.data?.message || error.response?.data?.detail || 'An error occurred',
@@ -93,7 +118,20 @@ class API {
         return apiClient.post('/auth/login/', {
             email: data.email,
             password: data.password
+        }).then((resp: any) => {
+            // Save refresh token if present
+            if (resp.refresh) {
+                localStorage.setItem('dgg_refresh', resp.refresh);
+            }
+            if (resp.access) {
+                localStorage.setItem('dgg_token', resp.access);
+            }
+            return resp;
         });
+    }
+
+    static refresh(refreshToken: string) {
+        return apiClient.post('/auth/refresh/', { refresh: refreshToken });
     }
 
     static register(data: any) {
@@ -141,7 +179,6 @@ class API {
             profile_picture,  // ImageField — can't send a URL string back
             ...payload
         } = data;
-        console.log('[updateMe] Sending PATCH payload:', payload);
         return apiClient.patch('/auth/me/', payload);
     }
 

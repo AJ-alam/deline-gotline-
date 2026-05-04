@@ -105,6 +105,7 @@ const StaffDashboard: React.FC = () => {
   const [financeEmail, setFinanceEmail] = useState('finance@deline.ca');
   const [isExporting, setIsExporting] = useState(false);
   const [isForwarding, setIsForwarding] = useState(false);
+  const [isSubmittingDecision, setIsSubmittingDecision] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -321,7 +322,7 @@ const StaffDashboard: React.FC = () => {
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
 
-  const handleDecision = async (status: 'accepted' | 'rejected' | 'forwarded', notesOverride?: string) => {
+  const handleDecision = async (status: 'accepted' | 'rejected' | 'forwarded' | 'reviewed' | 'review', notesOverride?: string) => {
     if (!selectedAppId) return;
     const currentApp = applications.find(a => String(a.id) === String(selectedAppId));
 
@@ -334,7 +335,8 @@ const StaffDashboard: React.FC = () => {
       }
     }
 
-    // Show loading state for forwarding
+    // Show loading state
+    setIsSubmittingDecision(true);
     if (status === 'forwarded') setIsForwarding(true);
 
     try {
@@ -357,6 +359,7 @@ const StaffDashboard: React.FC = () => {
     } catch (err: any) {
       alert(err.message || 'Action failed');
     } finally {
+      setIsSubmittingDecision(false);
       setIsForwarding(false);
     }
   };
@@ -409,8 +412,6 @@ const StaffDashboard: React.FC = () => {
         alert('Application data not found. Please refresh.');
         return;
       }
-
-      console.log('Generating PDF for:', app.id);
       const doc = new jsPDF();
       doc.setFontSize(20);
       doc.text('DGG Application Summary', 20, 20);
@@ -995,7 +996,8 @@ const StaffDashboard: React.FC = () => {
     'Practicum',
     'Scholarship',
     'Hardship',
-    'Summer Student'
+    'Summer Student',
+    'Appeal'
   ];
 
   const displayAppeals = [
@@ -1012,16 +1014,26 @@ const StaffDashboard: React.FC = () => {
     ...applications.filter(app => {
       const type = (app.form_type || '').toLowerCase();
       return singleAwardTypes.some(t => type.includes(t.toLowerCase()));
-    }).map(app => ({
-      id: `APP-${app.id}`,
-      student: app.student_details?.full_name || app.student_name || 'Student',
-      form_title: app.form_title || 'Single Award',
-      reason: `Direct Award Application: ${app.form_title}`,
-      status: app.status,
-      date: app.submitted_at || app.created_at,
-      original: app,
-      type: 'application'
-    }))
+    }).map(app => {
+      // Find name from answers if student_details is missing (for guest submissions)
+      const answers = app.answers || [];
+      const nameAnswer = answers.find((ans: any) => {
+        const lbl = (ans.label || ans.field_label || '').toLowerCase();
+        return lbl === 'full name' || lbl === 'student name' || lbl.includes('applicant name');
+      });
+      const studentName = app.student_details?.full_name || nameAnswer?.answer_text || app.student_name || 'Guest Student';
+
+      return {
+        id: `APP-${app.id}`,
+        student: studentName,
+        form_title: app.form_title || 'Single Award',
+        reason: `Direct Award Application: ${app.form_title}`,
+        status: app.status,
+        date: app.submitted_at || app.created_at,
+        original: app,
+        type: 'application'
+      };
+    })
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const pendingSpecialAwards = applications.filter(app => {
@@ -1029,7 +1041,6 @@ const StaffDashboard: React.FC = () => {
     const isSpecial = singleAwardTypes.some(t => type.includes(t.toLowerCase()));
     return isSpecial && (app.status === 'pending' || app.status === 'new' || app.status === 'review');
   }).length;
-  const totalAppealsBadge = (appeals.filter((a: any) => a.status === 'pending').length || 0) + pendingSpecialAwards;
 
   const getFormDisplayName = (title: string) => {
     const mapping: Record<string, string> = {
@@ -1058,6 +1069,8 @@ const StaffDashboard: React.FC = () => {
     const statusLabelMap: Record<string, string> = {
       more_info_required: 'More Info Required',
       sent_to_finance: '💰 Sent to Finance',
+      reviewed: 'Admin Reviewed',
+      review: 'Admin Reviewed',
     };
 
     // Show Form B waiting status for Form A submissions
@@ -1549,8 +1562,8 @@ const StaffDashboard: React.FC = () => {
       try {
         const parsed = JSON.parse(text);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Check if it's the specific expense list structure
-          if (parsed[0].description && parsed[0].amount) {
+          // Check if it's the specific expense list structure (handles 'description' or 'purpose')
+          if ((parsed[0].description || parsed[0].purpose) && parsed[0].amount) {
             return (
               <div className="json-answer-table-wrap" style={{ marginTop: '8px', background: '#fff', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
                 <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
@@ -1563,7 +1576,7 @@ const StaffDashboard: React.FC = () => {
                   <tbody>
                     {parsed.map((item: any, idx: number) => (
                       <tr key={idx} style={{ borderBottom: idx === parsed.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '6px 0', color: '#1e293b' }}>{item.description}</td>
+                        <td style={{ padding: '6px 0', color: '#1e293b' }}>{item.description || item.purpose}</td>
                         <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: '700', color: '#1e293b' }}>${parseFloat(item.amount).toLocaleString()}</td>
                       </tr>
                     ))}
@@ -1761,7 +1774,8 @@ const StaffDashboard: React.FC = () => {
                 <div className="staff-nav-title">Governance</div>
                 {renderNavItem('reports', 'Reports', <AdminIcons.Reports />)}
                 {renderNavItem('policy', 'Policy Settings', <AdminIcons.Policy />)}
-                {renderNavItem('appeals', 'Appeals & Awards', <AdminIcons.Apps />, totalAppealsBadge || undefined)}
+                {renderNavItem('appeals', 'Special Awards', <AdminIcons.Apps />, pendingSpecialAwards || undefined)}
+
                 {renderNavItem('notifications', 'Notifications', <AdminIcons.Dashboard />, notifications.filter((n: any) => !n.is_read).length || undefined)}
               </div>
             </>
@@ -1778,6 +1792,7 @@ const StaffDashboard: React.FC = () => {
                 <div className="staff-nav-title">Governance</div>
                 {renderNavItem('reports', 'Reports', <AdminIcons.Reports />)}
                 {renderNavItem('policy', 'Policy Settings', <AdminIcons.Policy />)}
+                {renderNavItem('appeals', 'Special Awards', <AdminIcons.Apps />, pendingSpecialAwards || undefined)}
               </div>
             </>
           )}
@@ -1899,13 +1914,7 @@ const StaffDashboard: React.FC = () => {
                     <option>Q4 (Jan-Mar)</option>
                   </select>
                 </div>
-                <button
-                  className="btn-auth-primary"
-                  style={{ width: 'auto', background: 'var(--admin-accent)', color: '#111', fontWeight: '800', padding: '10px 24px' }}
-                  onClick={() => alert("Paper Form entry coming soon.")}
-                >
-                  + ENTER PAPER FORM
-                </button>
+
               </div>
 
               <div className="admin-kpi-row admin-kpi-row-4">
@@ -2048,7 +2057,6 @@ const StaffDashboard: React.FC = () => {
 
           {/* Applications View */}
           {currentView === 'applications' && role === 'director' && (
-            // Directors don't have an "All Applications" view — redirect to queue
             <div className="fade-in" style={{ padding: '40px', textAlign: 'center' }}>
               <div style={{ fontSize: '32px', marginBottom: '16px' }}>🔒</div>
               <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>Access Restricted</h3>
@@ -2226,7 +2234,7 @@ const StaffDashboard: React.FC = () => {
                             }}
                             onClick={() => handleAppClick(app.id)}
                           >
-                            {app.status === 'forwarded' ? 'DECIDE →' : 'Review →'}
+                            {app.status === 'forwarded' ? 'DECIDE →' : (app.status === 'reviewed' || app.status === 'review') ? 'Forward →' : 'Review →'}
                           </button>
                         </td>
                       </tr>
@@ -2298,30 +2306,49 @@ const StaffDashboard: React.FC = () => {
                       <button className="admin-input" style={{ width: 'auto', fontSize: '11px', fontWeight: '700', background: '#991b1b', color: '#fff', border: 'none' }} onClick={() => setShowRejectModal(true)}>REJECT</button>
                     </>
                   ) : (
-                    <button
-                      className="admin-input"
-                      style={{
-                        width: 'auto', fontSize: '11px', fontWeight: '700',
-                        background: (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected') ? '#94a3b8' : isForwarding ? '#64748b' : 'var(--admin-accent)',
-                        color: (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected') ? '#fff' : '#000',
-                        border: 'none',
-                        cursor: (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected' || isForwarding) ? 'not-allowed' : 'pointer',
-                        display: 'flex', alignItems: 'center', gap: '8px',
-                      }}
-                      disabled={selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected' || isForwarding}
-                      onClick={() => handleDecision('forwarded')}
-                    >
-                      {isForwarding ? (
-                        <>
-                          <span style={{ width: '12px', height: '12px', border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }} />
-                          SENDING...
-                        </>
-                      ) : (selectedApp?.status === 'forwarded' || selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected') ? (
-                        '✓ SENT TO DIRECTOR'
-                      ) : (
-                        'SEND TO DIRECTOR →'
-                      )}
-                    </button>
+                    (() => {
+                      const isStandard = selectedApp?._is_standard;
+                      const isApprovedByAdmin = selectedApp?.status === 'reviewed' || selectedApp?.status === 'review';
+                      const isForwarded = selectedApp?.status === 'forwarded' || (isStandard && selectedApp?.status === 'pending');
+                      const isDecided = selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected';
+
+                      return (
+                        <button
+                          className="admin-input"
+                          style={{
+                            width: 'auto', fontSize: '11px', fontWeight: '700',
+                            background: (isForwarded || isDecided) ? '#94a3b8' : isSubmittingDecision ? '#64748b' : isApprovedByAdmin ? 'var(--admin-accent)' : '#10b981',
+                            color: (isForwarded || isDecided) ? '#fff' : '#000',
+                            border: 'none',
+                            cursor: (isForwarded || isDecided || isSubmittingDecision) ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                          }}
+                          disabled={isForwarded || isDecided || isSubmittingDecision}
+                          onClick={() => {
+                            if (isApprovedByAdmin) {
+                              handleDecision('forwarded');
+                            } else {
+                              handleDecision(isStandard ? 'review' : 'reviewed');
+                            }
+                          }}
+                        >
+                          {isSubmittingDecision ? (
+                            <>
+                              <span style={{ width: '12px', height: '12px', border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 0.8s linear infinite', display: 'inline-block' }} />
+                              {isForwarding ? 'SENDING...' : 'UPDATING...'}
+                            </>
+                          ) : isForwarded ? (
+                            '✓ SENT TO DIRECTOR'
+                          ) : isDecided ? (
+                            '✓ DECIDED'
+                          ) : isApprovedByAdmin ? (
+                            'SEND TO DIRECTOR →'
+                          ) : (
+                            'APPROVE REVIEW'
+                          )}
+                        </button>
+                      );
+                    })()
                   )}
                 </div>
               </div>
@@ -2885,7 +2912,6 @@ const StaffDashboard: React.FC = () => {
                                   style={{ padding: '10px 20px', fontWeight: '700', border: 'none', cursor: hasChanges ? 'pointer' : 'not-allowed', opacity: hasChanges ? 1 : 0.5 }}
                                   onClick={async () => {
                                     try {
-                                      console.log("Saving policy section:", section.id, items);
                                       const resp = await API.updatePolicySetting('bulk', { section: section.id, settings: items }) as any;
                                       if (resp && (resp.success || resp.updated_count !== undefined)) {
                                         setIsDirty({ ...isDirty, [section.id]: false });
@@ -3772,7 +3798,17 @@ const StaffDashboard: React.FC = () => {
                     {payments.map((p: any) => (
                       <tr key={p.id}>
                         <td><span style={{ fontSize: '11px', color: '#64748b' }}>{p.reference_number || `PAY-${p.id}`}</span></td>
-                        <td><strong>{p.user_name || p.student_details?.full_name || `Student #${p.user}`}</strong></td>
+                        <td>
+                          <strong>
+                            {p.user_name || 
+                             p.student_details?.full_name || 
+                             (() => {
+                               const app = applications.find(a => Number(a.user) === Number(p.user));
+                               return app ? getStudentName(app) : null;
+                             })() || 
+                             `Student #${p.user}`}
+                          </strong>
+                        </td>
                         <td style={{ fontSize: '12px' }}>{p.payment_type || '—'}</td>
                         <td style={{ fontSize: '13px', fontWeight: '700' }}>${parseFloat(p.amount || 0).toLocaleString()}</td>
                         <td>
@@ -3785,6 +3821,71 @@ const StaffDashboard: React.FC = () => {
                     ))}
                     {payments.length === 0 && (
                       <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No payment records found.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {currentView === 'appeals' && (
+            <div className="fade-in">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <h2 style={{ fontSize: '20px', fontWeight: '800' }}>SPECIAL AWARDS & APPEALS</h2>
+                  <button 
+                    onClick={() => fetchApplications(true)}
+                    className="admin-btn-secondary"
+                    style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Refresh List"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Student</th>
+                      <th>Application</th>
+                      <th>Reason</th>
+                      <th>Status</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayAppeals.map((a: any) => (
+                      <tr
+                        key={a.id}
+                        className="clickable-row"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => handleAppClick(a.original.id)}
+                        tabIndex={0}
+                        onKeyDown={(e) => { 
+                          if (e.key === 'Enter' || e.key === ' ') { 
+                            e.preventDefault(); 
+                            handleAppClick(a.original.id);
+                          } 
+                        }}
+                        role="button"
+                        aria-label={`View ${a.type} ${a.id} for ${a.student || 'Student'}`}
+                      >
+                        <td><span style={{ fontSize: '11px', color: '#64748b' }}>{a.id}</span></td>
+                        <td><strong>{a.student}</strong></td>
+                        <td style={{ fontSize: '12px' }}>{a.form_title}</td>
+                        <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.reason}</td>
+                        <td>
+                          <span className={`admin-badge ${a.status === 'accepted' || a.status === 'resolved' || a.status === 'approved' ? 'badge-approved' : 'badge-review'}`}>
+                            {a.status.toUpperCase()}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(a.date).toLocaleDateString()}</td>
+                      </tr>
+                    ))}
+                    {displayAppeals.length === 0 && (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No special awards or appeals pending review.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -3857,77 +3958,7 @@ const StaffDashboard: React.FC = () => {
             </div>
           )}
 
-          {currentView === 'appeals' && (
-            <div className="fade-in">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <h2 style={{ fontSize: '20px', fontWeight: '800' }}>APPEALS & SPECIAL AWARDS</h2>
-                  <button 
-                    onClick={() => fetchApplications(true)}
-                    className="admin-btn-secondary"
-                    style={{ padding: '4px 8px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    title="Refresh List"
-                  >
-                    Refresh
-                  </button>
-                </div>
-              </div>
-              <div className="admin-table-wrap">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      <th>Student</th>
-                      <th>Application</th>
-                      <th>Reason</th>
-                      <th>Status</th>
-                      <th>Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayAppeals.map((a: any) => (
-                      <tr
-                        key={a.id}
-                        className="clickable-row"
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => {
-                          if (a.type === 'appeal') {
-                            handleAppClick(a.original.submission);
-                          } else {
-                            handleAppClick(a.original.id);
-                          }
-                        }}
-                        tabIndex={0}
-                        onKeyDown={(e) => { 
-                          if (e.key === 'Enter' || e.key === ' ') { 
-                            e.preventDefault(); 
-                            if (a.type === 'appeal') handleAppClick(a.original.submission);
-                            else handleAppClick(a.original.id);
-                          } 
-                        }}
-                        role="button"
-                        aria-label={`View ${a.type} ${a.id} for ${a.student || 'Student'}`}
-                      >
-                        <td><span style={{ fontSize: '11px', color: '#64748b' }}>{a.id}</span></td>
-                        <td><strong>{a.student}</strong></td>
-                        <td style={{ fontSize: '12px' }}>{a.form_title}</td>
-                        <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.reason}</td>
-                        <td>
-                          <span className={`admin-badge ${a.status === 'accepted' || a.status === 'resolved' || a.status === 'approved' ? 'badge-approved' : 'badge-review'}`}>
-                            {a.status.toUpperCase()}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: '12px', color: '#64748b' }}>{new Date(a.date).toLocaleDateString()}</td>
-                      </tr>
-                    ))}
-                    {displayAppeals.length === 0 && (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No items found in review queue.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+
         </main>
       </div>
     </div>

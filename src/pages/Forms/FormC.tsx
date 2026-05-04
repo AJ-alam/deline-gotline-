@@ -114,6 +114,18 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
         submissionData.append(`answers[${answers.length - 1}]answer_file`, selectedFiles.enrollment);
       }
 
+      // Sync profile data to ensure Student ID (Beneficiary Number) is updated in the system
+      await API.updateMe({
+        full_name: formData.fullName,
+        beneficiary_number: formData.beneficiaryNumber,
+        email: formData.email,
+        phone: formData.phone,
+        institution_name: formData.institution,
+        program_credential: formData.program,
+        enrollment_status: formData.courseLoad,
+        num_dependents: parseInt(formData.dependents) || 0
+      });
+
       await API.submitApplication({
         form_type: 'FormC',
         form_data: submissionData

@@ -52,14 +52,12 @@ class FormService:
             'hardship' in form_title_lower
         )
         if is_one_off:
-            from django.utils import timezone
-            submission.status = 'forwarded'
-            submission.forwarded_at = timezone.now()
-            submission.save(update_fields=['status', 'forwarded_at'])
             # Calculate award amount immediately from policy
+            # BUT do not auto-forward to director anymore. Admin must review first.
             try:
                 from api.services.calculation_service import CalculationService
-                results = CalculationService.calculate_and_pay(submission)
+                # Calculate award amount but DO NOT create payments yet (Director must approve first)
+                results = CalculationService.calculate_and_pay(submission, create_payments=False)
                 # Store breakdown in office_use_data for director review
                 if results:
                     submission.office_use_data = {
@@ -108,20 +106,38 @@ class FormService:
         if not extra_data:
             extra_data = {}
 
-        # Block forwarding Form A until Form B is received
-        if new_status == 'forwarded':
+        # 0. Prevent redundant processing if status is unchanged
+        if submission.status == new_status:
+            return submission
+
+        # 1. Role-based permission check
+        if new_status in ['reviewed', 'forwarded'] and performed_by.role == 'director':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Directors cannot perform administrative review or forwarding actions.")
+
+        # 2. Block transitions until Admin Review/Form B is complete
+        if new_status in ['reviewed', 'forwarded']:
+            # Special check for Form A: Form B must be received before Review OR Forwarding
             form_title_lower = (submission.form.title or '').lower()
             is_form_a = ('form a' in form_title_lower or 'psssp' in form_title_lower
                          or 'admission' in form_title_lower)
+            
             if is_form_a:
                 from forms.models import FormBResponse
                 form_b = FormBResponse.objects.filter(submission=submission).first()
                 if not form_b or form_b.status != 'received':
                     from rest_framework.exceptions import ValidationError
                     raise ValidationError(
-                        "Cannot forward this Admission Application — "
+                        f"Cannot mark this Admission Application as '{new_status.title()}' — "
                         "Form B (Enrollment Verification) has not been received from the registrar yet."
                     )
+            
+            # Enforce that it must be reviewed before it can be forwarded
+            if new_status == 'forwarded' and submission.status != 'reviewed':
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError(
+                    "This application must be marked as 'Reviewed' by an administrator before it can be forwarded to the Director."
+                )
             
         submission.status = new_status
         

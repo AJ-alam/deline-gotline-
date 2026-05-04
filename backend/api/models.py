@@ -67,6 +67,13 @@ class Application(models.Model):
     decision_at = models.DateTimeField(blank=True, null=True)
     decision_notes = models.TextField(blank=True, null=True)
 
+    # Finance dispatch tracking
+    finance_sent_at = models.DateTimeField(null=True, blank=True)
+    finance_sent_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='finance_dispatched_legacy_apps'
+    )
+
     class Meta:
         db_table = 'student_applications'
 
@@ -154,6 +161,7 @@ class Payment(models.Model):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payments')
     application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
+    submission = models.ForeignKey('forms.FormSubmission', on_delete=models.CASCADE, related_name='payments', null=True, blank=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     payment_type = models.CharField(max_length=100) # e.g., "Tuition", "Living Allowance"
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
