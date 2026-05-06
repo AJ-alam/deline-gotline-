@@ -144,8 +144,8 @@ const StaffDashboard: React.FC = () => {
       API.getSubmissions().catch(() => [])
     ]);
 
-    const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
-    const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
+    const apps = Array.isArray(appsResp) ? appsResp : ((appsResp as any)?.results || (appsResp as any)?.data || []);
+    const subs = Array.isArray(subsResp) ? subsResp : ((subsResp as any)?.results || (subsResp as any)?.data || []);
     
     const merged = [
       ...apps.map((a: any) => ({ ...a, _is_standard: true })),

@@ -91,6 +91,8 @@ const Dashboard: React.FC = () => {
   const [showPaperFormsModal, setShowPaperFormsModal] = useState(false);
   const [submittedFormPopup, setSubmittedFormPopup] = useState<string | null>(null);
   const [availableForms, setAvailableForms] = useState<any[]>([]);
+  const [hasFormA, setHasFormA] = useState(false);
+  const [isFirstTimeCheck, setIsFirstTimeCheck] = useState(true);
 
   // More info response state
   const [infoResponseText, setInfoResponseText] = useState('');
@@ -207,6 +209,14 @@ const Dashboard: React.FC = () => {
         ...apps.map((a: any) => ({ ...a, _is_standard: true, form_title: a.form_type }))
       ];
       setApplications(merged);
+
+      const admission = merged.find((a: any) => {
+        const title = (a.form_title || '').toLowerCase();
+        const type = (a.form_type || '').toLowerCase();
+        return title.includes('admission') || title.includes('form a') || type.includes('psssp') || type.includes('form a');
+      });
+      setHasFormA(!!admission && admission.status !== 'rejected');
+      setIsFirstTimeCheck(false);
     });
 
     const userPromise = API.getMe().then((resp: any) => {
@@ -1502,7 +1512,46 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
-       {/* Submitted Form Restriction Modal */}
+      {/* Forced Form A Modal for New Students */}
+      {!isLoading && !isFirstTimeCheck && !hasFormA && currentView !== 'admission' && (
+        <div className="modal-overlay" style={{ zIndex: 5000, background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(10px)' }}>
+          <div className="modal-card animate-slide-in" style={{ maxWidth: '500px', textAlign: 'center', padding: '48px 40px', border: '2px solid #475569', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)', background: '#1e293b' }}>
+            <h2 style={{ fontSize: '28px', fontWeight: '900', color: '#ffffff', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '1px' }}>Welcome to the DGG Portal</h2>
+            <p style={{ fontSize: '16px', color: '#cbd5e1', lineHeight: '1.6', marginBottom: '32px', fontWeight: '500' }}>
+              To unlock your student dashboard and establish your funding eligibility, you must first complete the <strong>Admission Application (Form A)</strong>.
+            </p>
+            <div style={{ background: '#0f172a', borderRadius: '12px', padding: '24px', marginBottom: '36px', textAlign: 'left', border: '1px solid #334155' }}>
+              <div style={{ fontWeight: '800', color: '#f1f5f9', marginBottom: '12px', fontSize: '15px', textDecoration: 'underline' }}>REQUIRED STEPS:</div>
+              <ul style={{ fontSize: '14px', color: '#94a3b8', margin: 0, paddingLeft: '20px', lineHeight: '1.7', fontWeight: '600' }}>
+                <li>Identify your primary funding stream</li>
+                <li>Auto-fill your student profile details</li>
+                <li>Generate your enrollment verification</li>
+              </ul>
+            </div>
+            <button 
+              className="btn-primary" 
+              style={{ 
+                width: '100%', 
+                padding: '18px', 
+                fontSize: '16px', 
+                fontWeight: '800', 
+                borderRadius: '8px', 
+                background: '#e5e7eb', // Professional Beige/Grey
+                color: '#1e293b', 
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.2)',
+                border: 'none',
+                cursor: 'pointer',
+                textTransform: 'uppercase'
+              }} 
+              onClick={() => handleNavClick('admission')}
+            >
+              Start Admission Application
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Submitted Form Restriction Modal */}
       {submittedFormPopup && (
         <div className="modal-overlay" style={{ zIndex: 3000 }}>
           <div className="modal-card" style={{ maxWidth: '450px', textAlign: 'center', padding: '40px 32px' }}>

@@ -41,43 +41,58 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
   };
 
   // Form State for Preview Mapping
-  const [formData, setFormData] = useState({
-    firstName: profile?.full_name?.split(' ')[0] || '',
-    lastName: profile?.full_name?.split(' ').slice(1).join(' ') || '',
-    preferredName: profile?.preferred_name || '',
-    phone: profile?.phone || '',
-    email: profile?.email || '',
-    dob: profile?.dob || '',
-    address: profile?.mailing_address || '',
-    city: profile?.town_city || 'Deline',
-    province: 'NT',
-    postalCode: profile?.postal_code || '',
-    sin: profile?.upi || '',
-    sex: normalizeGender(profile?.gender),
-    beneficiaryNo: profile?.beneficiary_number || '',
-    studentId: profile?.student_id || '',
-    institution: profile?.institute || profile?.institution_name || '',
-    program: profile?.program_credential || '',
-    semStart: '',
-    semEnd: '',
-    registrarEmail: '',
-    registrarPhone: '',
-    tuition: '',
-    accountHolder: profile?.account_holder_name || profile?.full_name || '',
-    transitNumber: profile?.transit_number || '',
-    instNumber: profile?.inst_number || '',
-    accountNumber: profile?.account_number || '',
-    signature: '',
-    programStart: '',
-    programEnd: profile?.expected_graduation_date || '',
-    courseLoad: profile?.enrollment_status || 'Full-time',
-    learningStyle: 'In-person',
-    currentAddress: '',
-    hasDependents: profile?.num_dependents > 0 ? 'yes' : 'no',
-    dependentCount: profile?.num_dependents || '',
-    semester: profile?.current_semester || 'Fall 2026',
-    institutionLocation: profile?.institution_location || ''
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem('dgg_autosave_FormA');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to parse autosave data', e);
+      }
+    }
+    return {
+      firstName: profile?.full_name?.split(' ')[0] || '',
+      lastName: profile?.full_name?.split(' ').slice(1).join(' ') || '',
+      preferredName: profile?.preferred_name || '',
+      phone: profile?.phone || '',
+      email: profile?.email || '',
+      dob: profile?.dob || '',
+      address: profile?.mailing_address || '',
+      city: profile?.town_city || 'Deline',
+      province: 'NT',
+      postalCode: profile?.postal_code || '',
+      sin: profile?.upi || '',
+      sex: normalizeGender(profile?.gender),
+      beneficiaryNo: profile?.beneficiary_number || '',
+      studentId: profile?.student_id || '',
+      institution: profile?.institute || profile?.institution_name || '',
+      program: profile?.program_credential || '',
+      semStart: '',
+      semEnd: '',
+      registrarEmail: '',
+      registrarPhone: '',
+      tuition: '',
+      accountHolder: profile?.account_holder_name || profile?.full_name || '',
+      transitNumber: profile?.transit_number || '',
+      instNumber: profile?.inst_number || '',
+      accountNumber: profile?.account_number || '',
+      signature: '',
+      programStart: '',
+      programEnd: profile?.expected_graduation_date || '',
+      courseLoad: profile?.enrollment_status || 'Full-time',
+      learningStyle: 'In-person',
+      currentAddress: '',
+      hasDependents: profile?.num_dependents > 0 ? 'yes' : 'no',
+      dependentCount: profile?.num_dependents || '',
+      semester: profile?.current_semester || 'Fall 2026',
+      institutionLocation: profile?.institution_location || ''
+    };
   });
+
+  // Auto-save logic
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_FormA', JSON.stringify(formData));
+  }, [formData]);
 
   // Auto-fill sync from profile
   useEffect(() => {
@@ -185,6 +200,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
       // Sync profile data to ensure Student ID (Beneficiary Number) is updated in the system
       await API.updateMe({
         full_name: `${formData.firstName} ${formData.lastName}`.trim(),
+        preferred_name: formData.preferredName,
         phone: formData.phone,
         mailing_address: formData.address,
         town_city: formData.city,
@@ -192,6 +208,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         upi: formData.sin,
         gender: formData.sex,
         beneficiary_number: formData.beneficiaryNo,
+        num_dependents: parseInt(String(formData.dependentCount)) || 0,
         institution_name: formData.institution,
         program_credential: formData.program,
         account_holder_name: formData.accountHolder,
@@ -202,11 +219,26 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         institution_location: formData.institutionLocation
       });
 
+      // Upload Void Cheque to profile documents if provided
+      const voidChequeFile = selectedFiles['Void Cheque *'];
+      if (voidChequeFile) {
+        try {
+          const docFormData = new FormData();
+          docFormData.append('file', voidChequeFile);
+          docFormData.append('name', 'Verified Void Cheque (Form A)');
+          docFormData.append('category', 'Banking');
+          await API.uploadUserDocument(docFormData);
+        } catch (e) {
+          console.error('Failed to sync void cheque to profile:', e);
+        }
+      }
+
       await API.submitApplication({
         form_type: 'C-DFN PSSSP',
         form_data: formDataObj
       });
 
+      localStorage.removeItem('dgg_autosave_FormA');
       setIsSubmitted(true);
     } catch (err: any) {
       console.error('Submission error:', err);
@@ -409,7 +441,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                   />
                 </td>
                 <td width="50%">
-                  <label className="field-label">SIN (For T4A purposes) *</label>
+                  <label className="field-label">SIN (Required Field) *</label>
                   <input
                     className="field-input" type="password" placeholder="000-000-000"
                     value={formData.sin} onChange={e => setFormData({ ...formData, sin: e.target.value })}
@@ -471,6 +503,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="text" placeholder="DGG-00412"
                     value={formData.beneficiaryNo} onChange={e => setFormData({ ...formData, beneficiaryNo: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Your DGG citizenship identification number</div>
                 </td>
                 <td>
                   <label className="field-label">Dependents? (if yes, provide count)</label>
@@ -513,6 +546,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="text" placeholder="e.g. Aurora College"
                     value={formData.institution} onChange={e => setFormData({ ...formData, institution: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Full name of the college, university, or trade school</div>
                 </td>
                 <td width="40%">
                   <label className="field-label">Institution Location</label>
@@ -529,6 +563,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="text" placeholder="e.g. Environmental Science Diploma"
                     value={formData.program} onChange={e => setFormData({ ...formData, program: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Example: "Nursing Degree" or "Carpentry Level 1"</div>
                 </td>
                 <td width="40%">
                   <label className="field-label">Course Load *</label>
@@ -591,6 +626,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="date"
                     value={formData.semStart} onChange={e => setFormData({ ...formData, semStart: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>From institution academic calendar</div>
                 </td>
                 <td width="33%">
                   <label className="field-label">Semester End (YY/MM/DD) *</label>
@@ -598,6 +634,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="date"
                     value={formData.semEnd} onChange={e => setFormData({ ...formData, semEnd: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>From institution academic calendar</div>
                 </td>
               </tr>
               <tr>
@@ -614,6 +651,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="date"
                     value={formData.programEnd} onChange={e => setFormData({ ...formData, programEnd: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Estimated graduation date</div>
                 </td>
               </tr>
             </tbody>
@@ -639,6 +677,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="text" placeholder="SID-012"
                     value={formData.studentId} onChange={e => setFormData({ ...formData, studentId: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Assigned to you by your institution</div>
                 </td>
               </tr>
             </tbody>
@@ -670,6 +709,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="text" maxLength={5} placeholder="00000"
                     value={formData.transitNumber} onChange={e => setFormData({ ...formData, transitNumber: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>5-digit branch code</div>
                 </td>
                 <td width="50%">
                   <label className="field-label">Inst # (3 digits)</label>
@@ -677,6 +717,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="text" maxLength={3} placeholder="000"
                     value={formData.instNumber} onChange={e => setFormData({ ...formData, instNumber: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>3-digit bank code</div>
                 </td>
               </tr>
               <tr>
@@ -686,6 +727,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     className="field-input" type="text" placeholder="000000000"
                     value={formData.accountNumber} onChange={e => setFormData({ ...formData, accountNumber: e.target.value })}
                   />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Your unique bank account number</div>
                 </td>
               </tr>
             </tbody>

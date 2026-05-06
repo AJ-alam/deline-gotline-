@@ -23,22 +23,33 @@ const FormE: React.FC<FormEProps> = ({ profile, onBack, onComplete }) => {
   const [isSubmitted, setIsSubmitted] = useState(false);
   
   // BUG 1: Connectivity & State
-  const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    dob: '',
-    treatyNumber: '',
-    travelFrom: '',
-    travelTo: '',
-    travelDate: '',
-    returnTravelDate: '',
-    modeAir: true,
-    modeLand: false,
-    kmTraveled: '',
-    vehicleDriver: '',
-    declarationConfirmed: false,
-    signature: ''
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem('dgg_autosave_FormE');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
+    }
+    return {
+      firstName: '',
+      lastName: '',
+      dob: '',
+      treatyNumber: '',
+      travelFrom: '',
+      travelTo: '',
+      travelDate: '',
+      returnTravelDate: '',
+      modeAir: true,
+      modeLand: false,
+      kmTraveled: '',
+      vehicleDriver: '',
+      declarationConfirmed: false,
+      signature: ''
+    };
   });
+
+  // Auto-save logic
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_FormE', JSON.stringify(formData));
+  }, [formData]);
 
   const [expenses, setExpenses] = useState<ExpenseRow[]>([
     { id: '1', description: '', amount: '', receiptAttached: false },
@@ -168,6 +179,7 @@ const FormE: React.FC<FormEProps> = ({ profile, onBack, onComplete }) => {
         form_type: 'FormE',
         form_data: submissionData
       });
+      localStorage.removeItem('dgg_autosave_FormE');
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit travel claim. Please try again.');

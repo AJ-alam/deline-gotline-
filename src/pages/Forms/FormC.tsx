@@ -15,20 +15,29 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
-
-  // Form State for connectivity and Validation
-  const [formData, setFormData] = useState({
-    fullName: '',
-    beneficiaryNumber: '',
-    email: '',
-    phone: '',
-    institution: '',
-    program: '',
-    courseLoad: 'Full-Time',
-    dependents: '0',
-    signature: '',
-    declarationConfirmed: false
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem('dgg_autosave_FormC');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error(e); }
+    }
+    return {
+      fullName: '',
+      beneficiaryNumber: '',
+      email: '',
+      phone: '',
+      institution: '',
+      program: '',
+      courseLoad: 'Full-Time',
+      dependents: '0',
+      signature: '',
+      declarationConfirmed: false
+    };
   });
+
+  // Auto-save logic
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_FormC', JSON.stringify(formData));
+  }, [formData]);
 
   const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>({
     transcripts: null,
@@ -130,6 +139,7 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
         form_type: 'FormC',
         form_data: submissionData
       });
+      localStorage.removeItem('dgg_autosave_FormC');
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit renewal. Please try again.');
@@ -236,6 +246,7 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
                   placeholder="DGG-XXXXX"
                   style={{ fontSize: '11px', background: '#fff' }}
                 />
+                <div style={{ fontSize: '8px', color: '#64748b', marginTop: '2px' }}>Your DGG citizenship ID</div>
               </div>
               <div>
                 <label className="field-label" style={{ fontSize: '9px' }}>Contact Email *</label>

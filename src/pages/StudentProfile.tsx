@@ -15,18 +15,34 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
   const [showUPi, setShowUPi] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [hasFormA, setHasFormA] = useState(false);
+  const [isCheckingFormA, setIsCheckingFormA] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [userResp, docsResp] = await Promise.all([
+        const [userResp, docsResp, subsResp, appsResp] = await Promise.all([
           API.getMe(),
-          API.getUserDocuments()
+          API.getUserDocuments(),
+          API.getSubmissions(),
+          API.getApplications()
         ]);
         setProfile(userResp);
         setDocuments(Array.isArray(docsResp) ? docsResp : []);
+
+        const subs = Array.isArray(subsResp) ? subsResp : ((subsResp as any)?.results || []);
+        const apps = Array.isArray(appsResp) ? appsResp : ((appsResp as any)?.results || []);
+        const merged = [...subs, ...apps];
+        
+        const formA = merged.find((a: any) => {
+          const title = (a.form_title || a.form_type || '').toLowerCase();
+          return title.includes('admission') || title.includes('form a') || title.includes('psssp');
+        });
+        setHasFormA(!!formA && formA.status !== 'rejected');
       } catch (err) {
         console.error('Failed to fetch profile data:', err);
+      } finally {
+        setIsCheckingFormA(false);
       }
     };
     fetchData();
@@ -138,6 +154,17 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
   return (
     <div className="profile-container fade-in" style={{ paddingBottom: '60px' }}>
       
+      {/* ── FORM A STATUS ALERT ── */}
+      {!hasFormA && !isCheckingFormA && (
+        <div className="alert-banner info" style={{ marginBottom: '20px', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}>
+          <span>ℹ️</span>
+          <div>
+            <strong>Action Recommended:</strong> Please complete your <strong>Admission Application (Form A)</strong> to automatically fill your profile details. 
+            <span className="alert-banner-link" onClick={() => window.location.href='/dashboard/apply'}> Start Form A...</span>
+          </div>
+        </div>
+      )}
+
       {/* ── COMPLETENESS HEADER ── */}
       <div className="completeness-wrap">
         <div className="completeness-header">
@@ -174,7 +201,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           <div className="profile-section-title">Personal Information</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="sensitivity-tag st-standard">STANDARD SENSITIVITY</span>
-            <button className="section-edit-btn" onClick={() => handleEditClick('personal')}>Edit</button>
+            <button className="section-edit-btn" onClick={() => handleEditClick('personal')}>
+              {hasFormA ? 'Edit Additional Info' : 'Edit'}
+            </button>
           </div>
         </div>
         <div className="profile-grid-4">
@@ -202,7 +231,11 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           <div className="profile-section-title">Eligibility Identifiers</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="sensitivity-tag st-high">HIGH SENSITIVITY</span>
-            <button className="section-edit-btn" onClick={() => handleEditClick('eligibility')}>Edit</button>
+            {hasFormA ? (
+              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Form A</span>
+            ) : (
+              <button className="section-edit-btn" onClick={() => handleEditClick('eligibility')}>Edit</button>
+            )}
           </div>
         </div>
         <div className="info-bar">
@@ -335,7 +368,11 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
             <span className={`status-pill ${profile.account_number ? 'verified' : 'required'}`}>
               {profile.account_number ? '✓ COMPLETE' : '! INCOMPLETE'}
             </span>
-            <button className="section-edit-btn" onClick={() => handleEditClick('banking')}>ADD / UPDATE</button>
+            {hasFormA ? (
+              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Form A</span>
+            ) : (
+              <button className="section-edit-btn" onClick={() => handleEditClick('banking')}>ADD / UPDATE</button>
+            )}
           </div>
         </div>
         <div className="info-bar warn">
@@ -369,7 +406,11 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           <div className="profile-section-title">Enrollment Information</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="sensitivity-tag st-standard">STANDARD SENSITIVITY</span>
-            <button className="section-edit-btn" onClick={() => handleEditClick('enrollment')}>Edit</button>
+            {hasFormA ? (
+              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Form A</span>
+            ) : (
+              <button className="section-edit-btn" onClick={() => handleEditClick('enrollment')}>Edit</button>
+            )}
           </div>
         </div>
         <div className="info-bar" style={{ background: '#eff6ff', color: '#1e40af' }}>
@@ -451,20 +492,31 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
             <h3>Personal Information</h3>
             <p className="modal-sub">Basic student identity and contact information.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-              <div><label className="p-label">Legal First Name</label><input className="field-input" type="text" value={editData._firstName || ''} onChange={e => updateField('_firstName', e.target.value)} /></div>
-              <div><label className="p-label">Legal Last Name</label><input className="field-input" type="text" value={editData._lastName || ''} onChange={e => updateField('_lastName', e.target.value)} /></div>
-              <div><label className="p-label">Preferred Name</label><input className="field-input" type="text" value={editData.preferred_name || ''} onChange={e => updateField('preferred_name', e.target.value)} /></div>
-              <div><label className="p-label">Date of Birth</label><input className="field-input" type="date" value={editData.dob || ''} onChange={e => updateField('dob', e.target.value)} /></div>
-              <div><label className="p-label">Gender</label><input className="field-input" type="text" value={editData.gender || ''} onChange={e => updateField('gender', e.target.value)} /></div>
+              {!hasFormA && (
+                <>
+                  <div><label className="p-label">Legal First Name</label><input className="field-input" type="text" value={editData._firstName || ''} onChange={e => updateField('_firstName', e.target.value)} /></div>
+                  <div><label className="p-label">Legal Last Name</label><input className="field-input" type="text" value={editData._lastName || ''} onChange={e => updateField('_lastName', e.target.value)} /></div>
+                  <div><label className="p-label">Preferred Name</label><input className="field-input" type="text" value={editData.preferred_name || ''} onChange={e => updateField('preferred_name', e.target.value)} /></div>
+                  <div><label className="p-label">Date of Birth</label><input className="field-input" type="date" value={editData.dob || ''} onChange={e => updateField('dob', e.target.value)} /></div>
+                  <div><label className="p-label">Gender</label><input className="field-input" type="text" value={editData.gender || ''} onChange={e => updateField('gender', e.target.value)} /></div>
+                  <div><label className="p-label">Phone</label><input className="field-input" type="text" value={editData.phone || ''} onChange={e => updateField('phone', e.target.value)} /></div>
+                  <div style={{ gridColumn: 'span 2' }}><label className="p-label">Mailing Address</label><textarea className="field-input" style={{ height: '60px' }} value={editData.mailing_address || ''} onChange={e => updateField('mailing_address', e.target.value)} /></div>
+                  <div><label className="p-label">Town / City</label><input className="field-input" type="text" value={editData.town_city || ''} onChange={e => updateField('town_city', e.target.value)} /></div>
+                  <div><label className="p-label">Postal Code</label><input className="field-input" type="text" value={editData.postal_code || ''} onChange={e => updateField('postal_code', e.target.value)} /></div>
+                  <div><label className="p-label">Number of Dependents</label><input className="field-input" type="number" min="0" value={editData.num_dependents ?? ''} onChange={e => updateField('num_dependents', e.target.value === '' ? null : Number(e.target.value))} /></div>
+                </>
+              )}
               <div><label className="p-label">Pronouns</label><input className="field-input" type="text" value={editData.pronouns || ''} onChange={e => updateField('pronouns', e.target.value)} /></div>
-              <div><label className="p-label">Phone</label><input className="field-input" type="text" value={editData.phone || ''} onChange={e => updateField('phone', e.target.value)} /></div>
               <div><label className="p-label">Alt Phone</label><input className="field-input" type="text" value={editData.alternate_phone || ''} onChange={e => updateField('alternate_phone', e.target.value)} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Mailing Address</label><textarea className="field-input" style={{ height: '60px' }} value={editData.mailing_address || ''} onChange={e => updateField('mailing_address', e.target.value)} /></div>
-              <div><label className="p-label">Town / City</label><input className="field-input" type="text" value={editData.town_city || ''} onChange={e => updateField('town_city', e.target.value)} /></div>
-              <div><label className="p-label">Postal Code</label><input className="field-input" type="text" value={editData.postal_code || ''} onChange={e => updateField('postal_code', e.target.value)} /></div>
-              <div><label className="p-label">Number of Dependents</label><input className="field-input" type="number" min="0" value={editData.num_dependents ?? ''} onChange={e => updateField('num_dependents', e.target.value === '' ? null : Number(e.target.value))} /></div>
+              <div><label className="p-label">Dependent Ages</label><input className="field-input" type="text" value={editData.dependent_ages || ''} onChange={e => updateField('dependent_ages', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Disability Accommodation</label><textarea className="field-input" style={{ height: '60px' }} value={editData.disability_accommodation || ''} onChange={e => updateField('disability_accommodation', e.target.value)} /></div>
             </div>
-            <button className="btn-auth-primary" style={{ width: '100%' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Saving...' : 'Save Changes'}</button>
+            {!hasFormA && (
+              <div style={{ marginTop: '20px', padding: '12px', background: '#f8fafc', borderRadius: '6px', fontSize: '11px', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                <strong>Tip:</strong> You can also fill these details automatically by completing <strong>Form A</strong>.
+              </div>
+            )}
+            <button className="btn-auth-primary" style={{ width: '100%', marginTop: '16px' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Saving...' : 'Save Changes'}</button>
           </div>
         </div>
       )}

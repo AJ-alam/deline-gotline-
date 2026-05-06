@@ -24,7 +24,7 @@ class Command(BaseCommand):
         parser.add_argument('--password', type=str, help='Password (prompted if not provided)')
 
     def handle(self, *args, **options):
-        self.stdout.write('\n── Create Staff Account ──\n')
+        self.stdout.write('\n-- Create Staff Account --\n')
 
         # Collect inputs interactively if not passed as arguments
         email = options.get('email') or input('Email: ').strip()
@@ -61,7 +61,7 @@ class Command(BaseCommand):
                 user.is_superuser = (role == 'admin')
                 user.set_password(password)
                 user.save()
-                self.stdout.write(self.style.SUCCESS(f'\n✅ Updated: {email} | Role: {role}'))
+                self.stdout.write(self.style.SUCCESS(f'\n[UPDATED] {email} | Role: {role}'))
             return
 
         # Create user
@@ -76,7 +76,7 @@ class Command(BaseCommand):
         )
 
         self.stdout.write(self.style.SUCCESS(
-            f'\n✅ Created successfully!\n'
+            f'\n[SUCCESS] Created successfully!\n'
             f'   Email    : {user.email}\n'
             f'   Name     : {user.full_name}\n'
             f'   Role     : {user.role}\n'
