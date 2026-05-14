@@ -172,30 +172,30 @@ const FormF: React.FC<FormFProps> = ({ profile, onBack, onComplete }) => {
             <div className="section-divider">Employer Information</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
-                  <label className="field-label">Organization Name *</label>
-                  <input className="field-input" value={formData.orgName} onChange={e => handleInputChange('orgName', e.target.value)} placeholder="e.g. DGG" />
+                  <label className="field-label" htmlFor="ff-orgName">Organization Name *</label>
+                  <input id="ff-orgName" className="field-input" value={formData.orgName} onChange={e => handleInputChange('orgName', e.target.value)} placeholder="e.g. DGG" />
                 </div>
                 <div>
-                  <label className="field-label">Supervisor Title *</label>
-                  <input className="field-input" value={formData.supervisorTitle} onChange={e => handleInputChange('supervisorTitle', e.target.value)} placeholder="e.g. Director of Operations" />
+                  <label className="field-label" htmlFor="ff-supervisorTitle">Supervisor Title *</label>
+                  <input id="ff-supervisorTitle" className="field-input" value={formData.supervisorTitle} onChange={e => handleInputChange('supervisorTitle', e.target.value)} placeholder="e.g. Director of Operations" />
                 </div>
             </div>
             
             <div className="section-divider">Student Information</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
                 <div>
-                  <label className="field-label">Student Full Name *</label>
-                  <input className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
+                  <label className="field-label" htmlFor="ff-studentName">Student Full Name *</label>
+                  <input id="ff-studentName" className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
                 </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '12px' }}>
                 <div>
-                  <label className="field-label">Placement Start Date *</label>
-                  <input className="field-input" type="date" value={formData.placementStart} onChange={e => handleInputChange('placementStart', e.target.value)} />
+                  <label className="field-label" htmlFor="ff-placementStart">Placement Start Date *</label>
+                  <input id="ff-placementStart" className="field-input" type="date" value={formData.placementStart} onChange={e => handleInputChange('placementStart', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Placement End Date *</label>
-                  <input className="field-input" type="date" value={formData.placementEnd} onChange={e => handleInputChange('placementEnd', e.target.value)} />
+                  <label className="field-label" htmlFor="ff-placementEnd">Placement End Date *</label>
+                  <input id="ff-placementEnd" className="field-input" type="date" value={formData.placementEnd} onChange={e => handleInputChange('placementEnd', e.target.value)} />
                 </div>
             </div>
           </div>
@@ -205,18 +205,20 @@ const FormF: React.FC<FormFProps> = ({ profile, onBack, onComplete }) => {
       {currentStep === 2 && (
         <div className="fade-in">
           <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '20px', marginBottom: '20px' }}>
-              <label className="field-label">Roles and Responsibilities *</label>
-              <textarea 
-                className="field-input" 
+              <label className="field-label" htmlFor="ff-responsibilities">Roles and Responsibilities *</label>
+              <textarea
+                id="ff-responsibilities"
+                className="field-input"
                 value={formData.responsibilities}
                 onChange={e => handleInputChange('responsibilities', e.target.value)}
                 placeholder="List the key tasks the student was responsible for..."
                 style={{ width: '100%', height: '120px', padding: '12px', marginBottom: 20 }}
               />
 
-              <label className="field-label">Work Performance Summary *</label>
-              <textarea 
-                className="field-input" 
+              <label className="field-label" htmlFor="ff-performance">Work Performance Summary *</label>
+              <textarea
+                id="ff-performance"
+                className="field-input"
                 value={formData.performance}
                 onChange={e => handleInputChange('performance', e.target.value)}
                 placeholder="Describe the student's performance, attendance, and contributions..."
@@ -235,12 +237,12 @@ const FormF: React.FC<FormFProps> = ({ profile, onBack, onComplete }) => {
               
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
                 <div>
-                  <label className="field-label">Supervisor Digital Signature *</label>
-                  <input className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type supervisor's full legal name" />
+                  <label className="field-label" htmlFor="ff-signature">Supervisor Digital Signature *</label>
+                  <input id="ff-signature" className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type supervisor's full legal name" />
                 </div>
                 <div>
-                  <label className="field-label">Date</label>
-                  <input className="field-input" disabled value={new Date().toLocaleDateString()} />
+                  <label className="field-label" htmlFor="ff-date">Date</label>
+                  <input id="ff-date" className="field-input" disabled value={new Date().toLocaleDateString()} />
                 </div>
               </div>
           </div>

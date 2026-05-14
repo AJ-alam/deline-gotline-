@@ -117,17 +117,17 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
         submissionData.append(`answers[${answers.length}]answer_file`, selectedTranscript);
       }
 
-      // Sync profile data to ensure Student ID (Beneficiary Number) is updated in the system
-      await API.updateMe({
-        full_name: formData.studentName,
-        beneficiary_number: formData.studentId,
-        institution_name: formData.institution
-      });
-
-      await API.submitApplication({
-        form_type: 'Scholarship',
-        form_data: submissionData
-      });
+      await Promise.all([
+        API.updateMe({
+          full_name: formData.studentName,
+          beneficiary_number: formData.studentId,
+          institution_name: formData.institution
+        }),
+        API.submitApplication({
+          form_type: 'Scholarship',
+          form_data: submissionData
+        })
+      ]);
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit scholarship application. Please try again.');
@@ -188,30 +188,30 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
           <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '20px' }}>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
-                   <label className="field-label">Student Name *</label>
-                   <input className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
+                   <label className="field-label" htmlFor="as-studentName">Student Name *</label>
+                   <input id="as-studentName" className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
                 </div>
                 <div>
-                   <label className="field-label">Student ID / Beneficiary #</label>
-                   <input className="field-input" value={formData.studentId} onChange={e => handleInputChange('studentId', e.target.value)} />
+                   <label className="field-label" htmlFor="as-studentId">Student ID / Beneficiary #</label>
+                   <input id="as-studentId" className="field-input" value={formData.studentId} onChange={e => handleInputChange('studentId', e.target.value)} />
                 </div>
              </div>
              <div style={{ marginBottom: '12px' }}>
-                <label className="field-label">Educational Institution *</label>
-                <input className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} placeholder="e.g. University of Calgary" />
+                <label className="field-label" htmlFor="as-institution">Educational Institution *</label>
+                <input id="as-institution" className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} placeholder="e.g. University of Calgary" />
              </div>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                   <label className="field-label">Qualifying Semester *</label>
-                   <select className="field-input" value={formData.semester} onChange={e => handleInputChange('semester', e.target.value)}>
+                   <label className="field-label" htmlFor="as-semester">Qualifying Semester *</label>
+                   <select id="as-semester" className="field-input" value={formData.semester} onChange={e => handleInputChange('semester', e.target.value)}>
                       <option>Fall</option>
                       <option>Winter</option>
                       <option>Spring/Summer</option>
                    </select>
                 </div>
                 <div>
-                   <label className="field-label">Academic Year *</label>
-                   <input className="field-input" type="number" value={formData.year} onChange={e => handleInputChange('year', e.target.value)} placeholder="e.g. 2025" />
+                   <label className="field-label" htmlFor="as-year">Academic Year *</label>
+                   <input id="as-year" className="field-input" type="number" value={formData.year} onChange={e => handleInputChange('year', e.target.value)} placeholder="e.g. 2025" />
                 </div>
              </div>
           </div>
@@ -223,12 +223,12 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
           <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '20px', marginBottom: '14px' }}>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                   <label className="field-label">GPA Achieved / Final Grade % *</label>
-                   <input className="field-input" value={formData.gpaAchieved} onChange={e => handleInputChange('gpaAchieved', e.target.value)} placeholder="e.g. 85%" />
+                   <label className="field-label" htmlFor="as-gpaAchieved">GPA Achieved / Final Grade % *</label>
+                   <input id="as-gpaAchieved" className="field-input" value={formData.gpaAchieved} onChange={e => handleInputChange('gpaAchieved', e.target.value)} placeholder="e.g. 85%" />
                 </div>
                 <div>
-                   <label className="field-label">Transcripts Status *</label>
-                   <select className="field-input" value={formData.transcriptSubmitted} onChange={e => handleInputChange('transcriptSubmitted', e.target.value)}>
+                   <label className="field-label" htmlFor="as-transcriptSubmitted">Transcripts Status *</label>
+                   <select id="as-transcriptSubmitted" className="field-input" value={formData.transcriptSubmitted} onChange={e => handleInputChange('transcriptSubmitted', e.target.value)}>
                       <option value="No">Uploading now</option>
                       <option value="Yes">Already submitted earlier</option>
                    </select>
@@ -260,12 +260,12 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
 
              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
                 <div>
-                   <label className="field-label">Digital Signature *</label>
-                   <input className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
+                   <label className="field-label" htmlFor="as-signature">Digital Signature *</label>
+                   <input id="as-signature" className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
                 </div>
                 <div>
-                   <label className="field-label">Date</label>
-                   <input className="field-input" disabled value={new Date().toLocaleDateString()} />
+                   <label className="field-label" htmlFor="as-date">Date</label>
+                   <input id="as-date" className="field-input" disabled value={new Date().toLocaleDateString()} />
                 </div>
              </div>
           </div>

@@ -23,7 +23,7 @@ class UserSerializer(serializers.ModelSerializer):
 class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Document
-        fields = '__all__'
+        fields = ('id', 'application', 'name', 'file', 'is_verified', 'uploaded_at')
 
 class UserDocumentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
@@ -45,21 +45,37 @@ class UserDocumentSerializer(serializers.ModelSerializer):
 class ApplicationSerializer(serializers.ModelSerializer):
     student_details = UserSerializer(source='student', read_only=True)
     documents = DocumentSerializer(many=True, read_only=True)
-    
+
     class Meta:
         model = Application
-        fields = '__all__'
+        fields = (
+            'id', 'student', 'student_details', 'form_type', 'status', 'amount',
+            'semester', 'academic_year', 'institution', 'program', 'form_data',
+            'created_at', 'updated_at',
+            'ssw_submitted_at', 'decision_by', 'decision_at', 'decision_notes',
+            'finance_sent_at', 'finance_sent_by',
+            'documents',
+        )
+        read_only_fields = ('id', 'created_at', 'updated_at', 'student_details', 'documents')
 
 class AuditLogSerializer(serializers.ModelSerializer):
     performed_by_details = UserSerializer(source='performed_by', read_only=True)
     class Meta:
         model = AuditLog
-        fields = '__all__'
+        fields = (
+            'id', 'action', 'timestamp', 'performed_by', 'performed_by_details',
+            'role', 'application', 'details',
+        )
+        read_only_fields = fields
 
 class PolicyHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = PolicyHistory
-        fields = '__all__'
+        fields = (
+            'id', 'setting', 'user_name', 'field_changed',
+            'old_value', 'new_value', 'effective_date', 'timestamp',
+        )
+        read_only_fields = ('id', 'timestamp')
 
 class PolicySettingSerializer(serializers.ModelSerializer):
     last_updated_by_name = serializers.SerializerMethodField()
@@ -76,17 +92,46 @@ class PolicySettingSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     student_details = UserSerializer(source='user', read_only=True)
+    # Surface submission metadata so the Payments dashboard can group payments by
+    # their originating form submission when no legacy Application FK is set
+    # (calculation_service creates payments with application_id=None, linking via
+    # `submission` only — without this, the UI would show "No application linked").
+    submission_details = serializers.SerializerMethodField()
     class Meta:
         model = Payment
-        fields = '__all__'
+        fields = (
+            'id', 'user', 'student_details', 'application', 'submission', 'submission_details',
+            'amount', 'payment_type', 'status', 'date_issued', 'reference_number',
+        )
+        read_only_fields = ('id', 'date_issued', 'reference_number', 'student_details', 'submission_details')
+
+    def get_submission_details(self, obj):
+        sub = obj.submission
+        if not sub:
+            return None
+        return {
+            'id': sub.id,
+            'form_title': sub.form.title if sub.form else None,
+            'status': sub.status,
+            'submitted_at': sub.submitted_at.isoformat() if sub.submitted_at else None,
+            'amount': str(sub.amount) if sub.amount is not None else None,
+        }
 
 class AppealSerializer(serializers.ModelSerializer):
     student_details = UserSerializer(source='user', read_only=True)
     class Meta:
         model = Appeal
-        fields = '__all__'
+        fields = (
+            'id', 'user', 'student_details', 'application', 'reason',
+            'status', 'decision', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'created_at', 'updated_at', 'student_details')
 
 class ShareableLinkSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShareableLink
-        fields = '__all__'
+        fields = (
+            'id', 'token', 'application', 'submission',
+            'created_at', 'expires_at', 'is_active',
+        )
+        read_only_fields = ('id', 'token', 'created_at')

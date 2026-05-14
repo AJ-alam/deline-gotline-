@@ -1,27 +1,105 @@
 import logging
+from decimal import Decimal, InvalidOperation
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
-from rest_framework.response import Response
+from django.utils import timezone
 from api.utils.responses import api_response
-from api.models import PolicySetting, AuditLog
-from api.serializers import PolicySettingSerializer
-from users.permissions import IsAdminUser, IsDirectorUser
+from api.models import PolicySetting, PolicyHistory, AuditLog
+from api.serializers import PolicySettingSerializer, PolicyHistorySerializer
+from users.permissions import IsAdminUser
 
 logger = logging.getLogger(__name__)
+
+
+def _fmt(v) -> str:
+    """Render a value for the history log: numerics keep their numeric form (no
+    trailing zeros, no Decimal noise), text values stringify normally."""
+    if v is None:
+        return ''
+    try:
+        d = Decimal(str(v))
+        # Strip trailing zeros so "30.00" → "30", "30.50" → "30.5"
+        normalized = d.normalize()
+        # normalize() can return scientific notation for large/small numbers — guard
+        s = format(normalized, 'f')
+        if '.' in s:
+            s = s.rstrip('0').rstrip('.')
+        return s
+    except (InvalidOperation, ValueError, TypeError):
+        return str(v)
+
+
+def _log_policy_change(instance: PolicySetting, old_value, new_value, user):
+    """Record one PolicyHistory row when a field's value actually changes.
+    Decimal-aware: "30" and "30.00" are treated as equal so spurious history
+    rows aren't created by formatting differences."""
+    old_s = _fmt(old_value)
+    new_s = _fmt(new_value)
+    if old_s == new_s:
+        return
+    PolicyHistory.objects.create(
+        setting=instance,
+        user_name=(getattr(user, 'full_name', None) or getattr(user, 'email', None) or 'System'),
+        field_changed=f"[{instance.section}] {instance.field_label}",
+        old_value=old_s,
+        new_value=new_s,
+        effective_date=timezone.now().date().isoformat(),
+    )
+    logger.info(
+        "PolicyHistory recorded: %s.%s by %s: %s -> %s",
+        instance.section, instance.field_key,
+        getattr(user, 'email', '?'), old_s, new_s,
+    )
+
 
 class PolicyViewSet(viewsets.ModelViewSet):
     queryset = PolicySetting.objects.all().order_by('section', 'field_key')
     serializer_class = PolicySettingSerializer
 
     def get_permissions(self):
-        if self.action in ['update', 'partial_update', 'bulk_update', 'reset_section']:
+        # Any write (create new field, edit value, bulk edit, delete, reset) is admin-only.
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'bulk_update', 'reset_section']:
             return [permissions.IsAuthenticated(), IsAdminUser()]
         return [permissions.IsAuthenticated()]
 
-    def perform_update(self, serializer):
+    def perform_create(self, serializer):
         instance = serializer.save(last_updated_by=self.request.user)
+        PolicyHistory.objects.create(
+            setting=instance,
+            user_name=(getattr(self.request.user, 'full_name', None) or getattr(self.request.user, 'email', None) or 'System'),
+            field_changed=f"[{instance.section}] {instance.field_label} (NEW)",
+            old_value='—',
+            new_value=f"{_fmt(instance.value)} {instance.unit or ''}".strip(),
+            effective_date=timezone.now().date().isoformat(),
+        )
         AuditLog.objects.create(
-            action=f"Policy updated: [{instance.section}] — {instance.field_label} changed to {instance.value}{instance.unit}",
+            action=f"Policy field created: [{instance.section}] — {instance.field_label}",
+            performed_by=self.request.user,
+            role=self.request.user.role,
+        )
+
+    def perform_destroy(self, instance):
+        # Record the delete in AuditLog (PolicyHistory rows for this setting are kept
+        # via SET_NULL on the FK — see api/migrations/0011_policyhistory_setting_nullable.py).
+        section, label = instance.section, instance.field_label
+        value_str = f"{_fmt(instance.value)} {instance.unit or ''}".strip()
+        instance.delete()
+        AuditLog.objects.create(
+            action=f"Policy field deleted: [{section}] — {label} (was {value_str})",
+            performed_by=self.request.user,
+            role=self.request.user.role,
+        )
+
+    def perform_update(self, serializer):
+        old_value = serializer.instance.value
+        old_unit = serializer.instance.unit
+        instance = serializer.save(last_updated_by=self.request.user)
+        if _fmt(old_value) != _fmt(instance.value):
+            _log_policy_change(instance, old_value, instance.value, self.request.user)
+        if str(old_unit or '') != str(instance.unit or ''):
+            _log_policy_change(instance, old_unit, instance.unit, self.request.user)
+        AuditLog.objects.create(
+            action=f"Policy updated: [{instance.section}] — {instance.field_label} changed to {_fmt(instance.value)} {instance.unit or ''}".strip(),
             performed_by=self.request.user,
             role=self.request.user.role,
         )
@@ -29,7 +107,8 @@ class PolicyViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path='bulk_update')
     def bulk_update(self, request):
         """
-        Allows updating multiple policy settings in a single request (e.g., an entire section).
+        Update multiple policy settings in a single request (e.g., an entire section).
+        Each value change is recorded in PolicyHistory.
         """
         settings_data = request.data.get('settings', [])
         if not settings_data:
@@ -47,9 +126,26 @@ class PolicyViewSet(viewsets.ModelViewSet):
             setting_id = data.get('id')
             try:
                 instance = PolicySetting.objects.get(id=setting_id)
+                # Capture originals as primitives so they survive the in-place
+                # mutation that serializer.save() performs on `instance`.
+                old_value = instance.value
+                old_unit = instance.unit
                 serializer = self.get_serializer(instance, data=data, partial=True)
                 if serializer.is_valid():
-                    serializer.save(last_updated_by=request.user)
+                    saved = serializer.save(last_updated_by=request.user)
+                    # Compare value (Decimal-normalized) and unit separately so
+                    # text-only configs (contact_email, contact_phone, …) that
+                    # change just their `unit` also produce a history row.
+                    value_changed = _fmt(old_value) != _fmt(saved.value)
+                    unit_changed = str(old_unit or '') != str(saved.unit or '')
+                    if value_changed:
+                        _log_policy_change(saved, old_value, saved.value, request.user)
+                    if unit_changed:
+                        # Use unit as the visible "value" for text-only configs;
+                        # for numeric+unit fields render as "<value><unit>".
+                        old_repr = old_unit if str(old_value or '0') in ('0', '0.00') else f"{_fmt(old_value)} {old_unit}".strip()
+                        new_repr = saved.unit if str(saved.value or '0') in ('0', '0.00') else f"{_fmt(saved.value)} {saved.unit}".strip()
+                        _log_policy_change(saved, old_repr, new_repr, request.user)
                     updated_count += 1
                 else:
                     logger.warning(f"Policy validation failed for ID {setting_id}: {serializer.errors}")
@@ -67,23 +163,27 @@ class PolicyViewSet(viewsets.ModelViewSet):
                 role=request.user.role,
             )
             return api_response(True, {'updated_count': updated_count}, f"Successfully updated {updated_count} settings")
-        
+
         return api_response(False, None, "No settings were updated", status.HTTP_400_BAD_REQUEST)
 
     @action(detail=False, methods=['get'])
     def all_settings(self, request):
-        """
-        Returns all policy settings grouped by section for the frontend.
-        """
+        """Return all policy settings grouped by section for the frontend."""
         settings = self.get_queryset()
         serializer = self.get_serializer(settings, many=True)
-        
-        # Group by section
-        grouped = {}
+        grouped: dict = {}
         for item in serializer.data:
             sec = item['section']
-            if sec not in grouped:
-                grouped[sec] = []
-            grouped[sec].append(item)
-            
+            grouped.setdefault(sec, []).append(item)
         return api_response(True, grouped, "All policy settings retrieved")
+
+    @action(detail=False, methods=['get'])
+    def history(self, request):
+        """Return recent policy change history for the Change History tab."""
+        try:
+            limit = min(int(request.query_params.get('limit', '200')), 1000)
+        except (TypeError, ValueError):
+            limit = 200
+        qs = PolicyHistory.objects.select_related('setting').order_by('-timestamp')[:limit]
+        data = PolicyHistorySerializer(qs, many=True).data
+        return api_response(True, data, f"{len(data)} history record(s)")

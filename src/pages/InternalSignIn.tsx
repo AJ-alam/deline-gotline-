@@ -86,23 +86,25 @@ const InternalSignIn: React.FC = () => {
           )}
 
           <div className="field-group">
-            <label className="field-label" style={{ color: '#64748b' }}>Government ID / Email</label>
-            <input 
-                className="field-input" 
-                type="text" 
-                placeholder="e.g. admin@deline.ca" 
-                style={{ background: '#fff' }} 
+            <label className="field-label" htmlFor="isl-email" style={{ color: '#64748b' }}>Government ID / Email</label>
+            <input
+                id="isl-email"
+                className="field-input"
+                type="text"
+                placeholder="e.g. admin@deline.ca"
+                style={{ background: '#fff' }}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
             />
           </div>
 
           <div className="field-group">
-            <label className="field-label" style={{ color: '#64748b' }}>Password</label>
+            <label className="field-label" htmlFor="isl-password" style={{ color: '#64748b' }}>Password</label>
             <div className="password-wrap">
-              <input 
-                className="field-input" 
-                type={showPassword ? "text" : "password"} 
+              <input
+                id="isl-password"
+                className="field-input"
+                type={showPassword ? "text" : "password"}
                 placeholder="••••••••••••"
                 style={{ background: '#fff' }}
                 value={password}

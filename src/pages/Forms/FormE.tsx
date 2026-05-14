@@ -241,20 +241,20 @@ const FormE: React.FC<FormEProps> = ({ profile, onBack, onComplete }) => {
              <div style={{ fontSize: '12px', fontWeight: '700', color: '#111', marginBottom: '12px', textTransform: 'uppercase' }}>A. Student Information</div>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '12px' }}>
                 <div>
-                    <label className="field-label">First Name *</label>
-                    <input className="field-input" value={formData.firstName} onChange={e => handleInputChange('firstName', e.target.value)} />
+                    <label className="field-label" htmlFor="fe-firstName">First Name *</label>
+                    <input id="fe-firstName" className="field-input" value={formData.firstName} onChange={e => handleInputChange('firstName', e.target.value)} />
                 </div>
                 <div>
-                    <label className="field-label">Last Name *</label>
-                    <input className="field-input" value={formData.lastName} onChange={e => handleInputChange('lastName', e.target.value)} />
+                    <label className="field-label" htmlFor="fe-lastName">Last Name *</label>
+                    <input id="fe-lastName" className="field-input" value={formData.lastName} onChange={e => handleInputChange('lastName', e.target.value)} />
                 </div>
                 <div>
-                    <label className="field-label">DOB *</label>
-                    <input className="field-input" type="date" value={formData.dob} onChange={e => handleInputChange('dob', e.target.value)} />
+                    <label className="field-label" htmlFor="fe-dob">DOB *</label>
+                    <input id="fe-dob" className="field-input" type="date" value={formData.dob} onChange={e => handleInputChange('dob', e.target.value)} />
                 </div>
                 <div>
-                    <label className="field-label">Treaty # *</label>
-                    <input className="field-input" value={formData.treatyNumber} onChange={e => handleInputChange('treatyNumber', e.target.value)} />
+                    <label className="field-label" htmlFor="fe-treatyNumber">Treaty # *</label>
+                    <input id="fe-treatyNumber" className="field-input" value={formData.treatyNumber} onChange={e => handleInputChange('treatyNumber', e.target.value)} />
                 </div>
              </div>
           </div>
@@ -263,22 +263,22 @@ const FormE: React.FC<FormEProps> = ({ profile, onBack, onComplete }) => {
              <div style={{ fontSize: '12px', fontWeight: '700', color: '#111', marginBottom: '12px', textTransform: 'uppercase' }}>B. Travel Information</div>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
-                    <label className="field-label">Traveling From *</label>
-                    <input className="field-input" value={formData.travelFrom} onChange={e => handleInputChange('travelFrom', e.target.value)} placeholder="City, Prov" />
+                    <label className="field-label" htmlFor="fe-travelFrom">Traveling From *</label>
+                    <input id="fe-travelFrom" className="field-input" value={formData.travelFrom} onChange={e => handleInputChange('travelFrom', e.target.value)} placeholder="City, Prov" />
                 </div>
                 <div>
-                    <label className="field-label">Traveling To *</label>
-                    <input className="field-input" value={formData.travelTo} onChange={e => handleInputChange('travelTo', e.target.value)} placeholder="City, Prov" />
+                    <label className="field-label" htmlFor="fe-travelTo">Traveling To *</label>
+                    <input id="fe-travelTo" className="field-input" value={formData.travelTo} onChange={e => handleInputChange('travelTo', e.target.value)} placeholder="City, Prov" />
                 </div>
              </div>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '12px' }}>
                 <div>
-                    <label className="field-label">Departure Date *</label>
-                    <input className="field-input" type="date" value={formData.travelDate} onChange={e => handleInputChange('travelDate', e.target.value)} />
+                    <label className="field-label" htmlFor="fe-travelDate">Departure Date *</label>
+                    <input id="fe-travelDate" className="field-input" type="date" value={formData.travelDate} onChange={e => handleInputChange('travelDate', e.target.value)} />
                 </div>
                 <div>
-                    <label className="field-label">Return Date</label>
-                    <input className="field-input" type="date" value={formData.returnTravelDate} onChange={e => handleInputChange('returnTravelDate', e.target.value)} />
+                    <label className="field-label" htmlFor="fe-returnTravelDate">Return Date</label>
+                    <input id="fe-returnTravelDate" className="field-input" type="date" value={formData.returnTravelDate} onChange={e => handleInputChange('returnTravelDate', e.target.value)} />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                     <label style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -289,8 +289,8 @@ const FormE: React.FC<FormEProps> = ({ profile, onBack, onComplete }) => {
                     </label>
                 </div>
                 <div>
-                    <label className="field-label">Total KM (if Land)</label>
-                    <input className="field-input" type="number" value={formData.kmTraveled} onChange={e => handleInputChange('kmTraveled', e.target.value)} />
+                    <label className="field-label" htmlFor="fe-kmTraveled">Total KM (if Land)</label>
+                    <input id="fe-kmTraveled" className="field-input" type="number" value={formData.kmTraveled} onChange={e => handleInputChange('kmTraveled', e.target.value)} />
                 </div>
              </div>
           </div>
@@ -341,8 +341,8 @@ const FormE: React.FC<FormEProps> = ({ profile, onBack, onComplete }) => {
                    <span>I confirm the declaration <span style={{ color: '#cc0000' }}>*</span></span>
                 </label>
                 <div>
-                   <label className="field-label">Student Signature (Full Name) *</label>
-                   <input className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
+                   <label className="field-label" htmlFor="fe-signature">Student Signature (Full Name) *</label>
+                   <input id="fe-signature" className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
                 </div>
            </div>
 

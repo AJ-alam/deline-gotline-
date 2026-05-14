@@ -1,4 +1,5 @@
 import os
+import logging
 import dj_database_url
 from pathlib import Path
 from datetime import timedelta
@@ -71,13 +72,15 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # Auto-switches between SQLite (local) and PostgreSQL (production via DATABASE_URL)
 _db_url = config('DATABASE_URL', default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
+# Persist Django→pooler connections across requests on Gunicorn (saves TCP+TLS
+# handshake per request — major perf win for poll-heavy dashboards). The Supabase
+# Transaction Pooler still recycles the underlying pg backend per transaction, so
+# pooler-side state isn't shared; only the Django→pooler socket is kept warm.
+_conn_max_age = config('DB_CONN_MAX_AGE', default=60, cast=int)
 DATABASES = {
     'default': dj_database_url.config(
         default=_db_url,
-        # conn_max_age=0 is required for Supabase Transaction Pooler.
-        # The pooler resets connection state after each transaction,
-        # so Django must NOT hold connections open across requests.
-        conn_max_age=0,
+        conn_max_age=_conn_max_age,
         ssl_require=not _db_url.startswith('sqlite'),
     )
 }
@@ -98,13 +101,26 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 50,  # Increased from 10 to reduce number of requests
+    'PAGE_SIZE': 50,
     'DEFAULT_FILTER_BACKENDS': (
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ),
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    # Rate limiting — protects auth and public endpoints from abuse
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '200/day',
+        'user': '2000/day',
+        'auth': '10/minute',      # login / register / forgot-password
+        'password_reset': '5/hour',
+    },
+    # Never expose internal error details to API consumers
+    'EXCEPTION_HANDLER': 'api.utils.responses.custom_exception_handler',
 }
 
 # JWT configurations
@@ -112,7 +128,8 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'ROTATE_REFRESH_TOKENS': False,
-    'BLACKLIST_AFTER_ROTATION': True,
+    'BLACKLIST_AFTER_ROTATION': False,
+    'UPDATE_LAST_LOGIN': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
 }
@@ -169,9 +186,15 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_HTTPONLY = True
     SECURE_BROWSER_XSS_FILTER = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_HSTS_SECONDS = 31536000          # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    X_FRAME_OPTIONS = 'DENY'               # Block clickjacking
+    SESSION_COOKIE_AGE = 3600              # 1 hour session timeout
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -198,4 +221,74 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='DGG Student Funding <noreply@deline.ca>')
 EMAIL_SUBJECT_PREFIX = '[DGG Funding] '
+
+# Finance recipient (for dispatch_report)
+FINANCE_EMAIL = config('FINANCE_EMAIL', default='')
+
+# ── FILE UPLOAD SECURITY ────────────────────────────────────────────────────
+# 10 MB hard cap on uploaded files
+DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024   # 10 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024   # 10 MB
+
+ALLOWED_UPLOAD_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx']
+ALLOWED_UPLOAD_MIME_TYPES = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]
+
+# ── LOGGING ─────────────────────────────────────────────────────────────────
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {asctime} {module}: {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'WARNING',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'api': {
+            'handlers': ['console'],
+            'level': 'INFO' if DEBUG else 'WARNING',
+            'propagate': False,
+        },
+        'users': {
+            'handlers': ['console'],
+            'level': 'INFO' if DEBUG else 'WARNING',
+            'propagate': False,
+        },
+    },
+}
 

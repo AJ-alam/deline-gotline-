@@ -20,7 +20,7 @@ class SubmissionAnswerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SubmissionAnswer
-        fields = ('id', 'field', 'field_label', 'label', 'answer_text', 'answer_file')
+        fields = ('id', 'field', 'field_label', 'label', 'answer_text', 'answer_file', 'original_filename')
         extra_kwargs = {'field': {'required': False}}
 
     def get_label(self, obj):
@@ -201,8 +201,11 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
                     field = FormField.objects.create(form=submission.form, label=field_label, field_type='text')
                     form_fields[field_label.lower()] = field
                 answer_data.pop('field_label', None)
+                uploaded = answer_data.get('answer_file')
+                if uploaded and not answer_data.get('original_filename'):
+                    answer_data['original_filename'] = getattr(uploaded, 'name', None)
                 answers_to_create.append(SubmissionAnswer(submission=submission, field=field, **answer_data))
-        
+
         if answers_to_create:
             SubmissionAnswer.objects.bulk_create(answers_to_create)
 
@@ -232,3 +235,49 @@ class SubmissionNoteSerializer(serializers.ModelSerializer):
         model = SubmissionNote
         fields = ('id', 'author', 'author_name', 'text', 'created_at')
         read_only_fields = ('id', 'author', 'created_at')
+
+
+class FormSubmissionListSerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer used for the list endpoint only.
+    Omits answers and notes — those are only needed in the detail view.
+    """
+    import re as _re
+
+    form_title = serializers.SerializerMethodField()
+    form_type  = serializers.CharField(source='form.title', read_only=True)
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+    student_email = serializers.CharField(source='student.email', read_only=True)
+    student_id    = serializers.IntegerField(source='student.id', read_only=True)
+    form_b_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = FormSubmission
+        fields = (
+            'id', 'form', 'form_title', 'form_type',
+            'student', 'student_name', 'student_email', 'student_id',
+            'submitted_at', 'status', 'amount',
+            'reviewed_at', 'reviewed_by',
+            'forwarded_at', 'forwarded_by',
+            'decided_at', 'decided_by',
+            'decision_reason', 'office_use_data',
+            'more_info_requested_at', 'more_info_requested_by',
+            'more_info_request_notes', 'more_info_responded_at',
+            'finance_sent_at',
+            'form_b_status',
+        )
+        read_only_fields = fields
+
+    def get_form_title(self, obj):
+        import re
+        title = obj.form.title if obj.form else 'Application'
+        if 'PSSSP' in title:
+            return 'Admission Application'
+        title = re.sub(r'^Form\s*[A-Z].*?[:\-\s]+\s*', '', title)
+        return title
+
+    def get_form_b_status(self, obj):
+        try:
+            return obj.form_b.status
+        except Exception:
+            return None

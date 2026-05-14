@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 User = get_user_model()
@@ -91,7 +93,7 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True, min_length=8)
 
     class Meta:
         model = User
@@ -110,17 +112,29 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
 
     def validate_role(self, value):
-        # Only allow 'student' role via self-registration.
-        # Admin and Director accounts must be created by an existing admin.
         if value in ('admin', 'director'):
             raise serializers.ValidationError(
                 "You cannot register with an elevated role. Contact an administrator."
             )
         return value
 
+    def validate_password(self, value):
+        try:
+            validate_password(value)
+        except DjangoValidationError as e:
+            raise serializers.ValidationError(list(e.messages))
+        return value
+
+    def validate(self, attrs):
+        attrs.setdefault('num_dependents', 0)
+        attrs.setdefault('course_load', 100)
+        if attrs.get('num_dependents') is None:
+            attrs['num_dependents'] = 0
+        if attrs.get('course_load') is None:
+            attrs['course_load'] = 100
+        return attrs
+
     def create(self, validated_data):
-        # Default role to 'student' if not provided
         validated_data.setdefault('role', 'student')
-        # Pass ALL validated_data to create_user (handled by **extra_fields in CustomUserManager)
         user = User.objects.create_user(**validated_data)
         return user

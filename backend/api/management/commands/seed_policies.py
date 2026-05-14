@@ -13,11 +13,11 @@ class Command(BaseCommand):
         PolicySetting.objects.all().delete()
 
         policies = [
-            # SECTION: application_deadlines
-            ('application_deadlines', 'fall_deadline', 'Fall Semester Deadline', 8, 'month'),
-            ('application_deadlines', 'winter_deadline', 'Winter Semester Deadline', 12, 'month'),
-            ('application_deadlines', 'spring_deadline', 'Spring Semester Deadline', 4, 'month'),
-            ('application_deadlines', 'summer_deadline', 'Summer Semester Deadline', 6, 'month'),
+            # SECTION: application_deadlines — value=month (1-12), unit=day (1-31)
+            ('application_deadlines', 'fall_deadline', 'Fall Semester Deadline', 8, '1'),
+            ('application_deadlines', 'winter_deadline', 'Winter Semester Deadline', 12, '1'),
+            ('application_deadlines', 'spring_deadline', 'Spring Semester Deadline', 4, '1'),
+            ('application_deadlines', 'summer_deadline', 'Summer Semester Deadline', 6, '1'),
 
             # SECTION: psssp_tuition
             ('psssp_tuition', 'max_per_semester', 'Max Tuition Bursary Per Semester', 5000, '$'),

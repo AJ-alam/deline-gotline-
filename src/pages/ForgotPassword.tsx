@@ -69,8 +69,9 @@ const ForgotPassword: React.FC = () => {
 
                 <form onSubmit={handleSendLink}>
                   <div className="field-group">
-                    <label className="field-label">Email or Phone Number</label>
+                    <label className="field-label" htmlFor="fp-contact">Email or Phone Number</label>
                     <input
+                      id="fp-contact"
                       className="field-input"
                       type="text"
                       placeholder="Enter email or phone number"

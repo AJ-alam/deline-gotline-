@@ -28,7 +28,7 @@
 }
 
 .wizard-header-left {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #fff;
   text-transform: uppercase;
@@ -36,7 +36,7 @@
 }
 
 .wizard-header-right {
-  font-size: 9px;
+  font-size: 11px;
   color: #888;
   text-align: right;
   line-height: 1.5;
@@ -60,7 +60,7 @@
   gap: 8px;
   padding: 12px 20px 12px 0;
   margin-right: 16px;
-  font-size: 10.5px;
+  font-size: 13px;
   color: #a0aec0;
   border-bottom: 2px solid transparent;
   cursor: pointer;
@@ -82,7 +82,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -97,6 +97,74 @@
   flex: 1;
 }
 
+/* ── Field Hint Tooltips ── */
+.field-hint-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 5px;
+}
+
+.field-hint-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #94a3b8;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: help;
+  line-height: 1;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.field-hint-wrap:hover .field-hint-icon {
+  background: #475569;
+}
+
+.field-hint-tooltip {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  padding: 9px 12px;
+  border-radius: 6px;
+  width: 230px;
+  white-space: normal;
+  z-index: 200;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+.field-hint-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1e293b;
+}
+
+.field-hint-wrap:hover .field-hint-tooltip {
+  visibility: visible;
+  opacity: 1;
+}
+
 @media (max-width: 768px) {
   .wizard-content { padding: 24px 20px; }
   .form-grid tr, .form-grid td { display: block; width: 100% !important; padding: 0 !important; }
@@ -107,7 +175,7 @@
   .wizard-header-right { display: none; }
   .doc-grid { grid-template-columns: 1fr; }
   .step-tabs { padding: 0 16px; }
-  .step-tab { padding: 12px 12px 12px 0; margin-right: 8px; font-size: 10px; }
+  .step-tab { padding: 12px 12px 12px 0; margin-right: 8px; font-size: 12px; }
   .wizard-panel-title { font-size: 16px; }
 }
 
@@ -141,7 +209,7 @@
 
 .field-label {
   display: block;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: #4a5568;
   text-transform: uppercase;
@@ -175,7 +243,7 @@
   border: 1px solid #e2e8f0;
   border-bottom: none;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   color: #2d3748;
   margin-top: 24px;
@@ -252,7 +320,7 @@
   border: none;
   border-radius: 4px;
   padding: 10px 24px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -274,7 +342,7 @@
   border: 1px solid #cbd5e0;
   border-radius: 4px;
   padding: 10px 20px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }

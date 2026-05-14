@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import '../../styles/forms.css';
 
 interface Step {
@@ -35,6 +35,16 @@ const FormWizard: React.FC<FormWizardProps> = ({
   nextDisabled = false,
   onSubmit
 }) => {
+  const [highestReached, setHighestReached] = useState(currentStep);
+
+  useEffect(() => {
+    if (currentStep > highestReached) setHighestReached(currentStep);
+  }, [currentStep]);
+
+  const handleStepClick = (stepId: number) => {
+    if (stepId <= highestReached) onStepClick(stepId);
+  };
+
   return (
     <div className="wizard-integrated">
       <div className="wizard-shell-embedded">
@@ -48,15 +58,20 @@ const FormWizard: React.FC<FormWizardProps> = ({
 
         {/* Step Tabs */}
         <div className="step-tabs">
-          {steps.map((step) => (
-            <div
-              key={step.id}
-              className={`step-tab ${currentStep === step.id ? 'active' : ''}`}
-              onClick={() => onStepClick(step.id)}
-            >
-              <div className="step-circle">{step.id}</div> {step.label}
-            </div>
-          ))}
+          {steps.map((step) => {
+            const isLocked = step.id > highestReached;
+            return (
+              <div
+                key={step.id}
+                className={`step-tab ${currentStep === step.id ? 'active' : ''}`}
+                onClick={() => handleStepClick(step.id)}
+                style={isLocked ? { cursor: 'not-allowed', opacity: 0.4 } : undefined}
+                title={isLocked ? 'Complete the current step to unlock' : undefined}
+              >
+                <div className="step-circle">{step.id}</div> {step.label}
+              </div>
+            );
+          })}
         </div>
 
         {/* Wizard Content */}

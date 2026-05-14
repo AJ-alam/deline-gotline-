@@ -1,28 +1,70 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
+# ─── Node / Frontend ───────────────────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
 *.local
-.env
-db.sqlite3
-backend/data_backup.json
 
-# Editor directories and files
+# ─── Python / Backend ──────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+.eggs/
+venv/
+backend/venv/
+.venv/
+env/
+*.pyc
+
+# ─── Django ────────────────────────────────────────────────────────────────
+backend/db.sqlite3
+db.sqlite3
+backend/staticfiles/
+staticfiles/
+backend/media/
+*.log
+backend/*.log
+
+# ─── Environment & Secrets ─────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Database dumps / backups ──────────────────────────────────────────────
+*.json.bak
+backend/data_backup.json
+*.dump
+
+# ─── Build artifacts ───────────────────────────────────────────────────────
+index-*.js
+index-*.css
+*.map
+
+# ─── Testing / Coverage ────────────────────────────────────────────────────
+.pytest_cache/
+backend/.pytest_cache/
+coverage/
+*.coverage
+htmlcov/
+
+# ─── Code analysis tools ───────────────────────────────────────────────────
+.graphify*
+graphify-out/
+graphify_*/
+
+# ─── Editor / OS ───────────────────────────────────────────────────────────
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-.vercel
+
+# ─── Deployment ────────────────────────────────────────────────────────────
+.vercel/

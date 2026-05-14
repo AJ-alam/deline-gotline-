@@ -15,24 +15,52 @@ from forms.models import FormSubmission, SubmissionNote
 
 User = get_user_model()
 
+
+def pretty_form_title(raw: str) -> str:
+    """Map any DB/frontend form title variant to a clean human-readable name."""
+    t = (raw or '').lower()
+    if any(x in t for x in ('form a', 'forma', 'psssp', 'c-dfn', 'new student', 'admission')):
+        return 'New Student Application'
+    if any(x in t for x in ('form b', 'formb', 'enrollment verif', 'enrolment verif', 'profile update')):
+        return 'Enrollment Verification'
+    if any(x in t for x in ('form c', 'formc', 'continuing fund')):
+        return 'Continuing Funding Application'
+    if any(x in t for x in ('form d', 'formd', 'appeal', 'reconsider', 'specialized train')):
+        return 'Appeal & Reconsideration'
+    if any(x in t for x in ('form e', 'forme', 'travel', 'emergency fund')):
+        return 'Travel & Relocation Claim'
+    if any(x in t for x in ('form f', 'formf', 'practicum', 'placement')):
+        return 'Practicum Placement Allowance'
+    if any(x in t for x in ('form g', 'formg', 'graduation')):
+        return 'Graduation Bursary'
+    if any(x in t for x in ('form h', 'formh', 'summer student')):
+        return 'Summer Student Employment'
+    if 'hardship' in t:
+        return 'Hardship Bursary'
+    if 'scholarship' in t:
+        return 'Academic Scholarship'
+    return raw  # unknown form — return as-is
+
+
 class FormService:
     @staticmethod
     def send_submission_notifications(submission):
         form = submission.form
         student = submission.student
         form_title_lower = form.title.lower() if form else ''
+        display_title = pretty_form_title(form.title) if form else 'Application'
 
         # In-app notification for logged-in students
         if student:
             Notification.objects.create(
                 user=student,
                 title="Application Received",
-                message=f"Your application for '{form.title}' has been successfully submitted.",
+                message=f"Your {display_title} has been successfully submitted.",
                 link=None
             )
             if student.email:
                 email_application_received(
-                    student.email, student.full_name, form.title,
+                    student.email, student.full_name, display_title,
                     submission_id=submission.id,
                     submitted_at=submission.submitted_at,
                 )
@@ -71,11 +99,11 @@ class FormService:
                 import logging
                 logging.getLogger(__name__).error("Automatic calculation failed for submission %s: %s", submission.id, e)
 
-        # Notify Admins & Directors
-        admins_and_directors = User.objects.filter(role__in=['admin', 'director'])
-        staff_emails = [u.email for u in admins_and_directors if u.email]
+        # Notify Admins only — directors see applications only after admin forwards them
+        admins = User.objects.filter(role='admin')
+        admin_emails = [u.email for u in admins if u.email]
 
-        if staff_emails:
+        if admin_emails:
             answers = submission.answers.all()
             summary_lines = []
             for ans in answers[:10]:
@@ -86,18 +114,18 @@ class FormService:
                 summary_html += "<br><em>... and more details available in the dashboard.</em>"
 
             email_new_submission_staff(
-                staff_emails=staff_emails,
+                staff_emails=admin_emails,
                 student_name=student.full_name if student else 'Guest Applicant',
-                form_title=form.title,
+                form_title=display_title,
                 submission_id=submission.id,
                 answers_summary=summary_html
             )
 
-        for staff in admins_and_directors:
+        for admin in admins:
             Notification.objects.create(
-                user=staff,
+                user=admin,
                 title="New Application Received",
-                message=f"A new submission for '{form.title}' from {student.full_name if student else 'Guest Applicant'}.",
+                message=f"New {display_title} from {student.full_name if student else 'Guest Applicant'}.",
                 link=None
             )
 
@@ -145,7 +173,14 @@ class FormService:
             submission.amount = extra_data.get('amount')
 
         if 'office_use_data' in extra_data:
-            submission.office_use_data = extra_data['office_use_data']
+            # Merge so partial updates (e.g. just funding_breakdown) don't clobber
+            # unrelated keys like dateReceived/approvedBy/commitmentNum.
+            current = submission.office_use_data or {}
+            incoming = extra_data['office_use_data'] or {}
+            if isinstance(current, dict) and isinstance(incoming, dict):
+                submission.office_use_data = {**current, **incoming}
+            else:
+                submission.office_use_data = incoming
 
         if new_status == 'more_info_required':
             submission.more_info_requested_at = timezone.now()
@@ -184,6 +219,7 @@ class FormService:
         if extra_data is None:
             extra_data = {}
 
+        display_title = pretty_form_title(submission.form.title) if submission.form else 'Application'
         status_labels = {
             'reviewed': 'Under Review',
             'forwarded': 'Forwarded to Director',
@@ -192,17 +228,17 @@ class FormService:
             'rejected': 'Not Approved',
         }
         title = f"Application Update: {status_labels.get(new_status, new_status.replace('_', ' ').title())}"
-        msg = f"Your application for '{submission.form.title}' status has been updated."
+        msg = f"Your {display_title} status has been updated."
 
         if new_status == 'accepted':
-            msg = f"Congratulations! Your application has been APPROVED for ${submission.amount}."
+            msg = f"Congratulations! Your {display_title} has been APPROVED for ${submission.amount}."
         elif new_status == 'rejected':
-            msg = f"Your application was not approved. Reason: {submission.decision_reason}"
+            msg = f"Your {display_title} was not approved. Reason: {submission.decision_reason}"
         elif new_status == 'more_info_required':
             notes = extra_data.get('notes', '')
-            msg = f"Your application for '{submission.form.title}' requires additional information. {notes}".strip()
+            msg = f"Your {display_title} requires additional information. {notes}".strip()
         elif new_status == 'forwarded':
-            msg = f"Your application for '{submission.form.title}' has been reviewed and forwarded to the Director for final decision."
+            msg = f"Your {display_title} has been reviewed and forwarded to the Director for final decision."
 
         Notification.objects.create(
             user=submission.student,
@@ -218,7 +254,7 @@ class FormService:
         if new_status == 'accepted':
             email_application_approved(
                 student.email, student.full_name,
-                submission.form.title, float(submission.amount or 0),
+                display_title, float(submission.amount or 0),
                 submission_id=submission.id,
             )
             from api.models import PolicySetting
@@ -232,7 +268,7 @@ class FormService:
                     student_name=student.full_name,
                     amount=float(submission.amount or 0),
                     payment_type='Student Funding',
-                    funding_stream=submission.form.title or 'DGGR',
+                    funding_stream=display_title,
                     bank_name=getattr(student, 'bank_name', '') or '',
                     account_number=getattr(student, 'account_number', '') or '',
                     transit_number=getattr(student, 'transit_number', '') or '',
@@ -241,14 +277,14 @@ class FormService:
         elif new_status == 'rejected':
             email_application_rejected(
                 student.email, student.full_name,
-                submission.form.title, submission.decision_reason or '',
+                display_title, submission.decision_reason or '',
                 submission_id=submission.id,
             )
         elif new_status == 'more_info_required':
             notes = extra_data.get('notes', '')
             email_more_info_requested(
                 student.email, student.full_name,
-                submission.form.title, notes
+                display_title, notes
             )
 
     @staticmethod
@@ -361,7 +397,7 @@ class FormService:
                     email_director_approval_request(
                         director_email=director.email,
                         student_name=submission.student.full_name if submission.student else 'Student',
-                        form_title=submission.form.title,
+                        form_title=pretty_form_title(submission.form.title) if submission.form else 'Application',
                         amount=float(submission.amount or 0),
                         submission_id=submission.id,
                     )

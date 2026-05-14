@@ -123,22 +123,22 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
         submissionData.append(`answers[${answers.length - 1}]answer_file`, selectedFiles.enrollment);
       }
 
-      // Sync profile data to ensure Student ID (Beneficiary Number) is updated in the system
-      await API.updateMe({
-        full_name: formData.fullName,
-        beneficiary_number: formData.beneficiaryNumber,
-        email: formData.email,
-        phone: formData.phone,
-        institution_name: formData.institution,
-        program_credential: formData.program,
-        enrollment_status: formData.courseLoad,
-        num_dependents: parseInt(formData.dependents) || 0
-      });
-
-      await API.submitApplication({
-        form_type: 'FormC',
-        form_data: submissionData
-      });
+      await Promise.all([
+        API.updateMe({
+          full_name: formData.fullName,
+          beneficiary_number: formData.beneficiaryNumber,
+          email: formData.email,
+          phone: formData.phone,
+          institution_name: formData.institution,
+          program_credential: formData.program,
+          enrollment_status: formData.courseLoad,
+          num_dependents: parseInt(formData.dependents) || 0
+        }),
+        API.submitApplication({
+          form_type: 'FormC',
+          form_data: submissionData
+        })
+      ]);
       localStorage.removeItem('dgg_autosave_FormC');
       setIsSubmitted(true);
     } catch (err: any) {
@@ -228,19 +228,21 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', background: '#f9f9f9', padding: '12px', borderRadius: '4px', border: '1px solid #eee', marginBottom: '20px' }}>
               <div>
-                <label className="field-label" style={{ fontSize: '9px' }}>Full Name *</label>
-                <input 
-                  className="field-input" 
-                  value={formData.fullName} 
+                <label className="field-label" htmlFor="fc-fullName" style={{ fontSize: '9px' }}>Full Name *</label>
+                <input
+                  id="fc-fullName"
+                  className="field-input"
+                  value={formData.fullName}
                   onChange={(e) => handleInputChange('fullName', e.target.value)}
                   placeholder="Legal Name"
                   style={{ fontSize: '11px', background: '#fff' }}
                 />
               </div>
               <div>
-                <label className="field-label" style={{ fontSize: '9px' }}>Beneficiary # *</label>
-                <input 
-                  className="field-input" 
+                <label className="field-label" htmlFor="fc-beneficiaryNumber" style={{ fontSize: '9px' }}>Beneficiary # *</label>
+                <input
+                  id="fc-beneficiaryNumber"
+                  className="field-input"
                   value={formData.beneficiaryNumber} 
                   onChange={(e) => handleInputChange('beneficiaryNumber', e.target.value)}
                   placeholder="DGG-XXXXX"
@@ -249,9 +251,10 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
                 <div style={{ fontSize: '8px', color: '#64748b', marginTop: '2px' }}>Your DGG citizenship ID</div>
               </div>
               <div>
-                <label className="field-label" style={{ fontSize: '9px' }}>Contact Email *</label>
-                <input 
-                  className="field-input" 
+                <label className="field-label" htmlFor="fc-email" style={{ fontSize: '9px' }}>Contact Email *</label>
+                <input
+                  id="fc-email"
+                  className="field-input"
                   value={formData.email} 
                   onChange={(e) => handleInputChange('email', e.target.value)}
                   placeholder="email@example.com"
@@ -262,19 +265,21 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
 
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr 1fr', gap: '12px' }}>
               <div>
-                <label className="field-label">Institution *</label>
-                <input 
-                  className="field-input" 
-                  value={formData.institution} 
+                <label className="field-label" htmlFor="fc-institution">Institution *</label>
+                <input
+                  id="fc-institution"
+                  className="field-input"
+                  value={formData.institution}
                   onChange={(e) => handleInputChange('institution', e.target.value)}
                   placeholder="University Name"
                   required
                 />
               </div>
               <div>
-                <label className="field-label">Program *</label>
-                <input 
-                  className="field-input" 
+                <label className="field-label" htmlFor="fc-program">Program *</label>
+                <input
+                  id="fc-program"
+                  className="field-input"
                   value={formData.program} 
                   onChange={(e) => handleInputChange('program', e.target.value)}
                   placeholder="Degree Program"
@@ -282,9 +287,10 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
                 />
               </div>
               <div>
-                <label className="field-label">Course Load *</label>
-                <select 
-                  className="field-input" 
+                <label className="field-label" htmlFor="fc-courseLoad">Course Load *</label>
+                <select
+                  id="fc-courseLoad"
+                  className="field-input"
                   value={formData.courseLoad}
                   onChange={(e) => handleInputChange('courseLoad', e.target.value)}
                   style={{ height: '36px', width: '100%' }}
@@ -294,9 +300,10 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
                 </select>
               </div>
               <div>
-                <label className="field-label">Dependents *</label>
-                <input 
-                  className="field-input" 
+                <label className="field-label" htmlFor="fc-dependents">Dependents *</label>
+                <input
+                  id="fc-dependents"
+                  className="field-input"
                   type="number"
                   value={formData.dependents} 
                   onChange={(e) => handleInputChange('dependents', e.target.value)}
@@ -339,9 +346,10 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
                 <span>Confirm declaration <span style={{ color: '#cc0000' }}>*</span></span>
              </label>
              <div>
-                <label className="field-label">Student Signature (Full Name) *</label>
-                <input 
-                  className="field-input" 
+                <label className="field-label" htmlFor="fc-signature">Student Signature (Full Name) *</label>
+                <input
+                  id="fc-signature"
+                  className="field-input"
                   value={formData.signature}
                   onChange={(e) => handleInputChange('signature', e.target.value)}
                   placeholder="Type your name to sign"

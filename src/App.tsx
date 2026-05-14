@@ -9,6 +9,8 @@ import InternalSignIn from './pages/InternalSignIn';
 import HardshipBursary from './pages/Forms/HardshipBursary';
 import FormF from './pages/Forms/FormF';
 import FormG from './pages/Forms/FormG';
+import FormD from './pages/Forms/FormD';
+import AcademicScholarship from './pages/Forms/AcademicScholarship';
 import FormBPublic from './pages/FormBPublic';
 import StandaloneFormWrapper from './components/Forms/StandaloneFormWrapper';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
@@ -63,6 +65,18 @@ function App() {
         <Route path="/forms/graduation" element={
           <StandaloneFormWrapper>
             {(props) => <FormG {...props} />}
+          </StandaloneFormWrapper>
+        } />
+        {/* Appeals (Form D) — public, no login required */}
+        <Route path="/forms/appeal" element={
+          <StandaloneFormWrapper>
+            {(props) => <FormD {...props} onNavigate={() => {}} />}
+          </StandaloneFormWrapper>
+        } />
+        {/* Special Awards / Academic Scholarship — public, no login required */}
+        <Route path="/forms/scholarship" element={
+          <StandaloneFormWrapper>
+            {(props) => <AcademicScholarship {...props} />}
           </StandaloneFormWrapper>
         } />
 

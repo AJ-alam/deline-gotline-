@@ -1,8 +1,12 @@
 import csv
 import io
+import os
+import logging
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from django.conf import settings
 from django.contrib.auth import get_user_model
 User = get_user_model()
 from .models import Profile, Application, Document, AuditLog, UserDocument, Payment, Appeal, ShareableLink
@@ -16,6 +20,8 @@ from users.permissions import IsAdminUser
 import uuid
 from django.utils import timezone
 from datetime import timedelta
+
+logger = logging.getLogger(__name__)
 
 
 def _is_staff(user):
@@ -660,6 +666,203 @@ class PaymentViewSet(viewsets.ModelViewSet):
             'message': f'Successfully dispatched {total_rows} records to Finance and marked them as sent.',
         })
 
+    @action(detail=False, methods=['post'], url_path='dispatch_custom')
+    def dispatch_custom(self, request):
+        """
+        Staff-driven payment dispatch — replaces the .env-locked recipient flow.
+
+        Body JSON
+        ---------
+        recipients   : list[str]   required — one or more finance emails
+        payment_ids  : list[int]   required — payment rows the staff selected
+        notes        : str         optional — free-text note included in email body
+        subject      : str         optional — overrides the default subject line
+
+        Behavior
+        --------
+        - Builds a per-payment CSV (one row per payment) with the full student +
+          banking + enrollment context Finance needs.
+        - Sends to the supplied recipients (CC'ing each other in To header).
+        - Marks the included payments as ISSUED, marks each parent submission
+          as sent_to_finance, and emails the student that funding was processed.
+        - Writes an AuditLog row with the recipient list + record count.
+        """
+        import csv as _csv
+        import io as _io
+        import re as _re
+        from django.utils import timezone as tz
+        from email_sender import send_finance_report_custom, send_funding_processed
+        from api.models import Payment
+        from forms.models import FormSubmission
+
+        body = request.data or {}
+        recipients_raw = body.get('recipients') or []
+        if isinstance(recipients_raw, str):
+            recipients_raw = [recipients_raw]
+        recipients = [str(r).strip() for r in recipients_raw if str(r).strip()]
+        if not recipients:
+            return Response(
+                {'status': 'error', 'message': 'At least one recipient email is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        email_re = _re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+        invalid = [r for r in recipients if not email_re.match(r)]
+        if invalid:
+            return Response(
+                {'status': 'error', 'message': f'Invalid email(s): {", ".join(invalid)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment_ids = body.get('payment_ids') or []
+        if not isinstance(payment_ids, list) or not payment_ids:
+            return Response(
+                {'status': 'error', 'message': 'At least one payment must be selected.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            payment_ids = [int(p) for p in payment_ids]
+        except (TypeError, ValueError):
+            return Response(
+                {'status': 'error', 'message': 'payment_ids must be integers.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        notes = str(body.get('notes') or '').strip()
+        subject = str(body.get('subject') or '').strip()
+
+        payments_qs = (Payment.objects
+                       .filter(id__in=payment_ids)
+                       .select_related('user', 'user__profile', 'submission', 'submission__form', 'application'))
+        if not payments_qs.exists():
+            return Response(
+                {'status': 'error', 'message': 'No matching payment rows found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ── Build the per-STUDENT aggregate CSV ──
+        # Finance only needs: student identity, banking, total amount. Per-payment
+        # detail (type, stream, dates) is intentionally stripped — payment_type is
+        # an internal classification, finance just disburses one lump per student.
+        D = '—'
+        headers = [
+            'Student Full Name', 'Beneficiary #',
+            'Account Holder Name', 'Bank Name',
+            'Transit #', 'Institution #', 'Account #',
+            'Total Amount ($)',
+        ]
+        buf = _io.StringIO()
+        writer = _csv.writer(buf)
+        writer.writerow(headers)
+
+        # Aggregate by student so finance sees one disbursement row per person.
+        from collections import OrderedDict
+        agg: "OrderedDict[int, dict]" = OrderedDict()
+        for p in payments_qs:
+            u = p.user
+            if not u:
+                continue
+            entry = agg.setdefault(u.id, {'user': u, 'total': 0})
+            try:
+                entry['total'] += float(p.amount or 0)
+            except (TypeError, ValueError):
+                pass
+
+        summary_rows = []  # (name, payment_type, formatted_amount) for HTML preview — type left blank
+        for entry in agg.values():
+            u = entry['user']
+            profile = getattr(u, 'profile', None)
+            beneficiary = (u.beneficiary_number or (profile.beneficiary_number if profile else None) or D)
+            writer.writerow([
+                u.full_name or D,
+                beneficiary,
+                u.account_holder_name or u.full_name or D,
+                u.bank_name or D,
+                u.transit_number or D,
+                u.inst_number or D,
+                u.account_number or D,
+                f"{entry['total']:.2f}",
+            ])
+            summary_rows.append((u.full_name or 'Student', '', f"{entry['total']:,.2f}"))
+
+        csv_bytes = buf.getvalue().encode('utf-8')
+
+        triggered_by = getattr(request.user, 'full_name', '') or request.user.email
+
+        ok = send_finance_report_custom(
+            csv_bytes=csv_bytes,
+            recipients=recipients,
+            record_count=len(agg),
+            triggered_by=triggered_by,
+            notes=notes,
+            subject_override=subject,
+            summary_rows=summary_rows,
+        )
+        if not ok:
+            return Response(
+                {'status': 'error', 'message': 'Failed to send email — check server logs.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # ── Post-send: mark payments + parent submissions, notify students ──
+        now = tz.now()
+        payments_qs.filter(status=Payment.Status.PENDING).update(status=Payment.Status.ISSUED)
+
+        # Distinct submissions covered by this dispatch — mark each.
+        sub_ids = list(payments_qs.exclude(submission__isnull=True).values_list('submission_id', flat=True).distinct())
+        if sub_ids:
+            FormSubmission.objects.filter(id__in=sub_ids).update(
+                status='sent_to_finance',
+                finance_sent_at=now,
+                finance_sent_by=request.user,
+            )
+            for sub in FormSubmission.objects.filter(id__in=sub_ids).select_related('student', 'form'):
+                student = sub.student
+                if not student:
+                    continue
+                create_notification(
+                    student,
+                    'Payment Sent to Finance 💰',
+                    f"Your approved funding for '{sub.form.title if sub.form else 'application'}' "
+                    f"(${sub.amount}) has been sent to the Finance Department. "
+                    f"Expect payment within 2–5 working days."
+                )
+                if student.email:
+                    try:
+                        payments = list(sub.payments.filter(status=Payment.Status.ISSUED))
+                        breakdown = ([{'name': p.payment_type, 'amount': float(p.amount)} for p in payments]
+                                     if payments
+                                     else [{'name': sub.form.title if sub.form else 'Application',
+                                            'amount': float(sub.amount or 0)}])
+                        total = sum(b['amount'] for b in breakdown)
+                        send_funding_processed(
+                            student_email=student.email,
+                            student_name=student.full_name,
+                            program_name=sub.form.title if sub.form else 'Application',
+                            semester=(sub.office_use_data or {}).get('semester', ''),
+                            year=(sub.office_use_data or {}).get('year', ''),
+                            total_amount=total,
+                            funding_breakdown=breakdown,
+                        )
+                    except Exception as exc:
+                        import logging
+                        logging.getLogger(__name__).error(
+                            'send_funding_processed failed for submission %s: %s', sub.id, exc
+                        )
+
+        AuditLog.objects.create(
+            action=f"Custom Finance Dispatch — {payments_qs.count()} payment(s)",
+            performed_by=request.user,
+            role=request.user.role,
+            details=f"Recipients: {', '.join(recipients)}; payment_ids={payment_ids}",
+        )
+
+        return Response({
+            'status': 'success',
+            'count': payments_qs.count(),
+            'recipients': recipients,
+            'message': f"Dispatched {payments_qs.count()} payment(s) to {len(recipients)} recipient(s).",
+        })
+
 
 class AppealViewSet(viewsets.ModelViewSet):
     queryset = Appeal.objects.all()
@@ -693,6 +896,14 @@ class UserDocumentViewSet(viewsets.ModelViewSet):
     serializer_class = UserDocumentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    # Accepted file signatures (magic bytes) keyed by extension
+    _MAGIC = {
+        '.pdf':  b'%PDF',
+        '.jpg':  b'\xff\xd8\xff',
+        '.jpeg': b'\xff\xd8\xff',
+        '.png':  b'\x89PNG',
+    }
+
     def get_queryset(self):
         user = self.request.user
         if _is_staff(user):
@@ -702,7 +913,28 @@ class UserDocumentViewSet(viewsets.ModelViewSet):
             return self.queryset.all()
         return self.queryset.filter(user=user)
 
+    def _validate_upload(self, uploaded_file):
+        allowed_extensions = getattr(settings, 'ALLOWED_UPLOAD_EXTENSIONS', ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx'])
+        max_size = getattr(settings, 'FILE_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024)
+
+        ext = os.path.splitext(uploaded_file.name)[1].lower()
+        if ext not in allowed_extensions:
+            raise ValidationError(f"File type '{ext}' is not allowed. Accepted: {', '.join(allowed_extensions)}")
+
+        if uploaded_file.size > max_size:
+            raise ValidationError(f"File exceeds the maximum allowed size of {max_size // (1024 * 1024)} MB.")
+
+        # Magic-byte check for common types to prevent extension spoofing
+        if ext in self._MAGIC:
+            header = uploaded_file.read(8)
+            uploaded_file.seek(0)
+            if not header.startswith(self._MAGIC[ext]):
+                raise ValidationError("File content does not match its extension.")
+
     def perform_create(self, serializer):
+        uploaded_file = self.request.FILES.get('file')
+        if uploaded_file:
+            self._validate_upload(uploaded_file)
         serializer.save(user=self.request.user)
 
 

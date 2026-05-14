@@ -121,6 +121,7 @@ class SubmissionAnswer(models.Model):
     field = models.ForeignKey(FormField, on_delete=models.CASCADE)
     answer_text = models.TextField(blank=True, null=True)
     answer_file = models.FileField(upload_to='submission_files/', blank=True, null=True, max_length=255)
+    original_filename = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
         db_table = 'submission_answers'

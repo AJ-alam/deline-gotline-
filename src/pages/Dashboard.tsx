@@ -12,6 +12,7 @@ import FormH from './Forms/FormH';
 import HardshipBursary from './Forms/HardshipBursary';
 import AcademicScholarship from './Forms/AcademicScholarship';
 import StudentProfile from './StudentProfile';
+import * as Ic from '../components/Icons';
 
 type DashboardView =
   | 'dashboard'
@@ -81,11 +82,20 @@ const Dashboard: React.FC = () => {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [applications, setApplications] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
+  const [isPaymentsLoading, setIsPaymentsLoading] = useState(true);
   const [deadlineSettings, setDeadlineSettings] = useState<Record<string, number>>({});
   const [sysConfig, setSysConfig] = useState<Record<string, string>>({});
-  const [profile, setProfile] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [profile, setProfile] = useState<any>(() => {
+    try { return JSON.parse(localStorage.getItem('dgg_profile_cache') || 'null'); }
+    catch { return null; }
+  });
+  // Start non-loading when we already have cached profile so the shell renders immediately
+  const [isLoading, setIsLoading] = useState(() => {
+    try { return !localStorage.getItem('dgg_profile_cache'); }
+    catch { return true; }
+  });
   const [documents, setDocuments] = useState<any[]>([]);
+  const [isDocumentsLoading, setIsDocumentsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
   const [showPaperFormsModal, setShowPaperFormsModal] = useState(false);
@@ -221,6 +231,7 @@ const Dashboard: React.FC = () => {
 
     const userPromise = API.getMe().then((resp: any) => {
       setProfile(resp);
+      try { localStorage.setItem('dgg_profile_cache', JSON.stringify(resp)); } catch {}
     }).catch(() => {});
 
     const notifsPromise = API.getNotifications().then((resp: any) => {
@@ -230,20 +241,30 @@ const Dashboard: React.FC = () => {
     const paymentsPromise = API.getPayments().then((resp: any) => {
       const list = Array.isArray(resp) ? resp : (resp?.results || []);
       setPayments(list);
-    }).catch(() => { });
+    }).catch(() => { }).finally(() => setIsPaymentsLoading(false));
 
     const policyPromise = API.getPolicySettings().then((resp: any) => {
       const deadlines = (resp?.application_deadlines || []) as any[];
       const dlMap: Record<string, number> = {};
       for (const item of deadlines) {
-        dlMap[item.field_key] = Number(item.value);
+        dlMap[item.field_key] = Number(item.value); // month (1-12)
+        const day = parseInt(item.unit);
+        dlMap[item.field_key + '_day'] = (!isNaN(day) && day > 0) ? day : 1;
       }
       setDeadlineSettings(dlMap);
 
       const sysItems = (resp?.system_config || []) as any[];
       const cfgMap: Record<string, string> = {};
       for (const item of sysItems) {
-        cfgMap[item.field_key] = item.unit || String(item.value);
+        // Seed convention: numeric settings (travel_claim_days, book_allowance, …)
+        // store the number in `value` and a label in `unit`. Text settings
+        // (contact_email, contact_phone, …) store value=0 and the actual string
+        // in `unit`. Prefer the numeric value when it's a real, non-zero number;
+        // otherwise fall back to unit. This makes the substitution match what
+        // the admin edits in Policy Settings.
+        const num = parseFloat(item.value);
+        const useValue = Number.isFinite(num) && num !== 0;
+        cfgMap[item.field_key] = useValue ? String(item.value) : (item.unit || String(item.value ?? ''));
       }
       setSysConfig(cfgMap);
     }).catch(() => { });
@@ -257,11 +278,10 @@ const Dashboard: React.FC = () => {
       : Promise.resolve();
 
     try {
-      // Wait for essential data first (user and submissions)
+      // Run all requests fully in parallel — submissions and user are "essential",
+      // the rest populate in the background without blocking the render.
       await Promise.all([subsPromise, userPromise]);
       setIsLoading(false);
-      
-      // Load non-essential data in background
       Promise.allSettled([notifsPromise, paymentsPromise, policyPromise, formsPromise]);
     } catch (err: any) {
       console.error('Failed to fetch dashboard data:', err);
@@ -273,18 +293,31 @@ const Dashboard: React.FC = () => {
   };
 
   // \u2500\u2500 POLLING FOR REAL-TIME UPDATES \u2500\u2500
+  // Skip polls while the tab is hidden; refresh once on re-visibility.
   useEffect(() => {
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 60000); // 60-second polling (reduced from 15s)
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchDashboardData();
+    }, 60000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchDashboardData();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const fetchDocuments = async () => {
+    setIsDocumentsLoading(true);
     try {
       const resp = await API.getUserDocuments();
       setDocuments(Array.isArray(resp) ? resp : []);
     } catch (err) {
       console.error('Failed to fetch documents:', err);
+    } finally {
+      setIsDocumentsLoading(false);
     }
   };
 
@@ -364,17 +397,17 @@ const Dashboard: React.FC = () => {
 
   const getJourneyStage = () => {
     if (applications.length === 0) {
-      return { title: '1. Getting Started', milestone: '📄 Start Admission Application to begin', pips: [true, false, false] };
+      return { title: '1. Getting Started', milestone: 'Start Admission Application to begin', pips: [true, false, false] };
     }
 
     const latest = applications[0]; // Ordered by -submitted_at in backend
 
-    if (latest.status === 'accepted') return { title: '4. Funding Active', milestone: '✅ Disbursement Phase', pips: [true, true, true] };
-    if (latest.status === 'rejected') return { title: 'Policy Notice', milestone: '❌ Application Rejected', pips: [true, true, true] };
-    if (latest.status === 'forwarded') return { title: '3. Final Approval', milestone: '⚖️ In Director Queue', pips: [true, true, true] };
-    if (latest.status === 'reviewed') return { title: '2. Review Process', milestone: '⏳ SSW Reviewed', pips: [true, true, false] };
+    if (latest.status === 'accepted') return { title: '4. Funding Active', milestone: 'Disbursement Phase', pips: [true, true, true] };
+    if (latest.status === 'rejected') return { title: 'Policy Notice', milestone: 'Application Rejected', pips: [true, true, true] };
+    if (latest.status === 'forwarded') return { title: '3. Final Approval', milestone: 'In Director Queue', pips: [true, true, true] };
+    if (latest.status === 'reviewed') return { title: '2. Review Process', milestone: 'SSW Reviewed', pips: [true, true, false] };
 
-    return { title: '1. Submitted', milestone: '📄 Awaiting Staff Review', pips: [true, false, false] };
+    return { title: '1. Submitted', milestone: 'Awaiting Staff Review', pips: [true, false, false] };
   };
 
   const stage = getJourneyStage();
@@ -382,6 +415,8 @@ const Dashboard: React.FC = () => {
   const handleLogout = () => {
     localStorage.removeItem('dgg_token');
     localStorage.removeItem('dgg_refresh');
+    localStorage.removeItem('dgg_role');
+    localStorage.removeItem('dgg_profile_cache');
     navigate('/signin');
   };
 
@@ -391,6 +426,7 @@ const Dashboard: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [showToast]);
+
 
   const handleFormComplete = async (_label?: string) => {
     setShowToast(`✓ Submission successful · You will receive an email confirmation`);
@@ -459,8 +495,7 @@ const Dashboard: React.FC = () => {
 
         <div className="sidebar-section-title">Main</div>
         {renderSidebarNav('dashboard', 'Dashboard', <Icons.Home />)}
-        {renderSidebarNav('profile', 'My Profile', <Icons.Info />)}
-        {renderSidebarNav('applications', 'My Applications', <Icons.Files />)}
+        {renderSidebarNav('applications', 'My Applications', <Ic.Clipboard size={14} />)}
         {renderSidebarNav('payments', 'My Payments', <Icons.Payments />)}
         {renderSidebarNav('documents', 'My Documents', <Icons.Documents />)}
         {renderSidebarNav('notifications', 'Notifications', <Icons.Bell />)}
@@ -476,25 +511,25 @@ const Dashboard: React.FC = () => {
             return title.includes('admission') || title.includes('form a') || type.includes('psssp') || type.includes('form a');
           });
           const shouldShow = !admissionApp || admissionApp.status === 'rejected';
-          return shouldShow ? renderSidebarNav('admission', 'Admission Application', <Icons.Files />) : null;
+          return shouldShow ? renderSidebarNav('admission', 'Admission Application', <Ic.FileEdit size={14} />) : null;
         })()}
-        {renderSidebarNav('continuing-funding', 'Continuing Funding', <Icons.Files />)}
-        {renderSidebarNav('information-update', 'Information Update', <Icons.Files />)}
+        {renderSidebarNav('continuing-funding', 'Continuing Funding', <Ic.DollarSign size={14} />)}
+        {renderSidebarNav('information-update', 'Information Update', <Ic.User size={14} />)}
 
         <div className="sidebar-divider"></div>
 
         <div className="sidebar-section-title">Claims</div>
-        {renderSidebarNav('travel-claim', 'Travel Claim', <Icons.Files />)}
-        {renderSidebarNav('practicum-report', 'Practicum Report', <Icons.Files />)}
-        {renderSidebarNav('graduation-award', 'Graduation Award', <Icons.Files />)}
-        {renderSidebarNav('appeal-request', 'Appeal Request', <Icons.Files />)}
+        {renderSidebarNav('travel-claim', 'Travel Claim', <Ic.MapPin size={14} />)}
+        {renderSidebarNav('practicum-report', 'Practicum Report', <Ic.BookOpen size={14} />)}
+        {renderSidebarNav('graduation-award', 'Graduation Award', <Ic.GraduationCap size={14} />)}
+        {renderSidebarNav('appeal-request', 'Appeal Request', <Ic.Scale size={14} />)}
 
 
         <div className="sidebar-divider"></div>
 
         <div className="sidebar-section-title">Special</div>
-        {renderSidebarNav('scholarship', 'Academic Scholarship', <Icons.Files />)}
-        {renderSidebarNav('hardship', 'Hardship Bursary', <Icons.Files />)}
+        {renderSidebarNav('scholarship', 'Academic Scholarship', <Ic.Star size={14} />)}
+        {renderSidebarNav('hardship', 'Hardship Bursary', <Ic.AlertTriangle size={14} />)}
 
         <div className="sidebar-divider"></div>
 
@@ -518,7 +553,7 @@ const Dashboard: React.FC = () => {
           <div className="round-menu-bar desktop-only">
             <span className="top-nav-link" onClick={() => handleNavClick('dashboard')}>Home</span>
             <span className="top-nav-link" onClick={() => handleNavClick('applications')}>My Applications</span>
-            <span className="top-nav-link" onClick={() => handleNavClick('payments')}>Payments</span>
+            <span className="top-nav-link" onClick={() => handleNavClick('profile')}>Profile</span>
             <span className="top-nav-link" onClick={() => handleNavClick('notifications')}>
               Notifications {unreadCount > 0 && <span className="nav-badge">{unreadCount}</span>}
             </span>
@@ -529,21 +564,18 @@ const Dashboard: React.FC = () => {
           <div className="deadline-bar">
             {(() => {
               const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-              const fallMonth = deadlineSettings['fall_deadline'];
-              const winterMonth = deadlineSettings['winter_deadline'];
+              const fmt = (key: string, fallbackMonth: number, fallbackDay: number) => {
+                const m = deadlineSettings[key] || fallbackMonth;
+                const d = deadlineSettings[key + '_day'] || fallbackDay;
+                return `${monthNames[m]} ${d}`;
+              };
               return (
                 <>
-                  {fallMonth ? (
-                    <span className="dl-item"><span className="dl-label">Fall deadline</span><span className="dl-date">{monthNames[fallMonth]} 1</span></span>
-                  ) : (
-                    <span className="dl-item"><span className="dl-label">Fall deadline</span><span className="dl-date">Aug 1</span></span>
-                  )}
+                  <span className="dl-item"><span className="dl-label">Fall deadline</span><span className="dl-date">{fmt('fall_deadline', 8, 1)}</span></span>
                   <span className="dl-sep">·</span>
-                  {winterMonth ? (
-                    <span className="dl-item"><span className="dl-label">Winter</span><span className="dl-date">{monthNames[winterMonth]} 1</span></span>
-                  ) : (
-                    <span className="dl-item"><span className="dl-label">Winter</span><span className="dl-date">Dec 1</span></span>
-                  )}
+                  <span className="dl-item"><span className="dl-label">Winter deadline</span><span className="dl-date">{fmt('winter_deadline', 12, 1)}</span></span>
+                  <span className="dl-sep">·</span>
+                  <span className="dl-item"><span className="dl-label">Spring deadline</span><span className="dl-date">{fmt('spring_deadline', 4, 1)}</span></span>
                   <span className="dl-sep">·</span>
                   <span className="dl-item"><span className="dl-label">Travel claims</span><span className="dl-urgent">within {sysConfig['travel_claim_days'] || '30'} days of travel</span></span>
                 </>
@@ -566,14 +598,14 @@ const Dashboard: React.FC = () => {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                    <button className="btn-ghost" onClick={() => setShowPaperFormsModal(true)} style={{ padding: '10px 20px', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-                      📄 Download Paper Forms
+                    <button className="btn-ghost" onClick={() => setShowPaperFormsModal(true)} style={{ padding: '10px 20px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Ic.Download size={14} /> Download Paper Forms
                     </button>
                     <button className="btn-primary" onClick={() => handleNavClick('admission')} style={{ borderRadius: '8px' }}>+ Start Your Application</button>
                   </div>
                 </div>
                 <div className="view-body">
-                  {applications.length === 0 && (
+                  {/* {applications.length === 0 && (
                     <div className="welcome-alert">
                       <div className="welcome-alert-main">
                         <div className="welcome-icon-wrap"><Icons.Info /></div>
@@ -587,7 +619,7 @@ const Dashboard: React.FC = () => {
                         <button className="btn-ghost welcome-btn" style={{ borderColor: '#bee3f8', color: '#2b6cb0', fontWeight: '700' }} onClick={() => handleNavClick('information-update')}>Report a Change</button>
                       </div>
                     </div>
-                  )}
+                  )} */}
 
 
                   <div className="journey-progress-bar fade-in">
@@ -665,7 +697,7 @@ const Dashboard: React.FC = () => {
                         <div className="form-card-inner">
                           <div className="form-card-header">
                             <span className="form-tag" style={{ background: '#ebf8ff', color: '#2b6cb0', border: '1px solid #bee3f8' }}>Enrolment</span>
-                            <span style={{ fontSize: '8px', color: '#dd6b20', fontWeight: '700' }}>⏳ Tracking Active</span>
+                            <span style={{ fontSize: '11px', color: '#dd6b20', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '4px' }}><Ic.Clock size={11} /> Tracking Active</span>
                           </div>
                           <div className="form-card-title">Enrolment Verification</div>
                           <div className="form-card-desc">Registrar verification. Generated automatically after your application is submitted.</div>
@@ -732,7 +764,7 @@ const Dashboard: React.FC = () => {
                     )}
                   </div>
                   <div className="paper-forms-alert fade-in">
-                    <div className="paper-icon">🖨️</div>
+                    <div className="paper-icon"><Ic.Printer size={24} /></div>
                     <div className="paper-text">
                       <div className="paper-text-title">Refer to Paper Forms?</div>
                       <div className="paper-text-desc">
@@ -808,8 +840,8 @@ const Dashboard: React.FC = () => {
                                           : app.status === 'more_info_required' ? '#fed7aa'
                                             : '#bae6fd'}`
                                   }}>
-                                    {app.status === 'more_info_required' ? '⚠ ACTION REQUIRED'
-                                      : app.status === 'sent_to_finance' ? '💰 SENT TO FINANCE'
+                                    {app.status === 'more_info_required' ? 'ACTION REQUIRED'
+                                      : app.status === 'sent_to_finance' ? 'SENT TO FINANCE'
                                         : app.status.toUpperCase()}
                                   </span>
                                 </td>
@@ -851,7 +883,7 @@ const Dashboard: React.FC = () => {
                                         }
                                       }}
                                     >
-                                      📄 PDF
+                                      <Ic.Download size={12} /> PDF
                                     </button>
                                   </div>
                                 </td>
@@ -908,17 +940,46 @@ const Dashboard: React.FC = () => {
                     const pendingTotal = pendingPayments.reduce((s: number, p: any) => s + parseFloat(p.amount || 0), 0);
                     const authorizedTotal = getApprovedTotal();
                     const remaining = Math.max(0, authorizedTotal - paidTotal);
+                    const kpiVal = (v: number) => isPaymentsLoading
+                      ? <span className="skeleton skeleton-line-lg" style={{ width: '80%' }} aria-hidden>·</span>
+                      : `$${v.toLocaleString()}`;
                     return (
                       <>
                         <div className="kpi-row">
-                          <div className="kpi-card"><div className="kpi-val">${authorizedTotal.toLocaleString()}</div><div className="kpi-label">Authorized Total</div></div>
-                          <div className="kpi-card"><div className="kpi-val">${paidTotal.toLocaleString()}</div><div className="kpi-label">Paid To Date</div></div>
-                          <div className="kpi-card"><div className="kpi-val">${remaining.toLocaleString()}</div><div className="kpi-label">Remaining Balance</div></div>
-                          <div className="kpi-card"><div className="kpi-val">${pendingTotal.toLocaleString()}</div><div className="kpi-label">Upcoming Scheduled</div></div>
+                          <div className="kpi-card"><div className="kpi-val">{kpiVal(authorizedTotal)}</div><div className="kpi-label">Authorized Total</div></div>
+                          <div className="kpi-card"><div className="kpi-val">{kpiVal(paidTotal)}</div><div className="kpi-label">Paid To Date</div></div>
+                          <div className="kpi-card"><div className="kpi-val">{kpiVal(remaining)}</div><div className="kpi-label">Remaining Balance</div></div>
+                          <div className="kpi-card"><div className="kpi-val">{kpiVal(pendingTotal)}</div><div className="kpi-label">Upcoming Scheduled</div></div>
                         </div>
                         <div className="sec-card">
-                          <div className="sec-head"><span className="sec-title">Payment History & Schedule</span></div>
-                          {payments.length === 0 ? (
+                          <div className="sec-head">
+                            <span className="sec-title">Payment History & Schedule</span>
+                            {isPaymentsLoading && (
+                              <span className="ui-loading-inline"><span className="ui-spinner ui-spinner-sm" /> Loading…</span>
+                            )}
+                          </div>
+                          {isPaymentsLoading ? (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }} aria-busy="true">
+                              <thead>
+                                <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b', fontSize: '11px', textTransform: 'uppercase' }}>
+                                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700' }}>Date</th>
+                                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700' }}>Type</th>
+                                  <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: '700' }}>Amount</th>
+                                  <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: '700' }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[0, 1, 2, 3].map(i => (
+                                  <tr key={`skel-${i}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                    <td style={{ padding: '12px' }}><span className="skeleton skeleton-line-sm" style={{ width: '70%' }} aria-hidden>·</span></td>
+                                    <td style={{ padding: '12px' }}><span className="skeleton skeleton-line" style={{ width: `${55 + (i * 11) % 30}%` }} aria-hidden>·</span></td>
+                                    <td style={{ padding: '12px', textAlign: 'right' }}><span className="skeleton skeleton-line" style={{ width: '55%' }} aria-hidden>·</span></td>
+                                    <td style={{ padding: '12px' }}><span className="skeleton skeleton-badge" style={{ width: '60px' }} aria-hidden>·</span></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : payments.length === 0 ? (
                             <div className="empty-state">
                               <Icons.Payments />
                               <div className="empty-title">No Payments Yet</div>
@@ -1023,7 +1084,7 @@ const Dashboard: React.FC = () => {
                       }
                     }}
                   >
-                    📄 Download PDF
+                    <Ic.Download size={14} /> Download PDF
                   </button>
                 </div>
                 <div className="view-body">
@@ -1068,7 +1129,7 @@ const Dashboard: React.FC = () => {
                   {selectedApplication.status === 'more_info_required' && (
                     <div className="sec-card" style={{ borderLeft: '4px solid #f97316' }}>
                       <div className="sec-head">
-                        <span className="sec-title" style={{ color: '#c2410c' }}>⚠ Action Required — Additional Information Needed</span>
+                        <span className="sec-title" style={{ color: '#c2410c', display: 'flex', alignItems: 'center', gap: '6px' }}><Ic.AlertTriangle size={14} /> Action Required — Additional Information Needed</span>
                       </div>
                       <div style={{ padding: '0 20px 20px' }}>
 
@@ -1090,7 +1151,7 @@ const Dashboard: React.FC = () => {
                         {/* Already responded */}
                         {(selectedApplication.more_info_responded_at || infoResponseSuccess) ? (
                           <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '16px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '16px', marginBottom: '8px' }}>✅</div>
+                            <div style={{ marginBottom: '8px', color: '#166534' }}><Ic.CheckCircle size={16} /></div>
                             <div style={{ fontWeight: '700', color: '#166534', marginBottom: '4px' }}>Response Submitted</div>
                             <div style={{ fontSize: '12px', color: '#4ade80' }}>
                               Your information has been sent to the Education Department. Your application is now back under review.
@@ -1113,7 +1174,7 @@ const Dashboard: React.FC = () => {
                               Upload Supporting Documents (optional)
                             </div>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', border: '2px dashed #d1d5db', borderRadius: '8px', cursor: 'pointer', marginBottom: '8px', background: '#f9fafb' }}>
-                              <span style={{ fontSize: '20px' }}>📎</span>
+                              <Ic.Paperclip size={20} />
                               <span style={{ fontSize: '13px', color: '#6b7280' }}>
                                 {infoResponseFiles.length > 0 ? `${infoResponseFiles.length} file(s) selected` : 'Click to attach files (PDF, JPG, PNG)'}
                               </span>
@@ -1129,7 +1190,7 @@ const Dashboard: React.FC = () => {
                               <div style={{ marginBottom: '16px' }}>
                                 {infoResponseFiles.map((f, i) => (
                                   <div key={i} style={{ fontSize: '11px', color: '#374151', padding: '4px 8px', background: '#f3f4f6', borderRadius: '4px', marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>📄 {f.name}</span>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Ic.FileText size={11} /> {f.name}</span>
                                     <button
                                       onClick={() => setInfoResponseFiles(prev => prev.filter((_, idx) => idx !== i))}
                                       style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '12px' }}
@@ -1191,7 +1252,7 @@ const Dashboard: React.FC = () => {
                   {selectedApplication.status === 'rejected' && (
                     <div className="sec-card" style={{ borderLeft: '4px solid #ef4444' }}>
                       <div className="sec-head">
-                        <span className="sec-title" style={{ color: '#991b1b' }}>❌ Application Rejected</span>
+                        <span className="sec-title" style={{ color: '#991b1b', display: 'flex', alignItems: 'center', gap: '6px' }}><Ic.XCircle size={14} /> Application Rejected</span>
                       </div>
                       <div style={{ padding: '0 20px 20px' }}>
                         {selectedApplication.decision_reason ? (
@@ -1243,10 +1304,45 @@ const Dashboard: React.FC = () => {
                   <div className="sec-card">
                     <div className="sec-head">
                       <span className="sec-title">Uploaded Files</span>
-                      <span className="sec-meta">{documents.length} document(s)</span>
+                      <span className="sec-meta">
+                        {isDocumentsLoading
+                          ? <span className="ui-loading-inline"><span className="ui-spinner ui-spinner-sm" /> Loading…</span>
+                          : `${documents.length} document(s)`}
+                      </span>
                     </div>
                     <div className="table-wrap">
-                      {documents.length > 0 ? (
+                      {isDocumentsLoading ? (
+                        <table className="data-table" aria-busy="true">
+                          <thead>
+                            <tr>
+                              <th>Name</th>
+                              <th>Category</th>
+                              <th>Uploaded</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[0, 1, 2, 3].map(i => (
+                              <tr key={`skel-${i}`}>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span className="skeleton" style={{ width: '18px', height: '18px', borderRadius: '4px' }} aria-hidden>·</span>
+                                    <span className="skeleton skeleton-line" style={{ width: `${55 + (i * 9) % 35}%` }} aria-hidden>·</span>
+                                  </div>
+                                </td>
+                                <td><span className="skeleton skeleton-badge" style={{ width: '62px' }} aria-hidden>·</span></td>
+                                <td><span className="skeleton skeleton-line-xs" style={{ width: '60%' }} aria-hidden>·</span></td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '10px' }}>
+                                    <span className="skeleton" style={{ width: '40px', height: '22px', borderRadius: '4px' }} aria-hidden>·</span>
+                                    <span className="skeleton" style={{ width: '48px', height: '22px', borderRadius: '4px' }} aria-hidden>·</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : documents.length > 0 ? (
                         <table className="data-table">
                           <thead>
                             <tr>
@@ -1394,7 +1490,7 @@ const Dashboard: React.FC = () => {
                 <div className="view-content fade-in">
                   {isRejected && (
                     <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderLeft: '4px solid #ef4444', borderRadius: '8px', padding: '20px', marginBottom: '24px' }}>
-                      <div style={{ fontWeight: '800', fontSize: '13px', color: '#991b1b', marginBottom: '8px' }}>⚠ Previous Application Rejected</div>
+                      <div style={{ fontWeight: '800', fontSize: '13px', color: '#991b1b', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}><Ic.AlertTriangle size={13} /> Previous Application Rejected</div>
                       <div style={{ fontSize: '13px', color: '#7f1d1d', lineHeight: '1.6' }}>
                         Your previous Admission Application (Ref #{admissionApp.id.toString().padStart(6, '0')}) was rejected by the Director.
                       </div>
@@ -1504,7 +1600,7 @@ const Dashboard: React.FC = () => {
       {errorPopup && (
         <div className="error-popup-overlay" onClick={() => setErrorPopup(null)}>
           <div className="error-popup" onClick={e => e.stopPropagation()}>
-            <div className="error-popup-icon">⚠️</div>
+            <div className="error-popup-icon"><Ic.AlertTriangle size={24} /></div>
             <div className="error-popup-title">Upload Failed</div>
             <div className="error-popup-message">{errorPopup}</div>
             <button className="error-popup-close" onClick={() => setErrorPopup(null)}>Dismiss</button>
@@ -1512,50 +1608,12 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* Forced Form A Modal for New Students */}
-      {!isLoading && !isFirstTimeCheck && !hasFormA && currentView !== 'admission' && (
-        <div className="modal-overlay" style={{ zIndex: 5000, background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(10px)' }}>
-          <div className="modal-card animate-slide-in" style={{ maxWidth: '500px', textAlign: 'center', padding: '48px 40px', border: '2px solid #475569', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)', background: '#1e293b' }}>
-            <h2 style={{ fontSize: '28px', fontWeight: '900', color: '#ffffff', marginBottom: '20px', textTransform: 'uppercase', letterSpacing: '1px' }}>Welcome to the DGG Portal</h2>
-            <p style={{ fontSize: '16px', color: '#cbd5e1', lineHeight: '1.6', marginBottom: '32px', fontWeight: '500' }}>
-              To unlock your student dashboard and establish your funding eligibility, you must first complete the <strong>Admission Application (Form A)</strong>.
-            </p>
-            <div style={{ background: '#0f172a', borderRadius: '12px', padding: '24px', marginBottom: '36px', textAlign: 'left', border: '1px solid #334155' }}>
-              <div style={{ fontWeight: '800', color: '#f1f5f9', marginBottom: '12px', fontSize: '15px', textDecoration: 'underline' }}>REQUIRED STEPS:</div>
-              <ul style={{ fontSize: '14px', color: '#94a3b8', margin: 0, paddingLeft: '20px', lineHeight: '1.7', fontWeight: '600' }}>
-                <li>Identify your primary funding stream</li>
-                <li>Auto-fill your student profile details</li>
-                <li>Generate your enrollment verification</li>
-              </ul>
-            </div>
-            <button 
-              className="btn-primary" 
-              style={{ 
-                width: '100%', 
-                padding: '18px', 
-                fontSize: '16px', 
-                fontWeight: '800', 
-                borderRadius: '8px', 
-                background: '#e5e7eb', // Professional Beige/Grey
-                color: '#1e293b', 
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.2)',
-                border: 'none',
-                cursor: 'pointer',
-                textTransform: 'uppercase'
-              }} 
-              onClick={() => handleNavClick('admission')}
-            >
-              Start Admission Application
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Submitted Form Restriction Modal */}
       {submittedFormPopup && (
         <div className="modal-overlay" style={{ zIndex: 3000 }}>
           <div className="modal-card" style={{ maxWidth: '450px', textAlign: 'center', padding: '40px 32px' }}>
-             <div style={{ fontSize: '48px', marginBottom: '20px' }}>📄</div>
+             <div style={{ marginBottom: '20px', color: '#1e293b' }}><Ic.FileText size={48} /></div>
              <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#1e293b', marginBottom: '12px' }}>Already Submitted</h2>
              <p style={{ fontSize: '14px', color: '#64748b', lineHeight: '1.6', marginBottom: '24px' }}>
                Your <strong>{submittedFormPopup}</strong> has already been submitted and is currently being reviewed by DGG staff. You cannot submit another until a decision has been reached.
@@ -1606,7 +1664,7 @@ const Dashboard: React.FC = () => {
                 marginBottom: '20px' 
               }}>
                 <div style={{ fontSize: '12px', color: '#1e40af', lineHeight: '1.6' }}>
-                  <strong>📍 Mail or deliver completed forms to:</strong><br />
+                  <strong>Mail or deliver completed forms to:</strong><br />
                   <div style={{ marginTop: '8px', paddingLeft: '20px' }}>
                     Department of Education, Délı̨nę Got'ı̨nę Government<br />
                     P.O. Box 156 Délı̨nę, NT X0E 0G0<br />
@@ -1675,7 +1733,7 @@ const Dashboard: React.FC = () => {
                           }
                         }}
                       >
-                        📄 Download PDF
+                        <Ic.Download size={14} /> Download PDF
                       </button>
                     </div>
                   ))
@@ -1695,7 +1753,7 @@ const Dashboard: React.FC = () => {
               alignItems: 'center'
             }}>
               <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
-                📄 PDFs are pre-formatted for standard letter paper
+                PDFs are pre-formatted for standard letter paper
               </div>
               <button 
                 className="btn-primary" 

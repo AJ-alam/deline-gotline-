@@ -3,7 +3,7 @@ from rest_framework import viewsets, permissions, status, decorators, parsers
 from django.http import HttpResponse
 
 from forms.models import Form, FormSubmission, SubmissionNote
-from forms.serializers import FormSerializer, FormSubmissionSerializer, SubmissionNoteSerializer
+from forms.serializers import FormSerializer, FormSubmissionSerializer, FormSubmissionListSerializer, SubmissionNoteSerializer
 from api.services.form_service import FormService
 from api.services.eligibility_service import EligibilityService
 from api.services.duplicate_detection_service import DuplicateDetectionService
@@ -25,7 +25,11 @@ class FormController(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAdminUser()]
-        if self.action == 'submit':
+        # Submit, list, and retrieve are public so guest applicants (Hardship,
+        # Practicum, Graduation, Appeals, Special Awards) can discover the form
+        # template and post without logging in. All write actions still require
+        # admin auth above.
+        if self.action in ['submit', 'list', 'retrieve']:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
@@ -63,39 +67,48 @@ class FormController(viewsets.ModelViewSet):
 
     @decorators.action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
+        try:
+            return self._submit_inner(request, pk)
+        except Exception as e:
+            logger.exception("Unhandled exception in submit view for form pk=%s user=%s: %s",
+                             pk, getattr(request.user, 'email', '?'), e)
+            return api_response(False, None, f"Submission failed: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _submit_inner(self, request, pk):
         form = self.get_object()
-        data = request.data.dict() if hasattr(request.data, 'dict') else request.data.copy()
+        data = request.data.dict() if hasattr(request.data, 'dict') else dict(request.data)
         data['form'] = form.id
 
         # Check if this is Form A and if user already has a non-rejected submission
         if request.user.is_authenticated:
             form_title_lower = form.title.lower()
-            is_form_a = 'form a' in form_title_lower or 'forma' in form_title_lower or 'psssp' in form_title_lower or 'admission' in form_title_lower
-            
+            is_form_a = ('form a' in form_title_lower or 'forma' in form_title_lower
+                         or 'psssp' in form_title_lower or 'admission' in form_title_lower)
+
             if is_form_a:
-                # Check for existing Form A submissions that are not rejected
                 existing_submission = FormSubmission.objects.filter(
                     student=request.user,
                     form=form
                 ).exclude(status='rejected').first()
-                
+
                 if existing_submission:
-                    logger.warning(f"User {request.user.email} attempted to resubmit Form A (existing submission: {existing_submission.id})")
+                    logger.warning("User %s attempted to resubmit Form A (existing submission: %s)",
+                                   request.user.email, existing_submission.id)
                     return api_response(
-                        False, 
+                        False,
                         {'existing_submission_id': existing_submission.id},
                         "You have already submitted this form. Only one Form A submission is allowed unless your previous submission was rejected.",
                         status.HTTP_400_BAD_REQUEST
                     )
 
-        # Map FormData indexed answers
+        # Map FormData indexed answers (multipart/form-data)
         if 'answers[0]field_label' in data:
             answers = []
             i = 0
             while f'answers[{i}]field_label' in data:
                 ans = {
                     'field_label': data.get(f'answers[{i}]field_label'),
-                    'answer_text': data.get(f'answers[{i}]answer_text'),
+                    'answer_text': data.get(f'answers[{i}]answer_text') or '',
                 }
                 file_key = f'answers[{i}]answer_file'
                 if file_key in request.FILES:
@@ -104,32 +117,59 @@ class FormController(viewsets.ModelViewSet):
                 i += 1
             data['answers'] = answers
 
-        logger.debug(f"Form submission attempt for form {form.id} by user {request.user.email if request.user.is_authenticated else 'Anonymous'}")
+        logger.info("Submit attempt: form=%s user=%s answers=%d",
+                    form.id, getattr(request.user, 'email', '?'), len(data.get('answers', [])))
+
         serializer = FormSubmissionSerializer(data=data, context={'request': request})
-        if serializer.is_valid():
+        if not serializer.is_valid():
+            logger.warning("Submission validation failed for user %s: %s",
+                           getattr(request.user, 'email', '?'), serializer.errors)
+            return api_response(False, serializer.errors, "Submission failed", status.HTTP_400_BAD_REQUEST)
+
+        user = request.user if request.user.is_authenticated else None
+        try:
+            submission = serializer.save(form=form, student=user)
+        except Exception as e:
+            logger.error("Error saving submission for user %s: %s", getattr(user, 'email', '?'), e, exc_info=True)
+            return api_response(False, None, f"Could not save submission: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        logger.info("Submission %s created for user %s", submission.id, getattr(user, 'email', '?'))
+
+        # Send notifications in background — don't block the HTTP response
+        import threading
+        submission_id = submission.id
+        def _notify():
             try:
-                user = request.user if request.user.is_authenticated else None
-                submission = serializer.save(form=form, student=user)
-                logger.info(f"Successfully created submission {submission.id} for user {user.email if user else 'Anonymous'}")
-                FormService.send_submission_notifications(submission)
-                # Reload with prefetch to avoid N+1 in response serialization
-                submission = FormSubmission.objects.select_related(
-                    'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
-                ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
-                return api_response(True, FormSubmissionSerializer(submission, context={'request': request}).data, "Form submitted successfully", status.HTTP_201_CREATED)
-            except Exception as e:
-                logger.error(f"Error during submission save/notify: {str(e)}", exc_info=True)
-                return api_response(False, str(e), "Internal error during submission", status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        logger.warning(f"Submission validation failed for user {request.user.email}: {serializer.errors}")
-        logger.debug(f"Failed data: {data}")
-        return api_response(False, serializer.errors, "Submission failed", status.HTTP_400_BAD_REQUEST)
+                sub = FormSubmission.objects.select_related(
+                    'form', 'student'
+                ).prefetch_related('answers__field').get(pk=submission_id)
+                FormService.send_submission_notifications(sub)
+            except Exception as exc:
+                logger.error("Background notification failed for submission %s: %s", submission_id, exc, exc_info=True)
+        threading.Thread(target=_notify, daemon=True).start()
+
+        # Reload with prefetch to avoid N+1 in response serialization
+        try:
+            submission = FormSubmission.objects.select_related(
+                'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
+            ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
+            resp_data = FormSubmissionSerializer(submission, context={'request': request}).data
+        except Exception as e:
+            logger.error("Error serializing submission %s after save: %s", submission_id, e, exc_info=True)
+            return api_response(True, {'id': submission_id}, "Form submitted successfully", status.HTTP_201_CREATED)
+
+        return api_response(True, resp_data, "Form submitted successfully", status.HTTP_201_CREATED)
 
 
 class SubmissionController(viewsets.ModelViewSet):
     queryset = FormSubmission.objects.all()
     serializer_class = FormSubmissionSerializer
-    
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return FormSubmissionListSerializer
+        return FormSubmissionSerializer
+
     def get_permissions(self):
         # Directors can only approve/reject (update_status) — not SSW-only actions
         director_allowed = ['update_status', 'respond_info']
@@ -153,14 +193,25 @@ class SubmissionController(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = FormSubmission.objects.select_related(
-            'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by',
-            'more_info_requested_by'
-        ).prefetch_related(
-            'answers__field',
-            'notes__author',
-            'form_b',
-        ).order_by('-submitted_at')
+
+        # List view: minimal joins — only what FormSubmissionListSerializer reads.
+        # Detail / action views: full record incl. reviewer/director names, answers, notes.
+        if self.action == 'list':
+            qs = (FormSubmission.objects
+                  .select_related('form', 'student', 'form_b')
+                  .order_by('-submitted_at'))
+        else:
+            qs = (FormSubmission.objects
+                  .select_related(
+                      'form', 'student', 'form_b',
+                      'reviewed_by', 'forwarded_by', 'decided_by',
+                      'more_info_requested_by',
+                  )
+                  .prefetch_related(
+                      'answers__field',
+                      'notes__author',
+                  )
+                  .order_by('-submitted_at'))
 
         if user.role == 'director':
             # Directors only see submissions forwarded to them by admin/SSW
@@ -177,7 +228,26 @@ class SubmissionController(viewsets.ModelViewSet):
     def update_status(self, request, pk=None):
         submission = self.get_object()
         new_status = request.data.get('status')
-        FormService.update_submission_status(submission, new_status, request.user, request.data)
+        if not new_status:
+            return api_response(False, None, "Status field is required", status.HTTP_400_BAD_REQUEST)
+        try:
+            FormService.update_submission_status(submission, new_status, request.user, request.data)
+        except Exception as e:
+            msg = str(e)
+            # DRF ValidationError wraps message in a list
+            if hasattr(e, 'detail'):
+                detail = e.detail
+                if isinstance(detail, list) and detail:
+                    msg = str(detail[0])
+                elif isinstance(detail, dict):
+                    msgs = []
+                    for v in detail.values():
+                        msgs.extend(v if isinstance(v, list) else [v])
+                    msg = str(msgs[0]) if msgs else msg
+                else:
+                    msg = str(detail)
+            http_status = status.HTTP_403_FORBIDDEN if 'permission' in msg.lower() or 'director' in msg.lower() else status.HTTP_400_BAD_REQUEST
+            return api_response(False, None, msg, http_status)
         from api.models import AuditLog
         AuditLog.objects.create(
             action=f"Submission {submission.id} status changed to {new_status}",
@@ -404,7 +474,9 @@ class SubmissionController(viewsets.ModelViewSet):
                 answer_text=ans_data.get('answer_text', '')
             )
             if 'answer_file' in ans_data:
-                answer.answer_file = ans_data['answer_file']
+                uploaded = ans_data['answer_file']
+                answer.answer_file = uploaded
+                answer.original_filename = getattr(uploaded, 'name', None)
             answer.save()
 
         # Update submission: mark responded, set status back to pending
@@ -418,8 +490,9 @@ class SubmissionController(viewsets.ModelViewSet):
         from api.models import AuditLog
         _User = _gum()
 
-        staff = _User.objects.filter(role__in=['admin', 'director'])
-        for s in staff:
+        # Notify admins only — directors are notified when admin re-forwards
+        admins = _User.objects.filter(role='admin')
+        for s in admins:
             Notification.objects.create(
                 user=s,
                 title="Student Responded — Info Provided",
@@ -563,48 +636,6 @@ class FormBPublicView(APIView):
                 ),
                 link=f"/staff/applications?id={form_b.submission_id}",
             )
-
-        # ── Email directors at rajahammad9897@gmail.com ──
-        directors = _User.objects.filter(role='director')
-        director_emails = [d.email for d in directors if d.email]
-        # Always include the hardcoded director email
-        DIRECTOR_EMAIL = 'rajahammad9897@gmail.com'
-        if DIRECTOR_EMAIL not in director_emails:
-            director_emails.append(DIRECTOR_EMAIL)
-
-        try:
-            from email_sender import send_email
-            from notifications.utils import _base_template
-            body = f"""
-            <h2 style="color: #1e293b;">Form B Received — Enrollment Verified</h2>
-            <p>The registrar has completed the enrollment verification for the following student.</p>
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin: 24px 0;">
-              <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                <tr><td style="padding: 6px 0; color: #64748b; width: 180px;">Student</td><td style="padding: 6px 0; font-weight: 600;">{form_b.student_name}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Reference #</td><td style="padding: 6px 0; font-weight: 600;">DGG-{form_b.submission_id:04d}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Institution</td><td style="padding: 6px 0; font-weight: 600;">{form_b.institution}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Program</td><td style="padding: 6px 0; font-weight: 600;">{form_b.confirmed_program or form_b.program}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Enrolled</td><td style="padding: 6px 0; font-weight: 600;">{'Yes' if form_b.is_enrolled else 'No'}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Enrollment Status</td><td style="padding: 6px 0; font-weight: 600;">{form_b.enrollment_status}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Course Load</td><td style="padding: 6px 0; font-weight: 600;">{form_b.course_load_percent or 'N/A'}%</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Official Tuition</td><td style="padding: 6px 0; font-weight: 600;">${form_b.official_tuition or 'N/A'}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Semester</td><td style="padding: 6px 0; font-weight: 600;">{form_b.confirmed_sem_start} — {form_b.confirmed_sem_end}</td></tr>
-                <tr><td style="padding: 6px 0; color: #64748b;">Verified by</td><td style="padding: 6px 0; font-weight: 600;">{form_b.registrar_name} ({form_b.registrar_title})</td></tr>
-                {'<tr><td style="padding: 6px 0; color: #64748b;">Notes</td><td style="padding: 6px 0;">' + form_b.registrar_notes + '</td></tr>' if form_b.registrar_notes else ''}
-              </table>
-            </div>
-            <p>The SSW can now forward this Admission Application to you for final approval.</p>
-            """
-            for email in director_emails:
-                send_email(
-                    to=email,
-                    subject=f"Form B Received — {form_b.student_name} (DGG-{form_b.submission_id:04d})",
-                    html_body=_base_template(body),
-                    plain_body=f"Form B received for {form_b.student_name} (DGG-{form_b.submission_id:04d}). Enrolled: {'Yes' if form_b.is_enrolled else 'No'}. Tuition: ${form_b.official_tuition or 'N/A'}.",
-                )
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).error("Failed to email directors about Form B: %s", exc)
 
         # ── Audit log ──
         if submission:

@@ -4,5 +4,8 @@ from .models import Program
 class ProgramSerializer(serializers.ModelSerializer):
     class Meta:
         model = Program
-        fields = '__all__'
-        read_only_fields = ('created_by', 'created_at', 'updated_at')
+        fields = (
+            'id', 'title', 'description', 'thumbnail', 'is_active',
+            'created_by', 'created_at', 'updated_at',
+        )
+        read_only_fields = ('id', 'created_by', 'created_at', 'updated_at')

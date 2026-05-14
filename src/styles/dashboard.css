@@ -94,7 +94,7 @@
 }
 
 .top-nav-link {
-  font-size: 11.5px;
+  font-size: 13px;
   font-weight: 600;
   color: #a0aec0;
   cursor: pointer;
@@ -113,7 +113,7 @@
 .nav-badge {
   background: #e53e3e;
   color: #fff;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
   border-radius: 10px;
   padding: 2px 6px;
@@ -140,11 +140,43 @@
     0 1px 0 rgba(255, 255, 255, 0.04) inset;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: none;
+  /* Firefox: slim, accent-tinted scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(229, 166, 98, 0.25) transparent;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
 }
 
+/* WebKit / Chromium / Edge / Safari */
 .sidebar::-webkit-scrollbar {
-  display: none;
+  width: 6px;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 12px 0; /* breathing room from the rounded corners */
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg,
+    rgba(229, 166, 98, 0.35) 0%,
+    rgba(229, 166, 98, 0.18) 100%);
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg,
+    rgba(229, 166, 98, 0.65) 0%,
+    rgba(229, 166, 98, 0.4) 100%);
+  background-clip: padding-box;
+}
+.sidebar::-webkit-scrollbar-thumb:active {
+  background: rgba(229, 166, 98, 0.85);
+  background-clip: padding-box;
+}
+/* Fade the thumb out when the sidebar isn't being interacted with */
+.sidebar:not(:hover):not(:focus-within)::-webkit-scrollbar-thumb {
+  background: rgba(229, 166, 98, 0.08);
 }
 
 .sidebar-overlay {
@@ -317,7 +349,7 @@
 }
 
 .user-meta {
-  font-size: 9px;
+  font-size: 11px;
   color: #a0aec0;
   margin-top: 4px;
 }
@@ -325,7 +357,7 @@
 /* ── Sidebar Nav ── */
 .sidebar-section-title {
   padding: 4px 20px 2px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -334,7 +366,7 @@
 
 .snav {
   padding: 10px 20px;
-  font-size: 11.5px;
+  font-size: 13px;
   color: #a0aec0;
   border-left: 3px solid transparent;
   cursor: pointer;
@@ -397,7 +429,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dl-label {
@@ -519,7 +551,7 @@
 }
 
 .kpi-label {
-  font-size: 10px;
+  font-size: 12px;
   color: #718096;
   font-weight: 600;
   text-transform: uppercase;
@@ -586,7 +618,7 @@
 }
 
 .phase-label {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   color: #2f855a;
   text-transform: uppercase;
@@ -639,7 +671,7 @@
 }
 
 .milestone-label {
-  font-size: 9px;
+  font-size: 11px;
   color: #718096;
   margin-bottom: 2px;
 }
@@ -728,7 +760,7 @@
 .form-tag {
   background: #e5a662;
   color: #111;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -742,7 +774,7 @@
 }
 
 .recommended-tag {
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 700;
   color: #d89146;
   background: #fff;
@@ -762,7 +794,7 @@
 }
 
 .form-card-desc {
-  font-size: 11.5px;
+  font-size: 13px;
   color: #4a5568;
   line-height: 1.6;
   margin-bottom: 16px;
@@ -794,7 +826,7 @@
 }
 
 .sec-title {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -910,7 +942,7 @@
 }
 
 .contact-label {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: #a0aec0;
   text-transform: uppercase;
@@ -947,7 +979,7 @@
   border: 1px solid #e2e8f0;
   color: #4a5568;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   padding: 6px 14px;
   cursor: pointer;
@@ -1124,7 +1156,7 @@
 }
 
 .notif-detail {
-  font-size: 11.5px;
+  font-size: 13px;
   color: #4a5568;
   line-height: 1.5;
   margin-bottom: 8px;

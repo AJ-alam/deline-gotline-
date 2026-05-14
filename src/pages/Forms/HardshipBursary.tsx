@@ -196,17 +196,17 @@ const HardshipBursary: React.FC<HardshipBursaryProps> = ({ profile, onBack, onCo
           <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '20px' }}>
              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
-                   <label className="field-label">Student Full Name *</label>
-                   <input className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
+                   <label className="field-label" htmlFor="hb-studentName">Student Full Name *</label>
+                   <input id="hb-studentName" className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
                 </div>
                 <div>
-                   <label className="field-label">Student ID / Beneficiary #</label>
-                   <input className="field-input" value={formData.studentId} onChange={e => handleInputChange('studentId', e.target.value)} />
+                   <label className="field-label" htmlFor="hb-studentId">Student ID / Beneficiary #</label>
+                   <input id="hb-studentId" className="field-input" value={formData.studentId} onChange={e => handleInputChange('studentId', e.target.value)} />
                 </div>
              </div>
              <div style={{ marginBottom: '16px' }}>
-                <label className="field-label">Educational Institution *</label>
-                <input className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} placeholder="e.g. University of Calgary" />
+                <label className="field-label" htmlFor="hb-institution">Educational Institution *</label>
+                <input id="hb-institution" className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} placeholder="e.g. University of Calgary" />
              </div>
              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
                 <input type="checkbox" checked={formData.isCompliant} onChange={e => handleInputChange('isCompliant', e.target.checked)} />
@@ -219,21 +219,23 @@ const HardshipBursary: React.FC<HardshipBursaryProps> = ({ profile, onBack, onCo
       {currentStep === 2 && (
         <div className="fade-in">
           <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '20px' }}>
-             <label className="field-label">Nature of Hardship *</label>
-             <textarea 
-               className="field-input" 
+             <label className="field-label" htmlFor="hb-hardshipDescription">Nature of Hardship *</label>
+             <textarea
+               id="hb-hardshipDescription"
+               className="field-input"
                value={formData.hardshipDescription}
                onChange={e => handleInputChange('hardshipDescription', e.target.value)}
                placeholder="What happened, when, and immediate impact..."
                style={{ width: '100%', height: '120px', padding: '12px', marginBottom: 20 }}
              />
 
-             <label className="field-label">Other Supports Attempted *</label>
+             <label className="field-label" htmlFor="hb-othersAttempted">Other Supports Attempted *</label>
              <div style={{ fontSize: '11px', color: '#666', marginBottom: '8px' }}>
                 e.g. food banks, family support, campus emergency funds.
              </div>
              <textarea 
-               className="field-input" 
+               id="hb-othersAttempted"
+               className="field-input"
                value={formData.othersAttempted}
                onChange={e => handleInputChange('othersAttempted', e.target.value)}
                placeholder="How have you tried to resolve this already?"
@@ -292,12 +294,12 @@ const HardshipBursary: React.FC<HardshipBursaryProps> = ({ profile, onBack, onCo
              
              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
                 <div>
-                  <label className="field-label">Student Digital Signature *</label>
-                  <input className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
+                  <label className="field-label" htmlFor="hb-signature">Student Digital Signature *</label>
+                  <input id="hb-signature" className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
                 </div>
                 <div>
-                  <label className="field-label">Date</label>
-                  <input className="field-input" disabled value={new Date().toLocaleDateString()} />
+                  <label className="field-label" htmlFor="hb-date">Date</label>
+                  <input id="hb-date" className="field-input" disabled value={new Date().toLocaleDateString()} />
                 </div>
              </div>
           </div>

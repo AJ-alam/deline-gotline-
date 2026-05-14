@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import * as Ic from '../Icons';
 
 interface Props {
   children: ReactNode;
@@ -38,10 +39,9 @@ class AdminErrorBoundary extends Component<Props, State> {
             background: '#fff',
             fontFamily: 'system-ui, -apple-system, sans-serif'
         }}>
-          <div style={{ 
-              fontSize: '48px', 
-              marginBottom: '16px' 
-          }}>⚠️</div>
+          <div style={{ marginBottom: '16px', color: '#d32f2f' }}>
+            <Ic.AlertTriangle size={48} />
+          </div>
           <h2 style={{ 
               fontSize: '20px', 
               fontWeight: '800', 

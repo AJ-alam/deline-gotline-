@@ -89,9 +89,10 @@ const ResetPassword: React.FC = () => {
 
                 <form onSubmit={handleSubmit}>
                   <div className="field-group">
-                    <label className="field-label">New Password</label>
+                    <label className="field-label" htmlFor="rp-password">New Password</label>
                     <div style={{ position: 'relative' }}>
                       <input
+                        id="rp-password"
                         className="field-input"
                         type={showPassword ? 'text' : 'password'}
                         placeholder="At least 8 characters"
@@ -112,8 +113,9 @@ const ResetPassword: React.FC = () => {
                   </div>
 
                   <div className="field-group">
-                    <label className="field-label">Confirm New Password</label>
+                    <label className="field-label" htmlFor="rp-confirm">Confirm New Password</label>
                     <input
+                      id="rp-confirm"
                       className="field-input"
                       type={showPassword ? 'text' : 'password'}
                       placeholder="Repeat your new password"

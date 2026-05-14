@@ -9,7 +9,7 @@ class NotificationViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Notification.objects.filter(user=self.request.user)
+        return Notification.objects.filter(user=self.request.user).order_by('-created_at')[:100]
 
     @decorators.action(detail=True, methods=['post'], url_path='read')
     def mark_as_read(self, request, pk=None):

@@ -67,7 +67,9 @@ apiClient.interceptors.response.use(
         const originalRequest = error.config;
 
         // Handle 401: Unauthorized (Token expired or missing)
-        if (error.response && error.response.status === 401 && !originalRequest._retry) {
+        // Skip refresh logic for auth endpoints — a 401 there means bad credentials, not expired token.
+        const isAuthEndpoint = originalRequest.url?.includes('/auth/login') || originalRequest.url?.includes('/auth/refresh');
+        if (error.response && error.response.status === 401 && !originalRequest._retry && !isAuthEndpoint) {
             
             const refreshToken = localStorage.getItem('dgg_refresh');
             
@@ -141,7 +143,7 @@ class API {
             full_name: `${data.firstName} ${data.lastName}`,
             phone: data.phone || '',
             role: data.role || 'student',
-            dob: data.dob || '',
+            dob: data.dob || null,
             beneficiary_number: data.beneficiaryNo || '',
             treaty_number: data.treatyNum || '',
             primary_stream: data.primary_stream || '',
@@ -166,6 +168,22 @@ class API {
 
     static resetPassword(token: string, password: string) {
         return apiClient.post('/auth/reset-password/', { token, password });
+    }
+
+    static getStaffUsers() {
+        return apiClient.get('/auth/staff-users/');
+    }
+
+    static createStaffUser(data: { full_name: string; email: string; role: string; password: string }) {
+        return apiClient.post('/auth/staff-users/', data);
+    }
+
+    static updateStaffUser(id: number, data: { full_name?: string; role?: string; password?: string; is_active?: boolean }) {
+        return apiClient.put(`/auth/staff-users/${id}/`, data);
+    }
+
+    static deleteStaffUser(id: number) {
+        return apiClient.delete(`/auth/staff-users/${id}/`);
     }
 
     static updateMe(data: any) {
@@ -293,6 +311,15 @@ class API {
         return apiClient.post('/payments/dispatch_report/');
     }
 
+    static dispatchFinanceCustom(payload: {
+        recipients: string[];
+        payment_ids: number[];
+        notes?: string;
+        subject?: string;
+    }) {
+        return apiClient.post('/payments/dispatch_custom/', payload);
+    }
+
     static exportApprovedCSV(params?: { funding_type?: string; date_from?: string; date_to?: string }) {
         return apiClient.get('/payments/export-csv/', {
             params,
@@ -347,6 +374,18 @@ class API {
             return apiClient.post('/policy/bulk_update/', data);
         }
         return apiClient.post(`/policy/${category}/update/`, data);
+    }
+
+    static getPolicyHistory(limit: number = 200) {
+        return apiClient.get('/policy/history/', { params: { limit } });
+    }
+
+    static createPolicySetting(payload: { section: string; field_key: string; field_label: string; value: number | string; unit?: string }) {
+        return apiClient.post('/policy/', payload);
+    }
+
+    static deletePolicySetting(id: number | string) {
+        return apiClient.delete(`/policy/${id}/`);
     }
 
     // Support for complex wizards

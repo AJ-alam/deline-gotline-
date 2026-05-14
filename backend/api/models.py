@@ -141,7 +141,8 @@ class PolicySetting(models.Model):
         return f"{self.section} - {self.field_label}"
 
 class PolicyHistory(models.Model):
-    setting = models.ForeignKey(PolicySetting, on_delete=models.CASCADE, related_name='history')
+    # SET_NULL so audit history survives the deletion of the underlying PolicySetting.
+    setting = models.ForeignKey(PolicySetting, on_delete=models.SET_NULL, null=True, blank=True, related_name='history')
     user_name = models.CharField(max_length=255)
     field_changed = models.CharField(max_length=255)
     old_value = models.CharField(max_length=255)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import API from '../api/client';
 import '../styles/profile.css';
+import * as Ic from '../components/Icons';
 
 interface StudentProfileProps {
   profile?: any;
@@ -62,7 +63,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
 
   const closeModal = () => setActiveModal(null);
 
-  // ✅ FIX: use functional updater so each keystroke always
+  // FIX: use functional updater so each keystroke always
   // builds on the latest state, never a stale closure snapshot.
   const updateField = (field: string, value: any) =>
     setEditData((prev: any) => ({ ...prev, [field]: value }));
@@ -157,10 +158,10 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
       {/* ── FORM A STATUS ALERT ── */}
       {!hasFormA && !isCheckingFormA && (
         <div className="alert-banner info" style={{ marginBottom: '20px', background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}>
-          <span>ℹ️</span>
+          <Ic.Info size={16} />
           <div>
-            <strong>Action Recommended:</strong> Please complete your <strong>Admission Application (Form A)</strong> to automatically fill your profile details. 
-            <span className="alert-banner-link" onClick={() => window.location.href='/dashboard/apply'}> Start Form A...</span>
+            <strong>Action Recommended:</strong> Please complete your <strong>Admission Application</strong> to automatically fill your profile details.
+            <span className="alert-banner-link" onClick={() => window.location.href='/dashboard/admission'}> Start Application...</span>
           </div>
         </div>
       )}
@@ -187,7 +188,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
       {/* ── ACTION ALERT ── */}
       {(!profile.account_number || !profile.bank_name) && (
         <div className="alert-banner warn">
-          <span>⚠️</span>
+          <Ic.AlertTriangle size={16} />
           <div>
             <strong>Action required:</strong> Your banking details are incomplete. Payments cannot be processed until valid banking information is verified. 
             <span className="alert-banner-link" onClick={() => handleEditClick('banking')}> Add Banking Info...</span>
@@ -232,7 +233,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="sensitivity-tag st-high">HIGH SENSITIVITY</span>
             {hasFormA ? (
-              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Form A</span>
+              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Admission Application</span>
             ) : (
               <button className="section-edit-btn" onClick={() => handleEditClick('eligibility')}>Edit</button>
             )}
@@ -369,7 +370,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
               {profile.account_number ? '✓ COMPLETE' : '! INCOMPLETE'}
             </span>
             {hasFormA ? (
-              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Form A</span>
+              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Admission Application</span>
             ) : (
               <button className="section-edit-btn" onClick={() => handleEditClick('banking')}>ADD / UPDATE</button>
             )}
@@ -407,7 +408,7 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span className="sensitivity-tag st-standard">STANDARD SENSITIVITY</span>
             {hasFormA ? (
-              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Form A</span>
+              <span className="p-val muted" style={{ fontSize: '11px', color: '#64748b' }}>Sourced from Admission Application</span>
             ) : (
               <button className="section-edit-btn" onClick={() => handleEditClick('enrollment')}>Edit</button>
             )}
@@ -494,26 +495,26 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
               {!hasFormA && (
                 <>
-                  <div><label className="p-label">Legal First Name</label><input className="field-input" type="text" value={editData._firstName || ''} onChange={e => updateField('_firstName', e.target.value)} /></div>
-                  <div><label className="p-label">Legal Last Name</label><input className="field-input" type="text" value={editData._lastName || ''} onChange={e => updateField('_lastName', e.target.value)} /></div>
-                  <div><label className="p-label">Preferred Name</label><input className="field-input" type="text" value={editData.preferred_name || ''} onChange={e => updateField('preferred_name', e.target.value)} /></div>
-                  <div><label className="p-label">Date of Birth</label><input className="field-input" type="date" value={editData.dob || ''} onChange={e => updateField('dob', e.target.value)} /></div>
-                  <div><label className="p-label">Gender</label><input className="field-input" type="text" value={editData.gender || ''} onChange={e => updateField('gender', e.target.value)} /></div>
-                  <div><label className="p-label">Phone</label><input className="field-input" type="text" value={editData.phone || ''} onChange={e => updateField('phone', e.target.value)} /></div>
-                  <div style={{ gridColumn: 'span 2' }}><label className="p-label">Mailing Address</label><textarea className="field-input" style={{ height: '60px' }} value={editData.mailing_address || ''} onChange={e => updateField('mailing_address', e.target.value)} /></div>
-                  <div><label className="p-label">Town / City</label><input className="field-input" type="text" value={editData.town_city || ''} onChange={e => updateField('town_city', e.target.value)} /></div>
-                  <div><label className="p-label">Postal Code</label><input className="field-input" type="text" value={editData.postal_code || ''} onChange={e => updateField('postal_code', e.target.value)} /></div>
-                  <div><label className="p-label">Number of Dependents</label><input className="field-input" type="number" min="0" value={editData.num_dependents ?? ''} onChange={e => updateField('num_dependents', e.target.value === '' ? null : Number(e.target.value))} /></div>
+                  <div><label className="p-label" htmlFor="sp-firstName">Legal First Name</label><input id="sp-firstName" className="field-input" type="text" value={editData._firstName || ''} onChange={e => updateField('_firstName', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-lastName">Legal Last Name</label><input id="sp-lastName" className="field-input" type="text" value={editData._lastName || ''} onChange={e => updateField('_lastName', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-preferredName">Preferred Name</label><input id="sp-preferredName" className="field-input" type="text" value={editData.preferred_name || ''} onChange={e => updateField('preferred_name', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-dob">Date of Birth</label><input id="sp-dob" className="field-input" type="date" value={editData.dob || ''} onChange={e => updateField('dob', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-gender">Gender</label><input id="sp-gender" className="field-input" type="text" value={editData.gender || ''} onChange={e => updateField('gender', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-phone">Phone</label><input id="sp-phone" className="field-input" type="text" value={editData.phone || ''} onChange={e => updateField('phone', e.target.value)} /></div>
+                  <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-mailingAddress">Mailing Address</label><textarea id="sp-mailingAddress" className="field-input" style={{ height: '60px' }} value={editData.mailing_address || ''} onChange={e => updateField('mailing_address', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-townCity">Town / City</label><input id="sp-townCity" className="field-input" type="text" value={editData.town_city || ''} onChange={e => updateField('town_city', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-postalCode">Postal Code</label><input id="sp-postalCode" className="field-input" type="text" value={editData.postal_code || ''} onChange={e => updateField('postal_code', e.target.value)} /></div>
+                  <div><label className="p-label" htmlFor="sp-numDependents">Number of Dependents</label><input id="sp-numDependents" className="field-input" type="number" min="0" value={editData.num_dependents ?? ''} onChange={e => updateField('num_dependents', e.target.value === '' ? null : Number(e.target.value))} /></div>
                 </>
               )}
-              <div><label className="p-label">Pronouns</label><input className="field-input" type="text" value={editData.pronouns || ''} onChange={e => updateField('pronouns', e.target.value)} /></div>
-              <div><label className="p-label">Alt Phone</label><input className="field-input" type="text" value={editData.alternate_phone || ''} onChange={e => updateField('alternate_phone', e.target.value)} /></div>
-              <div><label className="p-label">Dependent Ages</label><input className="field-input" type="text" value={editData.dependent_ages || ''} onChange={e => updateField('dependent_ages', e.target.value)} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Disability Accommodation</label><textarea className="field-input" style={{ height: '60px' }} value={editData.disability_accommodation || ''} onChange={e => updateField('disability_accommodation', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-pronouns">Pronouns</label><input id="sp-pronouns" className="field-input" type="text" value={editData.pronouns || ''} onChange={e => updateField('pronouns', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-altPhone">Alt Phone</label><input id="sp-altPhone" className="field-input" type="text" value={editData.alternate_phone || ''} onChange={e => updateField('alternate_phone', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-dependentAges">Dependent Ages</label><input id="sp-dependentAges" className="field-input" type="text" value={editData.dependent_ages || ''} onChange={e => updateField('dependent_ages', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-disability">Disability Accommodation</label><textarea id="sp-disability" className="field-input" style={{ height: '60px' }} value={editData.disability_accommodation || ''} onChange={e => updateField('disability_accommodation', e.target.value)} /></div>
             </div>
             {!hasFormA && (
               <div style={{ marginTop: '20px', padding: '12px', background: '#f8fafc', borderRadius: '6px', fontSize: '11px', color: '#64748b', border: '1px solid #e2e8f0' }}>
-                <strong>Tip:</strong> You can also fill these details automatically by completing <strong>Form A</strong>.
+                <strong>Tip:</strong> You can also fill these details automatically by completing the <strong>Admission Application</strong>.
               </div>
             )}
             <button className="btn-auth-primary" style={{ width: '100%', marginTop: '16px' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Saving...' : 'Save Changes'}</button>
@@ -528,10 +529,10 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
             <h3>Banking & Payment Details</h3>
             <p className="modal-sub">Electronic funds transfer (EFT) routing information.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Financial Institution</label><input className="field-input" type="text" value={editData.bank_name || ''} onChange={e => updateField('bank_name', e.target.value)} /></div>
-              <div><label className="p-label">Transit # (5 digits)</label><input className="field-input" type="text" maxLength={5} value={editData.transit_number || ''} onChange={e => updateField('transit_number', e.target.value)} /></div>
-              <div><label className="p-label">Inst # (3 digits)</label><input className="field-input" type="text" maxLength={3} value={editData.inst_number || ''} onChange={e => updateField('inst_number', e.target.value)} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Account Number</label><input className="field-input" type="text" value={editData.account_number || ''} onChange={e => updateField('account_number', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-bankName">Financial Institution</label><input id="sp-bankName" className="field-input" type="text" value={editData.bank_name || ''} onChange={e => updateField('bank_name', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-transitNumber">Transit # (5 digits)</label><input id="sp-transitNumber" className="field-input" type="text" maxLength={5} value={editData.transit_number || ''} onChange={e => updateField('transit_number', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-instNumber">Inst # (3 digits)</label><input id="sp-instNumber" className="field-input" type="text" maxLength={3} value={editData.inst_number || ''} onChange={e => updateField('inst_number', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-accountNumber">Account Number</label><input id="sp-accountNumber" className="field-input" type="text" value={editData.account_number || ''} onChange={e => updateField('account_number', e.target.value)} /></div>
             </div>
             <button className="btn-auth-primary" style={{ width: '100%' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Saving Details...' : 'Save Banking Record'}</button>
           </div>
@@ -545,15 +546,15 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
             <h3>Enrollment Information</h3>
             <p className="modal-sub">Current academic placement and program details.</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Institution / Institute</label><input className="field-input" type="text" value={editData.institute || editData.institution_name || ''} onChange={e => { updateField('institute', e.target.value); updateField('institution_name', e.target.value); }} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Program / Credential</label><input className="field-input" type="text" value={editData.program_credential || ''} onChange={e => updateField('program_credential', e.target.value)} /></div>
-              <div><label className="p-label">Current Semester</label><input className="field-input" type="text" value={editData.current_semester || ''} onChange={e => updateField('current_semester', e.target.value)} /></div>
-              <div><label className="p-label">Enrollment Status</label><input className="field-input" type="text" value={editData.enrollment_status || ''} onChange={e => updateField('enrollment_status', e.target.value)} /></div>
-              <div><label className="p-label">Course Load %</label><input className="field-input" type="number" value={editData.course_load || 100} onChange={e => updateField('course_load', parseInt(e.target.value))} /></div>
-              <div><label className="p-label">Expected Graduation</label><input className="field-input" type="date" value={editData.expected_graduation_date || ''} onChange={e => updateField('expected_graduation_date', e.target.value)} /></div>
-              <div><label className="p-label">Program Type</label><input className="field-input" type="text" value={editData.program_type || ''} onChange={e => updateField('program_type', e.target.value)} /></div>
-              <div><label className="p-label">Period in Program</label><input className="field-input" type="text" value={editData.years_in_program || ''} onChange={e => updateField('years_in_program', e.target.value)} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">Institution Location</label><input className="field-input" type="text" value={editData.institution_location || ''} onChange={e => updateField('institution_location', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-institute">Institution / Institute</label><input id="sp-institute" className="field-input" type="text" value={editData.institute || editData.institution_name || ''} onChange={e => { updateField('institute', e.target.value); updateField('institution_name', e.target.value); }} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-programCredential">Program / Credential</label><input id="sp-programCredential" className="field-input" type="text" value={editData.program_credential || ''} onChange={e => updateField('program_credential', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-currentSemester">Current Semester</label><input id="sp-currentSemester" className="field-input" type="text" value={editData.current_semester || ''} onChange={e => updateField('current_semester', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-enrollmentStatus">Enrollment Status</label><input id="sp-enrollmentStatus" className="field-input" type="text" value={editData.enrollment_status || ''} onChange={e => updateField('enrollment_status', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-courseLoad">Course Load %</label><input id="sp-courseLoad" className="field-input" type="number" value={editData.course_load || 100} onChange={e => updateField('course_load', parseInt(e.target.value))} /></div>
+              <div><label className="p-label" htmlFor="sp-expectedGraduation">Expected Graduation</label><input id="sp-expectedGraduation" className="field-input" type="date" value={editData.expected_graduation_date || ''} onChange={e => updateField('expected_graduation_date', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-programType">Program Type</label><input id="sp-programType" className="field-input" type="text" value={editData.program_type || ''} onChange={e => updateField('program_type', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-yearsInProgram">Period in Program</label><input id="sp-yearsInProgram" className="field-input" type="text" value={editData.years_in_program || ''} onChange={e => updateField('years_in_program', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-institutionLocation">Institution Location</label><input id="sp-institutionLocation" className="field-input" type="text" value={editData.institution_location || ''} onChange={e => updateField('institution_location', e.target.value)} /></div>
             </div>
             <button className="btn-auth-primary" style={{ width: '100%' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Updating Record...' : 'Save Enrollment'}</button>
           </div>
@@ -578,9 +579,9 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
               </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
-              <div><label className="p-label">Beneficiary # <span style={{ color: '#64748b', fontWeight: 400 }}>(editable)</span></label><input className="field-input" type="text" value={editData.beneficiary_number || ''} onChange={e => updateField('beneficiary_number', e.target.value)} /></div>
-              <div><label className="p-label">Treaty # <span style={{ color: '#64748b', fontWeight: 400 }}>(editable)</span></label><input className="field-input" type="text" value={editData.treaty_number || ''} onChange={e => updateField('treaty_number', e.target.value)} /></div>
-              <div style={{ gridColumn: 'span 2' }}><label className="p-label">UPi <span style={{ color: '#64748b', fontWeight: 400 }}>(staff-issued)</span></label><input className="field-input" type="text" value={editData.upi || ''} onChange={e => updateField('upi', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-beneficiaryNumber">Beneficiary # <span style={{ color: '#64748b', fontWeight: 400 }}>(editable)</span></label><input id="sp-beneficiaryNumber" className="field-input" type="text" value={editData.beneficiary_number || ''} onChange={e => updateField('beneficiary_number', e.target.value)} /></div>
+              <div><label className="p-label" htmlFor="sp-treatyNumber">Treaty # <span style={{ color: '#64748b', fontWeight: 400 }}>(editable)</span></label><input id="sp-treatyNumber" className="field-input" type="text" value={editData.treaty_number || ''} onChange={e => updateField('treaty_number', e.target.value)} /></div>
+              <div style={{ gridColumn: 'span 2' }}><label className="p-label" htmlFor="sp-upi">UPi <span style={{ color: '#64748b', fontWeight: 400 }}>(staff-issued)</span></label><input id="sp-upi" className="field-input" type="text" value={editData.upi || ''} onChange={e => updateField('upi', e.target.value)} /></div>
             </div>
             <button className="btn-auth-primary" style={{ width: '100%' }} onClick={handleSave} disabled={isUpdating}>{isUpdating ? 'Saving...' : 'Save Identifiers'}</button>
           </div>

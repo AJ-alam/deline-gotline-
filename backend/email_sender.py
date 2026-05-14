@@ -51,7 +51,7 @@ def _cfg(key: str, default: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 def send_email(
-    to: str,
+    to,
     subject: str,
     html_body: str,
     plain_body: str = "",
@@ -61,6 +61,10 @@ def send_email(
 ) -> bool:
     """
     Core SMTP sender.  All other functions call this.
+
+    `to` may be a single email string or a list/tuple of emails — when a list is
+    given the message is delivered to every recipient in one SMTP transaction
+    (visible to each other in the To: header).
 
     Returns True on success, False on any failure.
     Credentials come from .env:  SENDER_EMAIL  /  SENDER_PASSWORD
@@ -72,11 +76,21 @@ def send_email(
         print("[email_sender] ERROR: SENDER_EMAIL or SENDER_PASSWORD not set in .env")
         return False
 
+    # Normalize recipient(s) to a list while keeping a human-readable header.
+    if isinstance(to, (list, tuple, set)):
+        recipients = [str(r).strip() for r in to if str(r).strip()]
+    else:
+        recipients = [str(to).strip()] if str(to).strip() else []
+    if not recipients:
+        print("[email_sender] ERROR: no recipient supplied")
+        return False
+    to_header = ", ".join(recipients)
+
     try:
         msg = MIMEMultipart("mixed")
         msg["Subject"] = Header(subject, "utf-8").encode()
         msg["From"]    = f"DGG Education Department <{sender}>"
-        msg["To"]      = to
+        msg["To"]      = to_header
 
         # Attach text parts
         alt = MIMEMultipart("alternative")
@@ -102,9 +116,9 @@ def send_email(
             server.starttls()
             server.ehlo()
             server.login(sender, password)
-            server.sendmail(sender, [to], msg.as_string())
+            server.sendmail(sender, recipients, msg.as_string())
 
-        print(f"[email_sender] OK  subject={subject!r}  to={to}")
+        print(f"[email_sender] OK  subject={subject!r}  to={to_header}")
         return True
 
     except smtplib.SMTPAuthenticationError:
@@ -158,8 +172,8 @@ def _wrap(content: str) -> str:
         "<p style='margin:0;font-size:11px;color:#94a3b8;'>"
         "This is an automated message from the DGG Student Funding Portal. "
         "For queries contact "
-        "<a href='mailto:ajalam149@gmail.com' style='color:#3b82f6;'>"
-        "ajalam149@gmail.com</a>.</p>"
+        "<a href='mailto:director.education@gov.deline.ca' style='color:#3b82f6;'>"
+        "director.education@gov.deline.ca</a>.</p>"
         "</td></tr>"
         "</table></td></tr></table></body></html>"
     )
@@ -234,6 +248,116 @@ def send_finance_report(
     )
 
 
+def send_finance_report_custom(
+    csv_bytes: bytes,
+    recipients,
+    record_count: int,
+    triggered_by: str = "",
+    notes: str = "",
+    subject_override: str = "",
+    summary_rows=None,
+) -> bool:
+    """
+    Send a finance payments report to a custom recipient list provided by the
+    admin/staff member at dispatch time. The .env FINANCE_EMAIL is intentionally
+    NOT used here — staff control where each batch goes from the UI.
+
+    Parameters
+    ----------
+    csv_bytes        : the CSV attachment bytes
+    recipients       : list of email strings (staff-supplied)
+    record_count     : number of payment records included
+    triggered_by     : staff member who triggered the dispatch
+    notes            : optional free-text notes to embed in the email body
+    subject_override : optional subject line; falls back to a sensible default
+    summary_rows     : optional list of (student_name, payment_type, amount) tuples
+                       rendered as a preview table in the email body
+    """
+    if not recipients:
+        print("[email_sender] ERROR: send_finance_report_custom called with no recipients")
+        return False
+
+    now_str  = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    subject  = subject_override or (
+        f"DGG Post-Secondary Funding — Payment Dispatch [{date_str}]"
+    )
+
+    # ── Preview table of the first N payments so finance sees the gist
+    #    without opening the CSV attachment.
+    preview_html = ""
+    if summary_rows:
+        rows = summary_rows[:20]
+        body_rows = "".join(
+            f"<tr>"
+            f"<td style='padding:6px 10px;font-size:12px;border-bottom:1px solid #e2e8f0;'>{name}</td>"
+            f"<td style='padding:6px 10px;font-size:12px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:700;'>${amount}</td>"
+            f"</tr>"
+            for name, _ptype, amount in rows
+        )
+        more = (
+            f"<p style='margin:8px 0 0;font-size:12px;color:#64748b;'>… plus "
+            f"{len(summary_rows) - len(rows)} more in the CSV attachment.</p>"
+        ) if len(summary_rows) > len(rows) else ""
+        preview_html = (
+            "<h3 style='color:#1e293b;margin:24px 0 8px;font-size:14px;'>Payment preview</h3>"
+            "<table style='width:100%;border-collapse:collapse;border:1px solid #e2e8f0;'>"
+            "<thead><tr style='background:#f8fafc;'>"
+            "<th style='padding:8px 10px;font-size:11px;text-align:left;color:#64748b;'>Student</th>"
+            "<th style='padding:8px 10px;font-size:11px;text-align:right;color:#64748b;'>Total Amount</th>"
+            "</tr></thead><tbody>"
+            f"{body_rows}"
+            "</tbody></table>"
+            f"{more}"
+        )
+
+    notes_html = (
+        "<div style='margin:24px 0;padding:14px 18px;background:#fff7ed;"
+        "border-left:4px solid #f59e0b;border-radius:6px;'>"
+        "<p style='margin:0 0 6px;font-size:12px;font-weight:700;color:#92400e;"
+        "letter-spacing:0.05em;text-transform:uppercase;'>Notes from staff</p>"
+        f"<p style='margin:0;font-size:13px;color:#451a03;white-space:pre-wrap;'>{notes}</p>"
+        "</div>"
+    ) if notes.strip() else ""
+
+    html_content = (
+        "<h2 style='color:#1e293b;margin-top:0;'>Payment Dispatch — Finance Department</h2>"
+        "<p>The Education Department has dispatched the following payment records "
+        "for processing. Full details are attached as a CSV.</p>"
+        "<table style='width:100%;border-collapse:collapse;margin:24px 0;'>"
+        + _row("Generated on", now_str)
+        + _row("Records included", str(record_count))
+        + _row("Triggered by", triggered_by or "DGG Education Staff")
+        + _row("Attachment", f"payment_dispatch_{date_str}.csv")
+        + "</table>"
+        + notes_html
+        + preview_html
+        + "<p style='color:#64748b;font-size:12px;margin-top:24px;'>"
+        "Each CSV row contains the student identifiers, banking details, and "
+        "total disbursement amount Finance needs to process the payment — one "
+        "row per student.</p>"
+    )
+
+    plain = (
+        f"DGG Post-Secondary Funding - Payment Dispatch\n"
+        f"Generated: {now_str}\n"
+        f"Records: {record_count}\n"
+        f"Triggered by: {triggered_by or 'DGG Staff'}\n"
+        + (f"\nNotes:\n{notes}\n" if notes.strip() else "")
+        + "\nPlease see the attached CSV for the full breakdown."
+    )
+
+    return send_email(
+        to=recipients,
+        subject=subject,
+        html_body=_wrap(html_content),
+        plain_body=plain,
+        attachment_bytes=csv_bytes,
+        attachment_filename=f"payment_dispatch_{date_str}.csv",
+        attachment_mimetype="text/csv",
+    )
+
+
 # ---------------------------------------------------------------------------
 # 2. STUDENT — APPLICATION RECEIVED
 # ---------------------------------------------------------------------------
@@ -269,7 +393,7 @@ def send_application_received(
         f"Program: {program_name}\n"
         f"Submitted: {submitted_str}\n\n"
         f"Your application is under review. You will be notified once a decision is made.\n"
-        f"For queries: ajalam149@gmail.com"
+        f"For queries: director.education@gov.deline.ca"
     )
 
     html_content = (
@@ -288,7 +412,7 @@ def send_application_received(
         f"You can also track your application status by logging into the student portal.</p>"
         f"<p style='color:#64748b;font-size:13px;'>Estimated review time: 5&ndash;10 business days.</p>"
         f"<p style='color:#64748b;font-size:13px;'>For any queries, contact us at "
-        f"<a href='mailto:ajalam149@gmail.com' style='color:#3b82f6;'>ajalam149@gmail.com</a>.</p>"
+        f"<a href='mailto:director.education@gov.deline.ca' style='color:#3b82f6;'>director.education@gov.deline.ca</a>.</p>"
     )
 
     return send_email(
@@ -344,7 +468,7 @@ def send_application_decision(
             f"Semester: {semester} {year}\n"
             f"Total Approved: ${total_amount:,.2f}\n"
             f"Processing timeline: {processing_timeline}\n\n"
-            f"For queries: ajalam149@gmail.com"
+            f"For queries: director.education@gov.deline.ca"
         )
 
         html_content = (
@@ -366,7 +490,7 @@ def send_application_decision(
             f"<strong>{processing_timeline}</strong>. You will receive a separate "
             f"notification once payment has been issued.</p>"
             f"<p style='color:#64748b;font-size:13px;'>For queries contact "
-            f"<a href='mailto:ajalam149@gmail.com' style='color:#3b82f6;'>ajalam149@gmail.com</a>.</p>"
+            f"<a href='mailto:director.education@gov.deline.ca' style='color:#3b82f6;'>director.education@gov.deline.ca</a>.</p>"
         )
 
     else:
@@ -387,7 +511,7 @@ def send_application_decision(
             f"for {program_name} was not approved at this time.\n"
             + (f"Reason: {rejection_reason}\n" if rejection_reason else "")
             + f"\nYou may contact the Education Department to discuss your application "
-            f"or to reapply: ajalam149@gmail.com"
+            f"or to reapply: director.education@gov.deline.ca"
         )
 
         html_content = (
@@ -399,8 +523,8 @@ def send_application_decision(
             + reason_block
             + f"<p>If you believe this decision is in error, or if you would like to "
             f"discuss your application or reapply, please contact the Education Department:</p>"
-            f"<p><a href='mailto:ajalam149@gmail.com' style='color:#3b82f6;font-weight:600;'>"
-            f"ajalam149@gmail.com</a></p>"
+            f"<p><a href='mailto:director.education@gov.deline.ca' style='color:#3b82f6;font-weight:600;'>"
+            f"director.education@gov.deline.ca</a></p>"
             f"<p style='color:#64748b;font-size:13px;'>You may also submit a formal appeal "
             f"through the student portal within 30 days of this notice.</p>"
         )
@@ -447,7 +571,7 @@ def send_funding_processed(
         f"has been processed.\n"
         f"Total: ${total_amount:,.2f}\n\n"
         f"Please allow 3-5 business days for funds to reflect in your account.\n"
-        f"For queries: ajalam149@gmail.com"
+        f"For queries: director.education@gov.deline.ca"
     )
 
     html_content = (
@@ -467,7 +591,7 @@ def send_funding_processed(
         f"reflect in your account. If you do not receive your payment after 5 business "
         f"days, please contact us immediately.</p></div>"
         f"<p style='color:#64748b;font-size:13px;'>For queries contact "
-        f"<a href='mailto:ajalam149@gmail.com' style='color:#3b82f6;'>ajalam149@gmail.com</a>.</p>"
+        f"<a href='mailto:director.education@gov.deline.ca' style='color:#3b82f6;'>director.education@gov.deline.ca</a>.</p>"
     )
 
     return send_email(
@@ -502,7 +626,7 @@ def send_password_reset(
         f"Click the link below to reset your password (expires in 30 minutes):\n"
         f"{reset_link}\n\n"
         f"If you did not request this, please ignore this email and contact "
-        f"ajalam149@gmail.com immediately.\n\n"
+        f"director.education@gov.deline.ca immediately.\n\n"
         f"Do NOT share this link with anyone."
     )
 
@@ -522,7 +646,7 @@ def send_password_reset(
         f"<p style='margin:0;font-size:13px;color:#991b1b;'>"
         f"<strong>This link expires in 30 minutes.</strong> "
         f"If you did not request a password reset, please ignore this email and contact "
-        f"<a href='mailto:ajalam149@gmail.com' style='color:#991b1b;'>ajalam149@gmail.com</a> "
+        f"<a href='mailto:director.education@gov.deline.ca' style='color:#991b1b;'>director.education@gov.deline.ca</a> "
         f"immediately. Do NOT share this link with anyone.</p></div>"
     )
 

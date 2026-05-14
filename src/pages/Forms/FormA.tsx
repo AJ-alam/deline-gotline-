@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import API from '../../api/client';
 import FormWizard from '../../components/Forms/FormWizard';
+import FieldHint from '../../components/Forms/FieldHint';
+import * as Ic from '../../components/Icons';
 import '../../styles/forms.css';
 
 // SVG Icons for professional look
@@ -22,12 +24,22 @@ interface FormAProps {
   onComplete: () => void;
 }
 
+const FORM_A_DOCUMENTS: ReadonlyArray<{ label: string; desc: string; category: string }> = [
+  { label: 'Transcripts *',     desc: 'Recent high school or post-secondary',        category: 'Academic' },
+  { label: 'Letter of Intent *', desc: 'Explanation of program goals',                category: 'Academic' },
+  { label: 'Reference Letter',   desc: 'Non-family reference',                        category: 'Academic' },
+  { label: 'Status Card *',      desc: 'Deline Beneficiary / First Nation ID',        category: 'Identity' },
+  { label: 'Void Cheque *',      desc: 'For banking verification',                    category: 'Banking'  },
+  { label: 'Extra Docs',         desc: 'Acceptance, etc.',                            category: 'General'  },
+];
+
 const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [showFormBPreview, setShowFormBPreview] = useState(false);
+  const [showSin, setShowSin] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Record<string, File | null>>({});
 
   const handleFileChange = (label: string, file: File | null) => {
@@ -90,6 +102,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
   });
 
   // Auto-save logic
+  // Pre-warm forms cache so submitApplication() never awaits getForms() on submit
+  useEffect(() => { API.getForms().catch(() => {}); }, []);
+
   useEffect(() => {
     localStorage.setItem('dgg_autosave_FormA', JSON.stringify(formData));
   }, [formData]);
@@ -174,14 +189,10 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         { field_label: 'Signature',           answer_text: formData.signature },
       ];
 
-      // Add file answers
-      const documents = [
-        'Transcripts *', 'Letter of Intent *', 'Reference Letter',
-        'Status Card *', 'Void Cheque *', 'Extra Docs'
-      ];
-      documents.forEach(docLabel => {
-        if (selectedFiles[docLabel]) {
-          allAnswers.push({ field_label: docLabel, answer_text: 'File Uploaded' });
+      // Add file answers — labels driven by FORM_A_DOCUMENTS (single source of truth)
+      FORM_A_DOCUMENTS.forEach(({ label }) => {
+        if (selectedFiles[label]) {
+          allAnswers.push({ field_label: label, answer_text: 'File Uploaded' });
         }
       });
 
@@ -197,46 +208,49 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         }
       });
 
-      // Sync profile data to ensure Student ID (Beneficiary Number) is updated in the system
-      await API.updateMe({
-        full_name: `${formData.firstName} ${formData.lastName}`.trim(),
-        preferred_name: formData.preferredName,
-        phone: formData.phone,
-        mailing_address: formData.address,
-        town_city: formData.city,
-        postal_code: formData.postalCode,
-        upi: formData.sin,
-        gender: formData.sex,
-        beneficiary_number: formData.beneficiaryNo,
-        num_dependents: parseInt(String(formData.dependentCount)) || 0,
-        institution_name: formData.institution,
-        program_credential: formData.program,
-        account_holder_name: formData.accountHolder,
-        transit_number: formData.transitNumber,
-        inst_number: formData.instNumber,
-        account_number: formData.accountNumber,
-        expected_graduation_date: formData.programEnd,
-        institution_location: formData.institutionLocation
-      });
+      await Promise.all([
+        API.updateMe({
+          full_name: `${formData.firstName} ${formData.lastName}`.trim(),
+          preferred_name: formData.preferredName,
+          phone: formData.phone,
+          mailing_address: formData.address,
+          town_city: formData.city,
+          postal_code: formData.postalCode,
+          upi: formData.sin,
+          gender: formData.sex,
+          beneficiary_number: formData.beneficiaryNo,
+          num_dependents: parseInt(String(formData.dependentCount)) || 0,
+          institution_name: formData.institution,
+          program_credential: formData.program,
+          account_holder_name: formData.accountHolder,
+          transit_number: formData.transitNumber,
+          inst_number: formData.instNumber,
+          account_number: formData.accountNumber,
+          expected_graduation_date: formData.programEnd,
+          institution_location: formData.institutionLocation
+        }),
+        API.submitApplication({
+          form_type: 'C-DFN PSSSP',
+          form_data: formDataObj
+        })
+      ]);
 
-      // Upload Void Cheque to profile documents if provided
-      const voidChequeFile = selectedFiles['Void Cheque *'];
-      if (voidChequeFile) {
-        try {
-          const docFormData = new FormData();
-          docFormData.append('file', voidChequeFile);
-          docFormData.append('name', 'Verified Void Cheque (Form A)');
-          docFormData.append('category', 'Banking');
-          await API.uploadUserDocument(docFormData);
-        } catch (e) {
-          console.error('Failed to sync void cheque to profile:', e);
-        }
-      }
-
-      await API.submitApplication({
-        form_type: 'C-DFN PSSSP',
-        form_data: formDataObj
-      });
+      // Upload all selected documents to UserDocuments after successful submission
+      const docCategories: Record<string, string> = Object.fromEntries(
+        FORM_A_DOCUMENTS.map(d => [d.label, d.category])
+      );
+      const docUploads = Object.entries(selectedFiles)
+        .filter(([, file]) => file != null)
+        .map(([label, file]) => {
+          const docFD = new FormData();
+          docFD.append('file', file!);
+          docFD.append('name', label.replace(' *', ''));
+          docFD.append('category', docCategories[label] || 'Application');
+          return API.uploadUserDocument(docFD).catch((e: any) =>
+            console.error(`Failed to upload ${label} to documents:`, e)
+          );
+        });
+      await Promise.all(docUploads);
 
       localStorage.removeItem('dgg_autosave_FormA');
       setIsSubmitted(true);
@@ -298,12 +312,12 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
         const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
         const merged = [...subs, ...apps];
-        
+
         const admission = merged.find((a: any) => {
           const title = (a.form_title || a.form_type || '').toLowerCase();
           return title.includes('admission') || title.includes('form a') || title.includes('psssp');
         });
-        
+
         if (admission && admission.status !== 'rejected') {
           setExistingApp(admission);
         }
@@ -318,7 +332,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
     return (
       <div className="wizard-root fade-in">
         <div className="wizard-shell" style={{ textAlign: 'center', padding: '60px 40px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '20px' }}>📄</div>
+          <div style={{ marginBottom: '20px', color: '#1e293b' }}><Ic.FileText size={48} /></div>
           <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#1e293b', marginBottom: '12px' }}>Application Already Submitted</h2>
           <p style={{ fontSize: '14px', color: '#64748b', lineHeight: '1.6', marginBottom: '24px' }}>
             You have already submitted an Admission Application. You cannot submit another until a decision has been reached.
@@ -346,7 +360,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
             Your application has been received by the DGG Education Department.
           </p>
           <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: '20px', borderRadius: '8px', textAlign: 'left', marginBottom: '32px' }}>
-            <div style={{ fontWeight: '700', color: '#1e40af', marginBottom: '8px', fontSize: '14px' }}>📧 Enrollment Verification Sent Automatically</div>
+            <div style={{ fontWeight: '700', color: '#1e40af', marginBottom: '8px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}><Ic.Mail size={14} /> Enrollment Verification Sent Automatically</div>
             <div style={{ fontSize: '12.5px', color: '#1e40af', lineHeight: '1.6' }}>
               An enrollment confirmation request has been pre-filled and emailed to your institution's registrar at <strong>{formData.registrarEmail || 'the official address provided'}</strong>.
               <br /><br />
@@ -365,7 +379,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
     <FormWizard
       title="New Student Application"
       subtitle={currentStep === 1
-        ? "Please confirm your personal information below. This data will pre-fill Form B for your registrar."
+        ? "Please confirm your personal information below. This data will pre-fill the Enrollment Verification form for your registrar."
         : currentStep === 4
           ? "Upload supporting documents and sign the declaration to finalize."
           : "Living allowance and tuition are auto-calculated from your eligibility and confirmed by your institution. Please provide your direct deposit details below to ensure timely payments."
@@ -386,22 +400,22 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
       )}
       {currentStep === 1 && (
         <div className="fade-in">
-
-
           <div className="section-divider">Student Information</div>
           <table className="form-grid">
             <tbody>
               <tr>
                 <td width="50%">
-                  <label className="field-label">First Name *</label>
+                  <label className="field-label" htmlFor="fa-firstName">First Name *</label>
                   <input
+                    id="fa-firstName"
                     className="field-input" type="text" placeholder="Marie"
                     value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })}
                   />
                 </td>
                 <td width="50%">
-                  <label className="field-label">Last Name *</label>
+                  <label className="field-label" htmlFor="fa-lastName">Last Name *</label>
                   <input
+                    id="fa-lastName"
                     className="field-input" type="text" placeholder="Beaulieu"
                     value={formData.lastName} onChange={e => setFormData({ ...formData, lastName: e.target.value })}
                   />
@@ -409,8 +423,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td colSpan={2}>
-                  <label className="field-label">Permanent Address in NT *</label>
+                  <label className="field-label" htmlFor="fa-address">Permanent Address in NT *</label>
                   <input
+                    id="fa-address"
                     className="field-input" type="text" placeholder="Street address or PO Box"
                     value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })}
                   />
@@ -418,15 +433,17 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td width="70%">
-                  <label className="field-label">Town / City *</label>
+                  <label className="field-label" htmlFor="fa-city">Town / City *</label>
                   <input
+                    id="fa-city"
                     className="field-input" type="text" placeholder="Deline"
                     value={formData.city} onChange={e => setFormData({ ...formData, city: e.target.value })}
                   />
                 </td>
                 <td width="30%">
-                  <label className="field-label">Territory / Province *</label>
+                  <label className="field-label" htmlFor="fa-province">Territory / Province *</label>
                   <input
+                    id="fa-province"
                     className="field-input" type="text"
                     value={formData.province} onChange={e => setFormData({ ...formData, province: e.target.value })}
                   />
@@ -434,24 +451,38 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td width="50%">
-                  <label className="field-label">Postal Code *</label>
+                  <label className="field-label" htmlFor="fa-postalCode">Postal Code *</label>
                   <input
+                    id="fa-postalCode"
                     className="field-input" type="text" placeholder="X0E 0G0"
                     value={formData.postalCode} onChange={e => setFormData({ ...formData, postalCode: e.target.value })}
                   />
                 </td>
                 <td width="50%">
-                  <label className="field-label">SIN (Required Field) *</label>
-                  <input
-                    className="field-input" type="password" placeholder="000-000-000"
-                    value={formData.sin} onChange={e => setFormData({ ...formData, sin: e.target.value })}
-                  />
+                  <label className="field-label" htmlFor="fa-sin">SIN (Required Field) * <FieldHint text="Your 9-digit Social Insurance Number. Required to process government bursary funding. Kept strictly confidential and never shared." /></label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      id="fa-sin"
+                      className="field-input" type={showSin ? 'text' : 'password'} placeholder="000-000-000"
+                      value={formData.sin} onChange={e => setFormData({ ...formData, sin: e.target.value })}
+                      style={{ paddingRight: '36px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSin(v => !v)}
+                      style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '2px', display: 'flex', alignItems: 'center' }}
+                      aria-label={showSin ? 'Hide SIN' : 'Show SIN'}
+                    >
+                      {showSin ? <Ic.EyeOff size={16} /> : <Ic.Eye size={16} />}
+                    </button>
+                  </div>
                 </td>
               </tr>
               <tr>
                 <td colSpan={2}>
-                  <label className="field-label">Current Address (Leave blank if same as above)</label>
+                  <label className="field-label" htmlFor="fa-currentAddress">Current Address (Leave blank if same as above)</label>
                   <input
+                    id="fa-currentAddress"
                     className="field-input" type="text" placeholder="In-school address"
                     value={formData.currentAddress} onChange={e => setFormData({ ...formData, currentAddress: e.target.value })}
                   />
@@ -459,8 +490,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td width="50%">
-                  <label className="field-label">Gender *</label>
+                  <label className="field-label" htmlFor="fa-sex">Gender *</label>
                   <select
+                    id="fa-sex"
                     className="field-input" style={{ width: '97%', height: '36px' }}
                     value={formData.sex} onChange={e => setFormData({ ...formData, sex: e.target.value })}
                   >
@@ -473,8 +505,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                   </select>
                 </td>
                 <td width="50%">
-                  <label className="field-label">Date of Birth *</label>
+                  <label className="field-label" htmlFor="fa-dob">Date of Birth *</label>
                   <input
+                    id="fa-dob"
                     className="field-input" type="date"
                     value={formData.dob} onChange={e => setFormData({ ...formData, dob: e.target.value })}
                   />
@@ -482,15 +515,17 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td width="50%">
-                  <label className="field-label">Phone *</label>
+                  <label className="field-label" htmlFor="fa-phone">Phone *</label>
                   <input
+                    id="fa-phone"
                     className="field-input" type="tel" placeholder="(867) 555-0199"
                     value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })}
                   />
                 </td>
                 <td width="50%">
-                  <label className="field-label">Email Address *</label>
+                  <label className="field-label" htmlFor="fa-email">Email Address *</label>
                   <input
+                    id="fa-email"
                     className="field-input" type="email" placeholder="marie.b@email.com"
                     value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })}
                   />
@@ -498,12 +533,12 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td>
-                  <label className="field-label">Délı̨nę Beneficiary #</label>
+                  <label className="field-label" htmlFor="fa-beneficiaryNo">Délı̨nę Beneficiary # <FieldHint text="Your unique Délı̨nę Got'ı̨nę Government citizenship ID (e.g. DGG-00412). Contact the DGG office if you are unsure of your number." /></label>
                   <input
+                    id="fa-beneficiaryNo"
                     className="field-input" type="text" placeholder="DGG-00412"
                     value={formData.beneficiaryNo} onChange={e => setFormData({ ...formData, beneficiaryNo: e.target.value })}
                   />
-                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Your DGG citizenship identification number</div>
                 </td>
                 <td>
                   <label className="field-label">Dependents? (if yes, provide count)</label>
@@ -523,8 +558,10 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                       /> No
                     </label>
                     <input
+                      id="fa-dependentCount"
                       className="field-input" type="number" placeholder="0" style={{ width: '80px' }}
                       value={formData.dependentCount} onChange={e => setFormData({ ...formData, dependentCount: e.target.value })}
+                      aria-label="Number of dependents"
                     />
                   </div>
                 </td>
@@ -541,16 +578,18 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
             <tbody>
               <tr>
                 <td width="60%">
-                  <label className="field-label">Institution Name *</label>
+                  <label className="field-label" htmlFor="fa-institution">Institution Name *</label>
                   <input
+                    id="fa-institution"
                     className="field-input" type="text" placeholder="e.g. Aurora College"
                     value={formData.institution} onChange={e => setFormData({ ...formData, institution: e.target.value })}
                   />
                   <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Full name of the college, university, or trade school</div>
                 </td>
                 <td width="40%">
-                  <label className="field-label">Institution Location</label>
+                  <label className="field-label" htmlFor="fa-institutionLocation">Institution Location</label>
                   <input
+                    id="fa-institutionLocation"
                     className="field-input" type="text" placeholder="City, Prov"
                     value={formData.institutionLocation} onChange={e => setFormData({ ...formData, institutionLocation: e.target.value })}
                   />
@@ -558,8 +597,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td width="60%">
-                  <label className="field-label">Program Name *</label>
+                  <label className="field-label" htmlFor="fa-program">Program Name *</label>
                   <input
+                    id="fa-program"
                     className="field-input" type="text" placeholder="e.g. Environmental Science Diploma"
                     value={formData.program} onChange={e => setFormData({ ...formData, program: e.target.value })}
                   />
@@ -614,66 +654,70 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
             <tbody>
               <tr>
                 <td width="33%">
-                  <label className="field-label">Semester (e.g. Fall 2026) *</label>
+                  <label className="field-label" htmlFor="fa-semester">Semester (e.g. Fall 2026) * <FieldHint text="Which semester are you applying funding for? For example, 'Fall 2026' means you are attending school September–December 2026." /></label>
                   <input
+                    id="fa-semester"
                     className="field-input" type="text" placeholder="Fall 2026"
                     value={formData.semester} onChange={e => setFormData({ ...formData, semester: e.target.value })}
                   />
                 </td>
                 <td width="33%">
-                  <label className="field-label">Semester Start (YY/MM/DD) *</label>
+                  <label className="field-label" htmlFor="fa-semStart">Semester Start (YY/MM/DD) * <FieldHint text="The first day of THIS semester — not when you started your overall program. Check your institution's academic calendar or acceptance letter." /></label>
                   <input
+                    id="fa-semStart"
                     className="field-input" type="date"
                     value={formData.semStart} onChange={e => setFormData({ ...formData, semStart: e.target.value })}
                   />
-                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>From institution academic calendar</div>
                 </td>
                 <td width="33%">
-                  <label className="field-label">Semester End (YY/MM/DD) *</label>
+                  <label className="field-label" htmlFor="fa-semEnd">Semester End (YY/MM/DD) * <FieldHint text="The last day of THIS semester — typically the last exam or last class day as listed on your institution's academic calendar." /></label>
                   <input
+                    id="fa-semEnd"
                     className="field-input" type="date"
                     value={formData.semEnd} onChange={e => setFormData({ ...formData, semEnd: e.target.value })}
                   />
-                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>From institution academic calendar</div>
                 </td>
               </tr>
               <tr>
                 <td width="50%">
-                  <label className="field-label">Total Program Start *</label>
+                  <label className="field-label" htmlFor="fa-programStart">Total Program Start * <FieldHint text="When did you first begin your entire degree or diploma program? This is the overall start date — it may be from a previous semester or year." /></label>
                   <input
+                    id="fa-programStart"
                     className="field-input" type="date"
                     value={formData.programStart} onChange={e => setFormData({ ...formData, programStart: e.target.value })}
                   />
                 </td>
                 <td width="50%">
-                  <label className="field-label">Total Program End (Expected) *</label>
+                  <label className="field-label" htmlFor="fa-programEnd">Total Program End (Expected) * <FieldHint text="Your expected graduation date — when you plan to complete your entire program. This could be several years from now." /></label>
                   <input
+                    id="fa-programEnd"
                     className="field-input" type="date"
                     value={formData.programEnd} onChange={e => setFormData({ ...formData, programEnd: e.target.value })}
                   />
-                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Estimated graduation date</div>
                 </td>
               </tr>
             </tbody>
           </table>
 
-          <div className="section-divider">Registrar Contact (Form B Delivery)</div>
+          <div className="section-divider">Registrar Contact (Enrollment Verification Delivery)</div>
           <div className="policy-note info" style={{ marginBottom: 16 }}>
-            Form B (Enrolment Confirmation) will be pre-filled and emailed to this address for registrar verification.
+            The Enrollment Verification form will be pre-filled and emailed to this address for registrar verification.
           </div>
           <table className="form-grid">
             <tbody>
               <tr>
                 <td width="60%">
-                  <label className="field-label">Registrar / Official Email *</label>
+                  <label className="field-label" htmlFor="fa-registrarEmail">Registrar / Official Email * <FieldHint text="The official email address of your institution's Registrar or Admissions Office. DGG will send the Enrollment Verification form directly to this address." /></label>
                   <input
+                    id="fa-registrarEmail"
                     className="field-input" type="email" placeholder="registrar@auroracollege.nt.ca"
                     value={formData.registrarEmail} onChange={e => setFormData({ ...formData, registrarEmail: e.target.value })}
                   />
                 </td>
                 <td width="40%">
-                  <label className="field-label">Student ID (if assigned)</label>
+                  <label className="field-label" htmlFor="fa-studentId">Student ID (if assigned)</label>
                   <input
+                    id="fa-studentId"
                     className="field-input" type="text" placeholder="SID-012"
                     value={formData.studentId} onChange={e => setFormData({ ...formData, studentId: e.target.value })}
                   />
@@ -695,8 +739,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
             <tbody>
               <tr>
                 <td colSpan={3}>
-                  <label className="field-label">Account Holder Name *</label>
+                  <label className="field-label" htmlFor="fa-accountHolder">Account Holder Name *</label>
                   <input
+                    id="fa-accountHolder"
                     className="field-input" type="text" placeholder="Full legal name as on bank record"
                     value={formData.accountHolder} onChange={e => setFormData({ ...formData, accountHolder: e.target.value })}
                   />
@@ -704,30 +749,30 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td width="50%">
-                  <label className="field-label">Transit # (5 digits)</label>
+                  <label className="field-label" htmlFor="fa-transitNumber">Transit # (5 digits) <FieldHint text="The 5-digit branch number of your bank. Found on a void cheque (middle set of numbers) or in your online banking under account details." /></label>
                   <input
+                    id="fa-transitNumber"
                     className="field-input" type="text" maxLength={5} placeholder="00000"
                     value={formData.transitNumber} onChange={e => setFormData({ ...formData, transitNumber: e.target.value })}
                   />
-                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>5-digit branch code</div>
                 </td>
                 <td width="50%">
-                  <label className="field-label">Inst # (3 digits)</label>
+                  <label className="field-label" htmlFor="fa-instNumber">Inst # (3 digits) <FieldHint text="The 3-digit code that identifies your bank. For example: TD is 004, RBC is 003, BMO is 001. Found on your void cheque." /></label>
                   <input
+                    id="fa-instNumber"
                     className="field-input" type="text" maxLength={3} placeholder="000"
                     value={formData.instNumber} onChange={e => setFormData({ ...formData, instNumber: e.target.value })}
                   />
-                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>3-digit bank code</div>
                 </td>
               </tr>
               <tr>
                 <td colSpan={2}>
-                  <label className="field-label">Account # (7-12 digits)</label>
+                  <label className="field-label" htmlFor="fa-accountNumber">Account # (7-12 digits) <FieldHint text="Your personal bank account number — typically 7 to 12 digits. Found on your void cheque (last set of numbers) or in your banking app." /></label>
                   <input
+                    id="fa-accountNumber"
                     className="field-input" type="text" placeholder="000000000"
                     value={formData.accountNumber} onChange={e => setFormData({ ...formData, accountNumber: e.target.value })}
                   />
-                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>Your unique bank account number</div>
                 </td>
               </tr>
             </tbody>
@@ -745,14 +790,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
             To have a full and complete application you must also include the following documents. If using a mobile phone, use your camera. Please ensure documents are well-lit and legible. If a document is not legible, you will be asked to rescan or retake the picture properly.
           </div>
           <div className="doc-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '32px' }}>
-            {[
-              { label: 'Transcripts *', desc: 'Recent high school or post-secondary' },
-              { label: 'Letter of Intent *', desc: 'Explanation of program goals' },
-              { label: 'Reference Letter', desc: 'Non-family reference' },
-              { label: 'Status Card *', desc: 'Deline Beneficiary / First Nation ID' },
-              { label: 'Void Cheque *', desc: 'For banking verification' },
-              { label: 'Extra Docs', desc: 'Acceptance, etc.' }
-            ].map((doc, idx) => (
+            {FORM_A_DOCUMENTS.map((doc, idx) => (
               <div key={idx} className="doc-item" style={{ background: '#fff', border: '1px solid #e2e8f0', padding: '12px 16px', borderRadius: '8px' }}>
                 <div style={{ fontSize: '11.5px', fontWeight: '700', color: '#1e293b' }}>{doc.label}</div>
                 <div style={{ fontSize: '9px', color: '#64748b', marginTop: 2 }}>{doc.desc}</div>
@@ -782,15 +820,16 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
             <tbody>
               <tr>
                 <td width="70%">
-                  <label className="field-label">Student Signature (Full Legal Name) *</label>
+                  <label className="field-label" htmlFor="fa-signature">Student Signature (Full Legal Name) *</label>
                   <input
+                    id="fa-signature"
                     className="field-input" type="text" placeholder="Marie Beaulieu"
                     value={formData.signature} onChange={e => setFormData({ ...formData, signature: e.target.value })}
                   />
                 </td>
                 <td width="30%">
-                  <label className="field-label">Date *</label>
-                  <input className="field-input" type="date" defaultValue={new Date().toISOString().split('T')[0]} readOnly />
+                  <label className="field-label" htmlFor="fa-signDate">Date *</label>
+                  <input id="fa-signDate" className="field-input" type="date" defaultValue={new Date().toISOString().split('T')[0]} readOnly />
                 </td>
               </tr>
             </tbody>
@@ -798,10 +837,10 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
 
           <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', padding: '16px', borderRadius: '8px', marginTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ flex: 1, paddingRight: 20 }}>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#0369a1' }}>📋 Form B Auto-Generated Preview</div>
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '6px' }}><Ic.Clipboard size={14} /> Enrollment Verification Preview</div>
               <div style={{ fontSize: '11px', color: '#0369a1', marginTop: 4 }}>This document is pre-filled from your entries and sent to your registrar. Please check for accuracy before finalizing.</div>
             </div>
-            <button className="btn-primary" style={{ padding: '8px 16px', whiteSpace: 'nowrap' }} onClick={() => setShowFormBPreview(true)}>👁️ Preview Form B</button>
+            <button className="btn-primary" style={{ padding: '8px 16px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setShowFormBPreview(true)}><Ic.Eye size={14} /> Preview Enrollment Verification</button>
           </div>
         </div>
       )}
@@ -811,7 +850,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         <div className="modal-overlay" onClick={() => setShowFormBPreview(false)}>
           <div className="modal-box animate-slide-in" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Form B — Student Enrolment Confirmation (Auto-Generated Preview)</h3>
+              <h3>Enrollment Verification — Student Enrolment Confirmation (Auto-Generated Preview)</h3>
               <button className="modal-close" onClick={() => setShowFormBPreview(false)}>✕</button>
             </div>
             <div className="modal-body">

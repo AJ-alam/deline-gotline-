@@ -176,30 +176,30 @@ const FormH: React.FC<FormHProps> = ({ profile, onBack, onComplete }) => {
             <div className="section-divider">Student & Academic Context</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
-                  <label className="field-label">Student Name *</label>
-                  <input className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
+                  <label className="field-label" htmlFor="fh-studentName">Student Name *</label>
+                  <input id="fh-studentName" className="field-input" value={formData.studentName} onChange={e => handleInputChange('studentName', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Student ID *</label>
-                  <input className="field-input" value={formData.studentId} onChange={e => handleInputChange('studentId', e.target.value)} />
+                  <label className="field-label" htmlFor="fh-studentId">Student ID *</label>
+                  <input id="fh-studentId" className="field-input" value={formData.studentId} onChange={e => handleInputChange('studentId', e.target.value)} />
                 </div>
             </div>
             <div style={{ marginBottom: '12px' }}>
-                <label className="field-label">Educational Institution *</label>
-                <input className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} />
+                <label className="field-label" htmlFor="fh-institution">Educational Institution *</label>
+                <input id="fh-institution" className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label className="field-label">Semester *</label>
-                  <select className="field-input" value={formData.semester} onChange={e => handleInputChange('semester', e.target.value)}>
+                  <label className="field-label" htmlFor="fh-semester">Semester *</label>
+                  <select id="fh-semester" className="field-input" value={formData.semester} onChange={e => handleInputChange('semester', e.target.value)}>
                     <option>Fall</option>
                     <option>Winter</option>
                     <option>Spring/Summer</option>
                   </select>
                 </div>
                 <div>
-                  <label className="field-label">Academic Year *</label>
-                  <input className="field-input" value={formData.year} onChange={e => handleInputChange('year', e.target.value)} placeholder="e.g. 2025-2026" />
+                  <label className="field-label" htmlFor="fh-year">Academic Year *</label>
+                  <input id="fh-year" className="field-input" value={formData.year} onChange={e => handleInputChange('year', e.target.value)} placeholder="e.g. 2025-2026" />
                 </div>
             </div>
           </div>
@@ -209,21 +209,23 @@ const FormH: React.FC<FormHProps> = ({ profile, onBack, onComplete }) => {
       {currentStep === 2 && (
         <div className="fade-in">
           <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '20px', marginBottom: '20px' }}>
-            <label className="field-label">Detailed Reason for Appeal *</label>
+            <label className="field-label" htmlFor="fh-appealReason">Detailed Reason for Appeal *</label>
             <div style={{ fontSize: '11px', color: '#666', marginBottom: '10px' }}>
                 Explain why you believe the original decision was incorrect and what outcome you are requesting.
             </div>
             <textarea 
-              className="field-input" 
+              id="fh-appealReason"
+              className="field-input"
               value={formData.appealReason}
               onChange={e => handleInputChange('appealReason', e.target.value)}
               placeholder="Provide a thorough explanation..."
               style={{ width: '100%', height: '160px', padding: '12px', marginBottom: '20px' }}
             />
 
-            <label className="field-label">Policy Reference (Optional)</label>
-            <input 
-              className="field-input" 
+            <label className="field-label" htmlFor="fh-policyReference">Policy Reference (Optional)</label>
+            <input
+              id="fh-policyReference"
+              className="field-input"
               value={formData.policyReference}
               onChange={e => handleInputChange('policyReference', e.target.value)}
               placeholder="e.g. Section 4.2 - Eligibility requirements"
@@ -246,12 +248,12 @@ const FormH: React.FC<FormHProps> = ({ profile, onBack, onComplete }) => {
             
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
                 <div>
-                  <label className="field-label">Electronic Signature *</label>
-                  <input className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
+                  <label className="field-label" htmlFor="fh-signature">Electronic Signature *</label>
+                  <input id="fh-signature" className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
                 </div>
                 <div>
-                  <label className="field-label">Date</label>
-                  <input className="field-input" disabled value={new Date().toLocaleDateString()} />
+                  <label className="field-label" htmlFor="fh-date">Date</label>
+                  <input id="fh-date" className="field-input" disabled value={new Date().toLocaleDateString()} />
                 </div>
             </div>
           </div>

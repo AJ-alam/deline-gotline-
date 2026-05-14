@@ -134,6 +134,8 @@ const SignUp: React.FC = () => {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -357,44 +359,46 @@ const SignUp: React.FC = () => {
                 <div className="section-divider">Basic Information</div>
                 <div className="field-row">
                   <div className="field-group">
-                    <label className="field-label">First Name <span className="required">*</span></label>
-                    <input className="field-input" type="text" placeholder="Marie" value={formData.firstName} onChange={e => updateFormData('firstName', e.target.value)} />
+                    <label className="field-label" htmlFor="su-firstName">First Name <span className="required">*</span></label>
+                    <input id="su-firstName" className="field-input" type="text" placeholder="Marie" value={formData.firstName} onChange={e => updateFormData('firstName', e.target.value)} />
                   </div>
                   <div className="field-group">
-                    <label className="field-label">Last Name <span className="required">*</span></label>
-                    <input className="field-input" type="text" placeholder="Beaulieu" value={formData.lastName} onChange={e => updateFormData('lastName', e.target.value)} />
+                    <label className="field-label" htmlFor="su-lastName">Last Name <span className="required">*</span></label>
+                    <input id="su-lastName" className="field-input" type="text" placeholder="Beaulieu" value={formData.lastName} onChange={e => updateFormData('lastName', e.target.value)} />
                   </div>
                 </div>
 
                 <div className="field-row">
                   <div className="field-group">
-                    <label className="field-label">Date of Birth <span className="required">*</span></label>
-                    <input 
-                      className="field-input" 
-                      type="date" 
-                      value={formData.dob} 
-                      onChange={e => updateFormData('dob', e.target.value)} 
+                    <label className="field-label" htmlFor="su-dob">Date of Birth <span className="required">*</span></label>
+                    <input
+                      id="su-dob"
+                      className="field-input"
+                      type="date"
+                      value={formData.dob}
+                      onChange={e => updateFormData('dob', e.target.value)}
                     />
                   </div>
                   <div className="field-group">
-                    <label className="field-label">DGG Beneficiary # <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: '9px', color: '#999' }}>(Optional)</span></label>
-                    <input className="field-input" type="text" placeholder="e.g. DGG-00412" value={formData.beneficiaryNo} onChange={e => updateFormData('beneficiaryNo', e.target.value)} />
+                    <label className="field-label" htmlFor="su-beneficiaryNo">DGG Beneficiary # <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: '9px', color: '#999' }}>(Optional)</span></label>
+                    <input id="su-beneficiaryNo" className="field-input" type="text" placeholder="e.g. DGG-00412" value={formData.beneficiaryNo} onChange={e => updateFormData('beneficiaryNo', e.target.value)} />
                   </div>
                 </div>
 
                 <div className="field-row">
                   <div className="field-group">
-                    <label className="field-label">Email Address</label>
-                    <input className="field-input" type="email" placeholder="e.g. marie@email.com" value={formData.email} onChange={e => updateFormData('email', e.target.value)} />
+                    <label className="field-label" htmlFor="su-email">Email Address</label>
+                    <input id="su-email" className="field-input" type="email" placeholder="e.g. marie@email.com" value={formData.email} onChange={e => updateFormData('email', e.target.value)} />
                   </div>
                   <div className="field-group">
-                    <label className="field-label">Phone Number <span className="required">*</span></label>
-                    <input 
-                      className="field-input" 
-                      type="tel" 
-                      placeholder="(867) 000-0000" 
-                      value={formData.phone} 
-                      onChange={e => updateFormData('phone', e.target.value)} 
+                    <label className="field-label" htmlFor="su-phone">Phone Number <span className="required">*</span></label>
+                    <input
+                      id="su-phone"
+                      className="field-input"
+                      type="tel"
+                      placeholder="(867) 000-0000"
+                      value={formData.phone}
+                      onChange={e => updateFormData('phone', e.target.value)}
                     />
                   </div>
                 </div>
@@ -410,22 +414,22 @@ const SignUp: React.FC = () => {
                       </div>
                       <div className="field-row">
                         <div className="field-group">
-                          <label className="field-label">First Name <span className="required">*</span></label>
-                          <input className="field-input" type="text" placeholder="First name" value={dep.firstName} onChange={e => updateDependent(dep.id, 'firstName', e.target.value)} />
+                          <label className="field-label" htmlFor={`su-dep-${dep.id}-firstName`}>First Name <span className="required">*</span></label>
+                          <input id={`su-dep-${dep.id}-firstName`} className="field-input" type="text" placeholder="First name" value={dep.firstName} onChange={e => updateDependent(dep.id, 'firstName', e.target.value)} />
                         </div>
                         <div className="field-group">
-                          <label className="field-label">Last Name <span className="required">*</span></label>
-                          <input className="field-input" type="text" placeholder="Last name" value={dep.lastName} onChange={e => updateDependent(dep.id, 'lastName', e.target.value)} />
+                          <label className="field-label" htmlFor={`su-dep-${dep.id}-lastName`}>Last Name <span className="required">*</span></label>
+                          <input id={`su-dep-${dep.id}-lastName`} className="field-input" type="text" placeholder="Last name" value={dep.lastName} onChange={e => updateDependent(dep.id, 'lastName', e.target.value)} />
                         </div>
                       </div>
                       <div className="field-row">
                         <div className="field-group">
-                          <label className="field-label">Date of Birth <span className="required">*</span></label>
-                          <input className="field-input" type="date" value={dep.dob} onChange={e => updateDependent(dep.id, 'dob', e.target.value)} />
+                          <label className="field-label" htmlFor={`su-dep-${dep.id}-dob`}>Date of Birth <span className="required">*</span></label>
+                          <input id={`su-dep-${dep.id}-dob`} className="field-input" type="date" value={dep.dob} onChange={e => updateDependent(dep.id, 'dob', e.target.value)} />
                         </div>
                         <div className="field-group">
-                          <label className="field-label">Relationship <span className="required">*</span></label>
-                          <select className="field-select" value={dep.relationship} onChange={e => updateDependent(dep.id, 'relationship', e.target.value)}>
+                          <label className="field-label" htmlFor={`su-dep-${dep.id}-relationship`}>Relationship <span className="required">*</span></label>
+                          <select id={`su-dep-${dep.id}-relationship`} className="field-select" value={dep.relationship} onChange={e => updateDependent(dep.id, 'relationship', e.target.value)}>
                             <option value="">Select</option>
                             <option value="Child">Child</option>
                             <option value="Spouse / Partner">Spouse / Partner</option>
@@ -441,12 +445,28 @@ const SignUp: React.FC = () => {
                 <div className="section-divider">Set Password</div>
                 <div className="field-row">
                   <div className="field-group">
-                    <label className="field-label">Password <span className="required">*</span></label>
-                    <input className="field-input" type="password" placeholder="••••••••" value={formData.password} onChange={e => updateFormData('password', e.target.value)} />
+                    <label className="field-label" htmlFor="su-password">Password <span className="required">*</span></label>
+                    <div style={{ position: 'relative' }}>
+                      <input id="su-password" className="field-input" type={showPassword ? 'text' : 'password'} placeholder="••••••••" value={formData.password} onChange={e => updateFormData('password', e.target.value)} style={{ paddingRight: '42px', width: '100%', boxSizing: 'border-box' }} />
+                      <button type="button" onClick={() => setShowPassword(p => !p)} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#64748b', display: 'flex', alignItems: 'center' }} aria-label={showPassword ? 'Hide password' : 'Show password'}>
+                        {showPassword
+                          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                          : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        }
+                      </button>
+                    </div>
                   </div>
                   <div className="field-group">
-                    <label className="field-label">Confirm Password <span className="required">*</span></label>
-                    <input className="field-input" type="password" placeholder="••••••••" value={formData.confirmPassword} onChange={e => updateFormData('confirmPassword', e.target.value)} />
+                    <label className="field-label" htmlFor="su-confirmPassword">Confirm Password <span className="required">*</span></label>
+                    <div style={{ position: 'relative' }}>
+                      <input id="su-confirmPassword" className="field-input" type={showConfirmPassword ? 'text' : 'password'} placeholder="••••••••" value={formData.confirmPassword} onChange={e => updateFormData('confirmPassword', e.target.value)} style={{ paddingRight: '42px', width: '100%', boxSizing: 'border-box' }} />
+                      <button type="button" onClick={() => setShowConfirmPassword(p => !p)} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#64748b', display: 'flex', alignItems: 'center' }} aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}>
+                        {showConfirmPassword
+                          ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                          : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        }
+                      </button>
+                    </div>
                   </div>
                 </div>
 

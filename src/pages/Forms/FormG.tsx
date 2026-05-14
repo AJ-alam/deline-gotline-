@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import API from '../../api/client';
 import FormWizard from '../../components/Forms/FormWizard';
+import * as Ic from '../../components/Icons';
 import '../../styles/forms.css';
 
 interface FormGProps {
@@ -14,6 +15,7 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [showSin, setShowSin] = useState(false);
 
   // BUG 1: Connectivity & State
   const [formData, setFormData] = useState({
@@ -42,6 +44,9 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
   const [selectedProof, setSelectedProof] = useState<File | null>(null);
 
   // Auto-fill sync from profile
+  // Pre-warm forms cache so submitApplication() never awaits getForms() on submit
+  useEffect(() => { API.getForms().catch(() => {}); }, []);
+
   useEffect(() => {
     if (profile) {
       setFormData(prev => ({
@@ -217,46 +222,56 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
             <div className="section-divider">Student Information</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
-                  <label className="field-label">Full Legal Name *</label>
-                  <input className="field-input" value={formData.fullName} onChange={e => handleInputChange('fullName', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-fullName">Full Legal Name *</label>
+                  <input id="fg-fullName" className="field-input" value={formData.fullName} onChange={e => handleInputChange('fullName', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Date of Birth *</label>
-                  <input className="field-input" type="date" value={formData.dob} onChange={e => handleInputChange('dob', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-dob">Date of Birth *</label>
+                  <input id="fg-dob" className="field-input" type="date" value={formData.dob} onChange={e => handleInputChange('dob', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Treaty / SCN # *</label>
-                  <input className="field-input" value={formData.treatyNumber} onChange={e => handleInputChange('treatyNumber', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-treatyNumber">Treaty / SCN # *</label>
+                  <input id="fg-treatyNumber" className="field-input" value={formData.treatyNumber} onChange={e => handleInputChange('treatyNumber', e.target.value)} />
                 </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label className="field-label">Social Insurance #</label>
-                  <input className="field-input" type="password" value={formData.sin} onChange={e => handleInputChange('sin', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-sin">Social Insurance #</label>
+                  <div style={{ position: 'relative' }}>
+                    <input id="fg-sin" className="field-input" type={showSin ? 'text' : 'password'} value={formData.sin} onChange={e => handleInputChange('sin', e.target.value)} style={{ paddingRight: '36px' }} />
+                    <button
+                      type="button"
+                      onClick={() => setShowSin(v => !v)}
+                      style={{ position: 'absolute', right: '15px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', padding: '2px', display: 'flex', alignItems: 'center' }}
+                      aria-label={showSin ? 'Hide SIN' : 'Show SIN'}
+                    >
+                      {showSin ? <Ic.EyeOff size={16} /> : <Ic.Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
                 <div>
-                  <label className="field-label">Phone *</label>
-                  <input className="field-input" value={formData.phone} onChange={e => handleInputChange('phone', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-phone">Phone *</label>
+                  <input id="fg-phone" className="field-input" value={formData.phone} onChange={e => handleInputChange('phone', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Email *</label>
-                  <input className="field-input" type="email" value={formData.email} onChange={e => handleInputChange('email', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-email">Email *</label>
+                  <input id="fg-email" className="field-input" type="email" value={formData.email} onChange={e => handleInputChange('email', e.target.value)} />
                 </div>
             </div>
             
             <div className="section-divider">Current Mailing Address</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label className="field-label">Town / City *</label>
-                  <input className="field-input" value={formData.city} onChange={e => handleInputChange('city', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-city">Town / City *</label>
+                  <input id="fg-city" className="field-input" value={formData.city} onChange={e => handleInputChange('city', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Province *</label>
-                  <input className="field-input" value={formData.province} onChange={e => handleInputChange('province', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-province">Province *</label>
+                  <input id="fg-province" className="field-input" value={formData.province} onChange={e => handleInputChange('province', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Postal Code *</label>
-                  <input className="field-input" value={formData.postalCode} onChange={e => handleInputChange('postalCode', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-postalCode">Postal Code *</label>
+                  <input id="fg-postalCode" className="field-input" value={formData.postalCode} onChange={e => handleInputChange('postalCode', e.target.value)} />
                 </div>
             </div>
           </div>
@@ -269,22 +284,22 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
             <div className="section-divider">Graduation Details</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div>
-                  <label className="field-label">Institution *</label>
-                  <input className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-institution">Institution *</label>
+                  <input id="fg-institution" className="field-input" value={formData.institution} onChange={e => handleInputChange('institution', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Program of Study *</label>
-                  <input className="field-input" value={formData.program} onChange={e => handleInputChange('program', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-program">Program of Study *</label>
+                  <input id="fg-program" className="field-input" value={formData.program} onChange={e => handleInputChange('program', e.target.value)} />
                 </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label className="field-label">Completion Date *</label>
-                  <input className="field-input" type="date" value={formData.completionDate} onChange={e => handleInputChange('completionDate', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-completionDate">Completion Date *</label>
+                  <input id="fg-completionDate" className="field-input" type="date" value={formData.completionDate} onChange={e => handleInputChange('completionDate', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Credential Earned *</label>
-                  <select className="field-input" value={formData.credential} onChange={e => handleInputChange('credential', e.target.value)}>
+                  <label className="field-label" htmlFor="fg-credential">Credential Earned *</label>
+                  <select id="fg-credential" className="field-input" value={formData.credential} onChange={e => handleInputChange('credential', e.target.value)}>
                     <option>Certificate</option>
                     <option>Diploma</option>
                     <option>Degree (Bachelors)</option>
@@ -308,16 +323,16 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
             <div className="section-divider">Banking Information</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label className="field-label">Institution # *</label>
-                  <input className="field-input" value={formData.bankInstitution} onChange={e => handleInputChange('bankInstitution', e.target.value)} maxLength={3} />
+                  <label className="field-label" htmlFor="fg-bankInstitution">Institution # *</label>
+                  <input id="fg-bankInstitution" className="field-input" value={formData.bankInstitution} onChange={e => handleInputChange('bankInstitution', e.target.value)} maxLength={3} />
                 </div>
                 <div>
-                  <label className="field-label">Transit # *</label>
-                  <input className="field-input" value={formData.bankTransit} onChange={e => handleInputChange('bankTransit', e.target.value)} maxLength={5} />
+                  <label className="field-label" htmlFor="fg-bankTransit">Transit # *</label>
+                  <input id="fg-bankTransit" className="field-input" value={formData.bankTransit} onChange={e => handleInputChange('bankTransit', e.target.value)} maxLength={5} />
                 </div>
                 <div>
-                  <label className="field-label">Account # *</label>
-                  <input className="field-input" value={formData.bankAccount} onChange={e => handleInputChange('bankAccount', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-bankAccount">Account # *</label>
+                  <input id="fg-bankAccount" className="field-input" value={formData.bankAccount} onChange={e => handleInputChange('bankAccount', e.target.value)} />
                 </div>
             </div>
           </div>
@@ -331,12 +346,12 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
             {formData.releaseToOther && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label className="field-label">Recipient Name *</label>
-                  <input className="field-input" value={formData.recipientName} onChange={e => handleInputChange('recipientName', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-recipientName">Recipient Name *</label>
+                  <input id="fg-recipientName" className="field-input" value={formData.recipientName} onChange={e => handleInputChange('recipientName', e.target.value)} />
                 </div>
                 <div>
-                  <label className="field-label">Relationship *</label>
-                  <input className="field-input" value={formData.recipientRelationship} onChange={e => handleInputChange('recipientRelationship', e.target.value)} />
+                  <label className="field-label" htmlFor="fg-recipientRelationship">Relationship *</label>
+                  <input id="fg-recipientRelationship" className="field-input" value={formData.recipientRelationship} onChange={e => handleInputChange('recipientRelationship', e.target.value)} />
                 </div>
               </div>
             )}
@@ -353,12 +368,12 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
             
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
                 <div>
-                  <label className="field-label">Student Digital Signature *</label>
-                  <input className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
+                  <label className="field-label" htmlFor="fg-signature">Student Digital Signature *</label>
+                  <input id="fg-signature" className="field-input" value={formData.signature} onChange={e => handleInputChange('signature', e.target.value)} placeholder="Type name to sign" />
                 </div>
                 <div>
-                  <label className="field-label">Date</label>
-                  <input className="field-input" disabled value={new Date().toLocaleDateString()} />
+                  <label className="field-label" htmlFor="fg-date">Date</label>
+                  <input id="fg-date" className="field-input" disabled value={new Date().toLocaleDateString()} />
                 </div>
             </div>
           </div>

@@ -54,7 +54,7 @@
 }
 
 .ci {
-  font-size: 10px;
+  font-size: 12px;
   padding: 4px 10px;
   border-radius: 4px;
   font-weight: 700;
@@ -112,7 +112,7 @@
   color: #1e293b;
   border: 1px solid #e2e8f0;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -152,7 +152,7 @@
 }
 
 .p-label {
-  font-size: 9px;
+  font-size: 11px;
   color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -181,7 +181,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -202,7 +202,7 @@
 
 .sensitivity-tag {
   display: inline-block;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -220,7 +220,7 @@
   padding: 12px 20px;
   background: #f0f9ff;
   border-bottom: 1px solid #bae6fd;
-  font-size: 11px;
+  font-size: 13px;
   color: #0369a1;
   line-height: 1.6;
   font-weight: 500;
@@ -254,7 +254,7 @@
 }
 
 .doc-badge {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
   border-radius: 4px;
@@ -304,7 +304,7 @@
 
 /* Status Labels */
 .status-pill {
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   padding: 2px 8px;
   border-radius: 4px;

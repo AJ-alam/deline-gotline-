@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE_URL } from '../config/api';
+import * as Ic from '../components/Icons';
 
 const api = axios.create({ baseURL: API_BASE_URL });
 
@@ -96,11 +97,11 @@ const FormBPublic: React.FC = () => {
   if (error) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
       <div style={{ background: '#fff', padding: '40px', borderRadius: '12px', maxWidth: '480px', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+        <div style={{ marginBottom: '16px', color: '#991b1b' }}><Ic.AlertTriangle size={48} /></div>
         <h2 style={{ color: '#991b1b', marginBottom: '12px' }}>Link Invalid or Expired</h2>
         <p style={{ color: '#64748b', lineHeight: '1.6' }}>{error}</p>
         <p style={{ color: '#64748b', fontSize: '13px', marginTop: '16px' }}>
-          Please contact the DGG Education Department at <strong>ajalam149@gmail.com</strong>
+          Please contact the DGG Education Department at <strong>director.education@gov.deline.ca</strong>
         </p>
       </div>
     </div>
@@ -109,7 +110,7 @@ const FormBPublic: React.FC = () => {
   if (submitted) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f1f5f9' }}>
       <div style={{ background: '#fff', padding: '48px', borderRadius: '12px', maxWidth: '520px', textAlign: 'center', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <div style={{ fontSize: '56px', marginBottom: '20px' }}>✅</div>
+        <div style={{ marginBottom: '20px', color: '#166534' }}><Ic.CheckCircle size={56} /></div>
         <h2 style={{ color: '#166534', marginBottom: '12px', fontSize: '22px' }}>Verification Submitted</h2>
         <p style={{ color: '#374151', lineHeight: '1.7', fontSize: '15px' }}>{successMsg}</p>
         <p style={{ color: '#64748b', fontSize: '13px', marginTop: '20px' }}>
@@ -129,7 +130,7 @@ const FormBPublic: React.FC = () => {
             Délı̨nę Got'ı̨nę Government
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.6)', margin: '6px 0 0', fontSize: '13px' }}>
-            Education &amp; Training Department — Enrollment Verification (Form B)
+            Education &amp; Training Department — Enrollment Verification
           </p>
         </div>
 
@@ -182,43 +183,43 @@ const FormBPublic: React.FC = () => {
               ))}
             </div>
 
-            <label style={labelStyle}>Enrollment Status *</label>
-            <select style={inputStyle} value={form.enrollment_status}
+            <label htmlFor="fb-enrollmentStatus" style={labelStyle}>Enrollment Status *</label>
+            <select id="fb-enrollmentStatus" style={inputStyle} value={form.enrollment_status}
               onChange={e => setForm({ ...form, enrollment_status: e.target.value })}>
               <option value="Full-time">Full-time</option>
               <option value="Part-time">Part-time</option>
               <option value="Co-op">Co-op / Work Term</option>
             </select>
 
-            <label style={labelStyle}>Course Load (%)</label>
-            <input style={inputStyle} type="number" min="0" max="100" placeholder="e.g. 100"
+            <label htmlFor="fb-courseLoad" style={labelStyle}>Course Load (%)</label>
+            <input id="fb-courseLoad" style={inputStyle} type="number" min="0" max="100" placeholder="e.g. 100"
               value={form.course_load_percent}
               onChange={e => setForm({ ...form, course_load_percent: e.target.value })} />
 
-            <label style={labelStyle}>Confirmed Program Name *</label>
-            <input style={inputStyle} type="text" value={form.confirmed_program}
+            <label htmlFor="fb-confirmedProgram" style={labelStyle}>Confirmed Program Name *</label>
+            <input id="fb-confirmedProgram" style={inputStyle} type="text" value={form.confirmed_program}
               onChange={e => setForm({ ...form, confirmed_program: e.target.value })} required />
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
               <div>
-                <label style={labelStyle}>Confirmed Semester Start *</label>
-                <input style={inputStyle} type="text" placeholder="YYYY-MM-DD" value={form.confirmed_sem_start}
+                <label htmlFor="fb-semStart" style={labelStyle}>Confirmed Semester Start *</label>
+                <input id="fb-semStart" style={inputStyle} type="text" placeholder="YYYY-MM-DD" value={form.confirmed_sem_start}
                   onChange={e => setForm({ ...form, confirmed_sem_start: e.target.value })} required />
               </div>
               <div>
-                <label style={labelStyle}>Confirmed Semester End *</label>
-                <input style={inputStyle} type="text" placeholder="YYYY-MM-DD" value={form.confirmed_sem_end}
+                <label htmlFor="fb-semEnd" style={labelStyle}>Confirmed Semester End *</label>
+                <input id="fb-semEnd" style={inputStyle} type="text" placeholder="YYYY-MM-DD" value={form.confirmed_sem_end}
                   onChange={e => setForm({ ...form, confirmed_sem_end: e.target.value })} required />
               </div>
             </div>
 
-            <label style={labelStyle}>Official Tuition Amount (CAD $) *</label>
-            <input style={inputStyle} type="number" min="0" step="0.01" placeholder="e.g. 3500.00"
+            <label htmlFor="fb-officialTuition" style={labelStyle}>Official Tuition Amount (CAD $) *</label>
+            <input id="fb-officialTuition" style={inputStyle} type="number" min="0" step="0.01" placeholder="e.g. 3500.00"
               value={form.official_tuition}
               onChange={e => setForm({ ...form, official_tuition: e.target.value })} required />
 
-            <label style={labelStyle}>Additional Notes (optional)</label>
-            <textarea style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }}
+            <label htmlFor="fb-registrarNotes" style={labelStyle}>Additional Notes (optional)</label>
+            <textarea id="fb-registrarNotes" style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }}
               placeholder="Any additional information relevant to this student's enrollment…"
               value={form.registrar_notes}
               onChange={e => setForm({ ...form, registrar_notes: e.target.value })} />
@@ -227,13 +228,13 @@ const FormBPublic: React.FC = () => {
               Registrar Signature
             </h3>
 
-            <label style={labelStyle}>Your Full Name *</label>
-            <input style={inputStyle} type="text" placeholder="e.g. Jane Smith"
+            <label htmlFor="fb-registrarName" style={labelStyle}>Your Full Name *</label>
+            <input id="fb-registrarName" style={inputStyle} type="text" placeholder="e.g. Jane Smith"
               value={form.registrar_name}
               onChange={e => setForm({ ...form, registrar_name: e.target.value })} required />
 
-            <label style={labelStyle}>Your Title / Position</label>
-            <input style={inputStyle} type="text" placeholder="e.g. Registrar, Aurora College"
+            <label htmlFor="fb-registrarTitle" style={labelStyle}>Your Title / Position</label>
+            <input id="fb-registrarTitle" style={inputStyle} type="text" placeholder="e.g. Registrar, Aurora College"
               value={form.registrar_title}
               onChange={e => setForm({ ...form, registrar_title: e.target.value })} />
 
@@ -255,7 +256,7 @@ const FormBPublic: React.FC = () => {
           </form>
 
           <p style={{ textAlign: 'center', fontSize: '11px', color: '#94a3b8', marginTop: '24px' }}>
-            Questions? Contact the DGG Education Department at <strong>ajalam149@gmail.com</strong>
+            Questions? Contact the DGG Education Department at <strong>director.education@gov.deline.ca</strong>
           </p>
         </div>
       </div>

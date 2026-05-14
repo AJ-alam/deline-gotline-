@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import API from '../../api/client';
 import FormWizard from '../../components/Forms/FormWizard';
+import * as Ic from '../../components/Icons';
 import '../../styles/forms.css';
 
 interface FormDProps {
@@ -66,7 +67,13 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
   }, [profile]);
 
   const handleToggleCategory = (cat: keyof typeof categories) => {
-    setCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
+    setCategories(prev => {
+      const allFalse = (Object.keys(prev) as (keyof typeof categories)[]).reduce(
+        (acc, key) => ({ ...acc, [key]: false }),
+        {} as typeof categories
+      );
+      return { ...allFalse, [cat]: !prev[cat] };
+    });
   };
 
   const steps = [
@@ -310,7 +317,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {(categories.contact || categories.dependents || categories.sfa) && (
             <div className="fade-in" style={{ padding: '16px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '12px', marginBottom: '12px' }}>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <span style={{ fontSize: '20px' }}>ℹ️</span>
+                <Ic.Info size={20} style={{ color: '#0369a1', flexShrink: 0 }} />
                 <div style={{ fontSize: '11.5px', color: '#0369a1', fontWeight: '500' }}>
                    <strong>Note:</strong> Redirection to your Profile will occur upon clicking "Next Step".
                 </div>
@@ -321,7 +328,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {categories.school && (
             <div className="fade-in" style={{ padding: '16px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '12px', marginBottom: '12px' }}>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <span style={{ fontSize: '20px' }}>⚠️</span>
+                <Ic.AlertTriangle size={20} style={{ color: '#9a3412', flexShrink: 0 }} />
                 <div style={{ fontSize: '11.5px', color: '#9a3412', fontWeight: '500' }}>
                    <strong>Action Required:</strong> A new application is required for school changes. You will be moved to the Admission Application.
                 </div>
@@ -339,7 +346,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {(categories.drop || categories.withdraw) && (
             <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#f8f9fa', borderBottom: '1px solid #eee', padding: '12px 16px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#1a4a8a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px' }}>🎓</span> Enrollment & Course Load
+                <Ic.GraduationCap size={14} /> Enrollment & Course Load
               </div>
               <div style={{ padding: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
@@ -363,7 +370,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {categories.withdraw && (
             <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#fff1f2', borderBottom: '1px solid #fecaca', padding: '12px 16px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#991b1b', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px' }}>🛑</span> Program Withdrawal
+                <Ic.OctagonX size={14} /> Program Withdrawal
               </div>
               <div style={{ padding: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
@@ -391,7 +398,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {categories.school && (
             <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#f8f9fa', borderBottom: '1px solid #eee', padding: '12px 16px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#1a4a8a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px' }}>🏫</span> School or Program Change
+                <Ic.Building size={14} /> School or Program Change
               </div>
               <div style={{ padding: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px', marginBottom: '12px' }}>
@@ -411,7 +418,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {categories.dependents && (
             <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#f8f9fa', borderBottom: '1px solid #eee', padding: '12px 16px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#1a4a8a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px' }}>👥</span> Dependents Changed
+                <Ic.Users size={14} /> Dependents Changed
               </div>
               <div style={{ padding: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px', marginBottom: '12px' }}>
@@ -431,7 +438,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {categories.contact && (
             <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#f8f9fa', borderBottom: '1px solid #eee', padding: '12px 16px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#1a4a8a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px' }}>🏠</span> Address or Contact Details
+                <Ic.Home size={14} /> Address or Contact Details
               </div>
               <div style={{ padding: '16px' }}>
                 <div style={{ marginBottom: '12px' }}>
@@ -455,7 +462,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
           {categories.sfa && (
             <div style={{ background: '#fff', border: '1px solid #e0e0e0', borderRadius: '8px', marginBottom: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#f8f9fa', borderBottom: '1px solid #eee', padding: '12px 16px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#1a4a8a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '14px' }}>💰</span> SFA / Other Funding Status
+                <Ic.DollarSign size={14} /> SFA / Other Funding Status
               </div>
               <div style={{ padding: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
