@@ -28,6 +28,8 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
         ('admin', 'Admin'),
         ('student', 'Student'),
         ('director', 'Director'),
+        ('ssw', 'Student Support Worker'),
+        ('finance', 'Finance'),
     )
 
     email = models.EmailField(unique=True)
@@ -59,7 +61,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     bank_name = models.CharField(max_length=255, blank=True, null=True)
     transit_number = models.CharField(max_length=10, blank=True, null=True)
     inst_number = models.CharField(max_length=10, blank=True, null=True)
-    account_number = models.CharField(max_length=20, blank=True, null=True)
+    account_number = models.CharField(max_length=50, blank=True, null=True)
     
     # Eligibility Streams (Extended)
     primary_stream = models.CharField(max_length=100, blank=True, null=True)

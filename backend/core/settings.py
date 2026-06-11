@@ -1,9 +1,13 @@
 import os
+import sys
 import logging
 import dj_database_url
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
+
+# Detected automatically so throttling/threading bypasses work in tests
+TESTING = 'test' in sys.argv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -14,6 +18,13 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,.vercel.app').split(',')
 if config('VERCEL_URL', default=None):
     ALLOWED_HOSTS.append(config('VERCEL_URL'))
+# Custom domain (e.g. dgg.nexauratechs.com)
+_site_url = config('SITE_URL', default='')
+if _site_url:
+    from urllib.parse import urlparse as _up
+    _domain = _up(_site_url).netloc or _site_url.replace('https://', '').replace('http://', '').split('/')[0]
+    if _domain and _domain not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_domain)
 
 # Application definition
 INSTALLED_APPS = [
@@ -26,6 +37,7 @@ INSTALLED_APPS = [
     # Third party apps
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'django_filters',
     'drf_spectacular',
@@ -125,10 +137,10 @@ REST_FRAMEWORK = {
 
 # JWT configurations
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': False,
-    'BLACKLIST_AFTER_ROTATION': False,
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=3),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
@@ -149,6 +161,10 @@ CORS_ALLOWED_ORIGINS = [
 ]
 if config('VERCEL_URL', default=None):
     CORS_ALLOWED_ORIGINS.append(f"https://{config('VERCEL_URL')}")
+if _site_url:
+    _cors_origin = _site_url if _site_url.startswith('http') else f'https://{_site_url}'
+    if _cors_origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(_cors_origin)
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -156,6 +172,10 @@ CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='http://localhost:3000,http://localhost:5173').split(',')
 if config('VERCEL_URL', default=None):
     CSRF_TRUSTED_ORIGINS.append(f"https://{config('VERCEL_URL')}")
+if _site_url:
+    _csrf_origin = _site_url if _site_url.startswith('http') else f'https://{_site_url}'
+    if _csrf_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(_csrf_origin)
 
 # Static and Media files
 STATIC_URL = '/static/'

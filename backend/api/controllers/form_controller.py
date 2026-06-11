@@ -65,6 +65,60 @@ class FormController(viewsets.ModelViewSet):
             logger.error(f"Error generating PDF for form {form.id}: {str(e)}", exc_info=True)
             return api_response(False, None, f"Failed to generate PDF: {str(e)}", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @decorators.action(detail=True, methods=['get'], url_path='prefill')
+    def prefill(self, request, pk=None):
+        """§5 Form C: Return pre-filled answers from the student's most recent
+        accepted submission for any Form A/C, so Form C can auto-populate fields.
+        Only accessible to the authenticated student (or staff).
+        """
+        form = self.get_object()
+        if not request.user.is_authenticated:
+            return api_response(False, None, "Authentication required", status.HTTP_401_UNAUTHORIZED)
+
+        from forms.models import FormSubmission, SubmissionAnswer
+        from forms.serializers import FormSubmissionSerializer
+
+        # Find student's most recent accepted/approved submission (Form A or C)
+        prior = (FormSubmission.objects
+                 .filter(
+                     student=request.user,
+                     status__in=['accepted', 'forwarded', 'reviewed'],
+                 )
+                 .filter(
+                     form__title__iregex=r'(form [ac]|new student|continuing|psssp|ucepp)'
+                 )
+                 .select_related('form')
+                 .prefetch_related('answers__field')
+                 .order_by('-submitted_at')
+                 .first())
+
+        if not prior:
+            return api_response(True, {'prefill': {}, 'message': 'No prior application found.'})
+
+        prefill_data = {}
+        for ans in prior.answers.all():
+            if ans.field:
+                prefill_data[ans.field.label] = ans.answer_text or ''
+
+        # Also include student profile fields
+        u = request.user
+        profile = getattr(u, 'profile', None)
+        prefill_data.update({
+            'Full Name': u.full_name or '',
+            'Email': u.email or '',
+            'Phone Number': u.phone or (profile.phone_number if profile else '') or '',
+            'Beneficiary Number': u.beneficiary_number or (profile.beneficiary_number if profile else '') or '',
+            'Institution Name': u.institution_name or '',
+            'Program': u.program_credential or '',
+            'Enrollment Status': u.enrollment_status or '',
+        })
+
+        return api_response(True, {
+            'prefill': prefill_data,
+            'source_submission_id': prior.id,
+            'source_submitted_at': prior.submitted_at.isoformat() if prior.submitted_at else None,
+        })
+
     @decorators.action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
         try:
@@ -135,8 +189,8 @@ class FormController(viewsets.ModelViewSet):
 
         logger.info("Submission %s created for user %s", submission.id, getattr(user, 'email', '?'))
 
-        # Send notifications in background — don't block the HTTP response
-        import threading
+        # Send notifications — synchronous in tests to avoid SQLite locking, async in production
+        from django.conf import settings as _django_settings
         submission_id = submission.id
         def _notify():
             try:
@@ -146,7 +200,11 @@ class FormController(viewsets.ModelViewSet):
                 FormService.send_submission_notifications(sub)
             except Exception as exc:
                 logger.error("Background notification failed for submission %s: %s", submission_id, exc, exc_info=True)
-        threading.Thread(target=_notify, daemon=True).start()
+        if getattr(_django_settings, 'TESTING', False):
+            _notify()
+        else:
+            import threading
+            threading.Thread(target=_notify, daemon=True).start()
 
         # Reload with prefetch to avoid N+1 in response serialization
         try:
@@ -176,11 +234,7 @@ class SubmissionController(viewsets.ModelViewSet):
         admin_only = ['add_note', 'share', 'check_eligibility', 'check_duplicates', 'mark_legitimate', 'mark_duplicate']
 
         if self.action in admin_only:
-            from users.permissions import IsAdminUser as AdminOnly
-            class StrictAdminOnly(permissions.BasePermission):
-                def has_permission(self, request, view):
-                    return bool(request.user and request.user.is_authenticated and request.user.role == 'admin')
-            return [StrictAdminOnly()]
+            return [IsAdminUser()]  # admin + ssw + director can add notes/share/check eligibility
 
         if self.action in director_allowed:
             return [IsAdminUser()]  # both admin and director
@@ -214,11 +268,11 @@ class SubmissionController(viewsets.ModelViewSet):
                   .order_by('-submitted_at'))
 
         if user.role == 'director':
-            # Directors only see submissions forwarded to them by admin/SSW
-            # plus already decided ones (accepted/rejected) for their history
+            # Directors see forwarded + decided — in-progress review stays with SSW/admin
             return qs.filter(status__in=['forwarded', 'accepted', 'rejected'])
 
-        if user.role == 'admin':
+        if user.role in ('admin', 'ssw'):
+            # All staff see every application + complete history (§3.1.B)
             return qs
 
         # Students only see their own

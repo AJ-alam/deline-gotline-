@@ -283,10 +283,12 @@ class ApplicationWorkflowTests(APITestCase):
     def setUp(self):
         self.student = make_user(email='workflow@test.com')
         self.admin = make_admin()
+        self.director = make_director()
         self.application = make_application(self.student, form_type='FormA')
 
     def test_admin_approve_application(self):
-        self.client.force_authenticate(user=self.admin)
+        # §3.1.D: only Director can approve
+        self.client.force_authenticate(user=self.director)
         resp = self.client.post(
             f'/api/applications/{self.application.id}/approve/',
             {'notes': 'Looks good'},
@@ -299,7 +301,8 @@ class ApplicationWorkflowTests(APITestCase):
         self.assertTrue(AuditLog.objects.filter(application=self.application).exists())
 
     def test_admin_deny_application(self):
-        self.client.force_authenticate(user=self.admin)
+        # §3.1.D: only Director can deny
+        self.client.force_authenticate(user=self.director)
         resp = self.client.post(
             f'/api/applications/{self.application.id}/deny/',
             {'notes': 'Missing docs'},
@@ -425,7 +428,7 @@ class PaymentTests(APITestCase):
         self.client.force_authenticate(user=self.admin)
         resp = self.client.post('/api/payments/dispatch_report/')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertIn('recipient', resp.data)
+        self.assertIn('status', resp.data)  # 'success' or 'nothing_to_send'
 
     def test_payment_requires_auth(self):
         self.client.force_authenticate(user=None)
@@ -826,6 +829,7 @@ class CalculationServiceTests(TestCase):
             ('dggr_extra_tuition', 'threshold_per_semester', 'Extra Tuition Threshold', Decimal('5000'), '$'),
             ('dggr_extra_tuition', 'max_percent_covered', 'Extra Tuition Pct', Decimal('50'), '%'),
             ('dggr_extra_tuition', 'max_per_semester', 'Extra Tuition Max', Decimal('1000'), '$'),
+            ('system_config', 'book_allowance', 'Book Allowance', Decimal('500'), '$'),
         ]
         for section, key, label, val, unit in policies:
             PolicySetting.objects.get_or_create(
@@ -839,7 +843,8 @@ class CalculationServiceTests(TestCase):
         from programs.models import Program
         from forms.models import Form, FormField, FormSubmission, SubmissionAnswer
 
-        user = make_user(email=f'calc_{stream}_{enrollment}@test.com')
+        slug = f"{stream}_{enrollment}".lower().replace(' ', '_').replace('-', '')
+        user = make_user(email=f'calc_{slug}@test.com')
         prog = Program.objects.create(title='Calc Program', description='D', created_by=user)
         form = Form.objects.create(title='Calc Form', program=prog, created_by=user)
 
@@ -870,15 +875,17 @@ class CalculationServiceTests(TestCase):
         self._setup_policies()
         submission = self._make_full_submission(stream='CDFN')
         results = CalculationService._calculate_funding(submission)
-        self.assertEqual(results['books']['amount'], Decimal('500'))
+        books_amount = next((amt for name, amt in results['payment_items'] if name == 'Books'), None)
+        self.assertEqual(books_amount, Decimal('500'))
 
     def test_calculate_funding_tuition_capped(self):
         """If student requests more tuition than the cap, the cap is applied."""
         self._setup_policies()
-        # Request 10000 tuition but PSSSP cap is 5000
-        submission = self._make_full_submission(stream='CDFN', tuition='10000')
+        # Request 10000 tuition but PSSSP cap is 5000 — use PSSSP stream
+        submission = self._make_full_submission(stream='C-DFN PSSSP', tuition='10000')
         results = CalculationService._calculate_funding(submission)
-        self.assertEqual(results['tuition']['amount'], Decimal('5000'))
+        tuition_amount = next((amt for name, amt in results['payment_items'] if 'tuition' in name.lower()), None)
+        self.assertEqual(tuition_amount, Decimal('5000'))
 
     def test_calculate_and_pay_creates_payments(self):
         self._setup_policies()
@@ -908,7 +915,9 @@ class CalculationServiceTests(TestCase):
 
         res_no_dep = CalculationService._calculate_funding(no_dep)
         res_with_dep = CalculationService._calculate_funding(with_dep)
-        self.assertGreater(res_with_dep['living']['amount'], res_no_dep['living']['amount'])
+        living_no = next((amt for n, amt in res_no_dep['payment_items'] if 'living' in n.lower()), Decimal(0))
+        living_with = next((amt for n, amt in res_with_dep['payment_items'] if 'living' in n.lower()), Decimal(0))
+        self.assertGreater(living_with, living_no)
 
     def test_get_policy_value_missing_returns_zero(self):
         result = CalculationService._get_policy_value('nonexistent_section', 'nonexistent_key')
@@ -1214,19 +1223,21 @@ class ProgramTests(APITestCase):
 class EdgeCaseTests(APITestCase):
 
     def test_approve_nonexistent_application(self):
-        admin = make_admin()
-        self.client.force_authenticate(user=admin)
+        # §3.1.D: only Director can approve; non-existent → 404 before permission check
+        director = make_director()
+        self.client.force_authenticate(user=director)
         resp = self.client.post('/api/applications/99999/approve/')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_deny_nonexistent_application(self):
-        admin = make_admin()
-        self.client.force_authenticate(user=admin)
+        # §3.1.D: only Director can deny; non-existent → 404 before permission check
+        director = make_director()
+        self.client.force_authenticate(user=director)
         resp = self.client.post('/api/applications/99999/deny/')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_shared_application_view_invalid_token(self):
-        resp = self.client.get('/api/applications/view/invalid_token_xyz/')
+        resp = self.client.get('/api/shared-view/view/invalid_token_xyz/')
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_shared_application_view_expired_token(self):
@@ -1238,7 +1249,7 @@ class EdgeCaseTests(APITestCase):
             expires_at=timezone.now() - timezone.timedelta(days=1),
             is_active=True,
         )
-        resp = self.client.get(f'/api/applications/view/{sl.token}/')
+        resp = self.client.get(f'/api/shared-view/view/{sl.token}/')
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_empty_email_registration_fails(self):
@@ -1255,20 +1266,22 @@ class EdgeCaseTests(APITestCase):
         self.assertIn('FormG', str(app))
 
     def test_audit_log_created_on_approve(self):
-        admin = make_admin()
+        # §3.1.D: Director-only approve
+        director = make_director()
         student = make_user(email='auditapp@test.com')
         app = make_application(student)
-        self.client.force_authenticate(user=admin)
+        self.client.force_authenticate(user=director)
         self.client.post(f'/api/applications/{app.id}/approve/')
         self.assertTrue(
             AuditLog.objects.filter(action__icontains='Approved', application=app).exists()
         )
 
     def test_audit_log_created_on_deny(self):
-        admin = make_admin()
+        # §3.1.D: Director-only deny
+        director = make_director()
         student = make_user(email='auditdeny@test.com')
         app = make_application(student)
-        self.client.force_authenticate(user=admin)
+        self.client.force_authenticate(user=director)
         self.client.post(f'/api/applications/{app.id}/deny/')
         self.assertTrue(
             AuditLog.objects.filter(action__icontains='Denied', application=app).exists()

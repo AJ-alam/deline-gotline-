@@ -508,7 +508,11 @@ const StaffDashboard: React.FC = () => {
 
   const handleDecision = async (status: 'accepted' | 'rejected' | 'forwarded' | 'reviewed' | 'review', notesOverride?: string) => {
     if (!selectedAppId) return;
-    const currentApp = applications.find(a => String(a.id) === String(selectedAppId));
+    // Prefer hydrated detailApp so auto-calc at approval time sees guest
+    // answers/student_details (lean list row omits them for guests).
+    const currentApp = (detailApp && String(detailApp.id) === String(selectedAppId))
+      ? detailApp
+      : applications.find(a => String(a.id) === String(selectedAppId));
 
     // Immutable storage: Capture auto-calculated total at time of approval
     let amountToSave = currentApp?.amount || 0;
@@ -1345,7 +1349,13 @@ const StaffDashboard: React.FC = () => {
     currentPage * itemsPerPage
   );
 
-  const selectedApp = applications.find(a => String(a.id) === String(selectedAppId));
+  // Prefer the fully-hydrated detailApp (includes answers + student_details,
+  // incl. guest data extracted from answers) over the lean applications-list
+  // row, which lacks answers/student_details for guest submissions and made
+  // the Auto Funding Calculation table render blank for them.
+  const selectedApp = (detailApp && String(detailApp.id) === String(selectedAppId))
+    ? detailApp
+    : applications.find(a => String(a.id) === String(selectedAppId));
 
   // True while detailApp is still hydrating for the currently selected application —
   // used to swap N/A placeholders for skeleton shimmers so users never see empty fields.

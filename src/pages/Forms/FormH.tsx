@@ -15,16 +15,19 @@ const FormH: React.FC<FormHProps> = ({ profile, onBack, onComplete }) => {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  // BUG 1: Connectivity & State
-  const [formData, setFormData] = useState({
-    studentName: '',
-    studentId: '',
-    institution: '',
-    semester: 'Fall',
-    year: '',
-    appealReason: '',
-    policyReference: '',
-    signature: ''
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem('dgg_autosave_FormH');
+    if (saved) { try { return JSON.parse(saved); } catch (_) {} }
+    return {
+      studentName: '',
+      studentId: '',
+      institution: '',
+      semester: 'Fall',
+      year: '',
+      appealReason: '',
+      policyReference: '',
+      signature: ''
+    };
   });
 
   const [selectedEvidence, setSelectedEvidence] = useState<File[]>([]);
@@ -41,6 +44,10 @@ const FormH: React.FC<FormHProps> = ({ profile, onBack, onComplete }) => {
       }));
     }
   }, [profile]);
+
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_FormH', JSON.stringify(formData));
+  }, [formData]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -119,6 +126,7 @@ const FormH: React.FC<FormHProps> = ({ profile, onBack, onComplete }) => {
         form_type: 'FormH',
         form_data: submissionData
       });
+      localStorage.removeItem('dgg_autosave_FormH');
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to file appeal. Please try again.');

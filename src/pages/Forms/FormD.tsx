@@ -17,8 +17,9 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  // Selection state
-  const [categories, setCategories] = useState({
+  const _savedD = (() => { try { const s = localStorage.getItem('dgg_autosave_FormD'); return s ? JSON.parse(s) : null; } catch (_) { return null; } })();
+
+  const [categories, setCategories] = useState(_savedD?.categories || {
     drop: false,
     withdraw: false,
     school: false,
@@ -28,7 +29,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
     other: false
   });
 
-  const [details, setDetails] = useState({
+  const [details, setDetails] = useState(_savedD?.details || {
     status: '',
     effDate: '',
     reason: '',
@@ -65,6 +66,10 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
       }));
     }
   }, [profile]);
+
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_FormD', JSON.stringify({ categories, details }));
+  }, [categories, details]);
 
   const handleToggleCategory = (cat: keyof typeof categories) => {
     setCategories(prev => {
@@ -188,6 +193,7 @@ const FormD: React.FC<FormDProps> = ({ profile, onBack, onComplete, onNavigate }
         form_type: 'FormD',
         form_data: submissionData
       });
+      localStorage.removeItem('dgg_autosave_FormD');
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit change report. Please try again.');

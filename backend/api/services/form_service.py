@@ -99,8 +99,8 @@ class FormService:
                 import logging
                 logging.getLogger(__name__).error("Automatic calculation failed for submission %s: %s", submission.id, e)
 
-        # Notify Admins only — directors see applications only after admin forwards them
-        admins = User.objects.filter(role='admin')
+        # Notify all staff (admin + ssw) — directors see only after forwarded
+        admins = User.objects.filter(role__in=['admin', 'ssw'])
         admin_emails = [u.email for u in admins if u.email]
 
         if admin_emails:
@@ -121,9 +121,9 @@ class FormService:
                 answers_summary=summary_html
             )
 
-        for admin in admins:
+        for staff_user in admins:
             Notification.objects.create(
-                user=admin,
+                user=staff_user,
                 title="New Application Received",
                 message=f"New {display_title} from {student.full_name if student else 'Guest Applicant'}.",
                 link=None
@@ -201,6 +201,15 @@ class FormService:
             if new_status == 'accepted':
                 from api.services.calculation_service import CalculationService
                 CalculationService.calculate_and_pay(submission)
+
+                # §4.4/§4.5: Late application back-pay
+                # If submission was submitted after the deadline and this approval
+                # is the "late exception", back-pay all missed monthly living allowance
+                # payments from the semester start date.
+                if submission.submitted_after_deadline and submission.late_application_approved_by is None:
+                    submission.late_application_approved_by = performed_by
+                    submission.late_application_approved_at = timezone.now()
+                    FormService._generate_back_pay(submission, performed_by)
 
         submission.save()
 
@@ -288,6 +297,143 @@ class FormService:
             )
 
     @staticmethod
+    def _generate_back_pay(submission, approved_by):
+        """§4.4/§4.5: Late application approved — back-pay all missed monthly living
+        allowance payments from the semester start date to today.
+
+        Works out missed months and creates one Payment row per month.
+        """
+        import logging
+        from datetime import date, timedelta
+        from api.models import Payment, PolicySetting
+        from decimal import Decimal
+
+        logger = logging.getLogger(__name__)
+        try:
+            student = submission.student
+            if not student:
+                return
+
+            # Determine semester start from office_use_data or answers
+            sem_start = None
+            if submission.office_use_data:
+                sem_start_str = submission.office_use_data.get('semester_start')
+                if sem_start_str:
+                    from datetime import datetime as _dt
+                    try:
+                        sem_start = _dt.strptime(sem_start_str, '%Y-%m-%d').date()
+                    except Exception:
+                        pass
+
+            if sem_start is None:
+                # Try to read from submission answers
+                for ans in submission.answers.all():
+                    label = (ans.field.label or '').lower() if ans.field else ''
+                    if 'semester start' in label or 'start date' in label:
+                        try:
+                            from datetime import datetime as _dt2
+                            sem_start = _dt2.strptime(ans.answer_text, '%Y-%m-%d').date()
+                            break
+                        except Exception:
+                            pass
+
+            if sem_start is None:
+                logger.warning("Back-pay: no semester start date for submission %s", submission.id)
+                return
+
+            today = date.today()
+            if sem_start >= today:
+                return  # no missed months
+
+            # Count months from sem_start to month BEFORE approval month
+            approval_month = date(today.year, today.month, 1)
+            current = date(sem_start.year, sem_start.month, 1)
+
+            # Determine living allowance amount from existing payment or policy
+            living_payment = Payment.objects.filter(
+                submission=submission,
+                payment_type__icontains='Living'
+            ).first()
+
+            if living_payment:
+                monthly_amount = living_payment.amount / Decimal(max(1, (
+                    (approval_month.year - sem_start.year) * 12 +
+                    (approval_month.month - sem_start.month)
+                )))
+            else:
+                monthly_amount = Decimal('700')  # fallback DGGR FT rate
+
+            back_pay_months = []
+            while current < approval_month:
+                back_pay_months.append(current)
+                # advance one month
+                if current.month == 12:
+                    current = date(current.year + 1, 1, 1)
+                else:
+                    current = date(current.year, current.month + 1, 1)
+
+            for month_start in back_pay_months:
+                Payment.objects.create(
+                    user=student,
+                    submission=submission,
+                    amount=monthly_amount,
+                    payment_type=f"Back-pay Living Allowance ({month_start.strftime('%B %Y')})",
+                    status=Payment.Status.PENDING,
+                )
+
+            logger.info("Back-pay: %d months created for submission %s", len(back_pay_months), submission.id)
+
+            # Notify director that back-pay was generated
+            from notifications.utils import create_notification
+            from django.contrib.auth import get_user_model as _gum
+            for director in _gum().objects.filter(role='director'):
+                create_notification(
+                    director,
+                    "Back-pay Generated",
+                    f"Late approval for submission #{submission.id} — {len(back_pay_months)} back-pay "
+                    f"month(s) created (${monthly_amount:.0f}/month).",
+                )
+        except Exception as exc:
+            logger.error("Back-pay generation failed for submission %s: %s", submission.id, exc)
+
+    @staticmethod
+    def check_overpayment(submission):
+        """§4.6: Check if a student was overpaid after a mid-semester change.
+        Returns a dict with overpayment info. Call after a MidSemesterChange is
+        approved and the new amount is calculated.
+        """
+        from api.models import Payment
+        from decimal import Decimal
+
+        total_paid = Payment.objects.filter(
+            submission=submission,
+            status__in=[Payment.Status.ISSUED, Payment.Status.PENDING],
+        ).aggregate(total=__import__('django.db.models', fromlist=['Sum']).Sum('amount'))['total'] or Decimal(0)
+
+        new_amount = submission.amount or Decimal(0)
+        overpaid = max(Decimal(0), total_paid - new_amount)
+
+        if overpaid > 0:
+            # Flag for Director and Finance notification
+            from notifications.utils import create_notification
+            from django.contrib.auth import get_user_model as _gum
+            msg = (
+                f"Overpayment detected for submission #{submission.id} "
+                f"({submission.student.full_name if submission.student else 'Student'}): "
+                f"already paid ${total_paid:.2f}, new entitlement ${new_amount:.2f}, "
+                f"overpaid ${overpaid:.2f}. Finance review required."
+            )
+            for staff in _gum().objects.filter(role__in=['director', 'finance']):
+                create_notification(staff, "Overpayment Flagged", msg)
+
+        return {
+            'total_paid': total_paid,
+            'new_entitlement': new_amount,
+            'overpaid': overpaid,
+            'is_overpaid': overpaid > 0,
+        }
+
+    @staticmethod
     def _send_form_b_email(submission):
         """
         Send Form B (Enrollment Verification) to the registrar.
@@ -335,12 +481,13 @@ class FormService:
             sem_start   = get(['semester start date', 'semester start', 'start date'])
             sem_end     = get(['semester end date', 'semester end', 'end date'])
             student_dob = str(student.dob or '') if student else ''
-            student_id  = get(['student id', 'student number', 'student #']) or (student.upi or student.beneficiary_number or '') if student else ''
+            # §6.3: do NOT send UPI to registrar — use beneficiary number only
+            student_id  = get(['student id', 'student number', 'student #']) or (student.beneficiary_number or '') if student else ''
 
             # Create FormBResponse record
             from forms.models import FormBResponse
             token = uuid.uuid4().hex
-            expires_at = timezone.now() + timedelta(days=21)  # 21 days to respond
+            expires_at = timezone.now() + timedelta(days=14)  # §5: institution must respond within 14 days
 
             form_b, _ = FormBResponse.objects.update_or_create(
                 submission=submission,
@@ -383,7 +530,16 @@ class FormService:
 
     @staticmethod
     def _notify_directors_for_approval(submission):
-        """Task 9.7: Notify directors when application is forwarded."""
+        """§3.1.D / §2: Notify directors when application is forwarded.
+        Generates one-click approve AND deny tokens per director so they can act
+        directly from the email without logging in.
+        """
+        import uuid
+        from datetime import timedelta
+        from django.utils import timezone
+        from django.conf import settings as _s
+        from api.models import DirectorActionToken
+
         directors = User.objects.filter(role='director')
         for director in directors:
             Notification.objects.create(
@@ -392,15 +548,40 @@ class FormService:
                 message=f"#{submission.id} — {submission.student.full_name if submission.student else 'Student'} needs your decision.",
                 link="/staff/director-queue"
             )
-            if director.email:
-                try:
-                    email_director_approval_request(
-                        director_email=director.email,
-                        student_name=submission.student.full_name if submission.student else 'Student',
-                        form_title=pretty_form_title(submission.form.title) if submission.form else 'Application',
-                        amount=float(submission.amount or 0),
-                        submission_id=submission.id,
-                    )
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).error("Director approval email failed: %s", e)
+            if not director.email:
+                continue
+
+            # Create single-use tokens (48-hour expiry) for approve and deny
+            expires = timezone.now() + timedelta(hours=48)
+            approve_token = DirectorActionToken.objects.create(
+                submission=submission,
+                token=uuid.uuid4().hex,
+                action='approve',
+                director=director,
+                expires_at=expires,
+            )
+            deny_token = DirectorActionToken.objects.create(
+                submission=submission,
+                token=uuid.uuid4().hex,
+                action='deny',
+                director=director,
+                expires_at=expires,
+            )
+
+            base_url = getattr(_s, 'SITE_URL', '').rstrip('/')
+            approve_url = f"{base_url}/api/director-action/{approve_token.token}/"
+            deny_url    = f"{base_url}/api/director-action/{deny_token.token}/"
+
+            try:
+                email_director_approval_request(
+                    director_email=director.email,
+                    student_name=submission.student.full_name if submission.student else 'Student',
+                    form_title=pretty_form_title(submission.form.title) if submission.form else 'Application',
+                    amount=float(submission.amount or 0),
+                    submission_id=submission.id,
+                    approve_url=approve_url,
+                    deny_url=deny_url,
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error("Director approval email failed: %s", e)

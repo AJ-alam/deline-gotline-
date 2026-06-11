@@ -98,7 +98,13 @@ class CalculationService:
         """
         # Clear cache to ensure fresh policy values
         CalculationService._policy_cache = {}
-        
+        # §4.3/§7.5: lock effective-date to the submission's submitted_at so
+        # policy changes made after the submission use the rate that was in effect
+        # when the student applied.
+        CalculationService._as_of_date = (
+            submission.submitted_at.date() if submission.submitted_at else None
+        )
+
         form_title = submission.form.title.lower() if submission.form else ''
 
         # Route to the correct calculator based on form type
@@ -123,6 +129,8 @@ class CalculationService:
         submission.save()
 
         # Create Payment records for each component (only if a student is linked AND create_payments is True)
+        # §4.5: NO advance payments — only create payments after the application deadline
+        # for the semester has passed (i.e., the payment period has begun).
         if submission.student and create_payments:
             # Clear existing pending payments for this submission to avoid duplicates
             Payment.objects.filter(submission=submission, status=Payment.Status.PENDING).delete()
@@ -262,45 +270,99 @@ class CalculationService:
 
     @staticmethod
     def _calculate_travel(submission):
-        """Travel & Relocation Claim — sections: psssp_travel, psssp_graduation_travel.
-        DGGR has no dedicated travel bursary in the seeded policy; we surface the PSSSP
-        per-trip max as the displayed cap (manual director review still required)."""
+        """Travel & Relocation Claim — PSSSP only (§4.3).
+
+        §4.3 rules enforced:
+        - Regular travel: max 2 trips/year. Returns 0 if student already used 2 this year.
+        - Graduation travel: one-time, only for 2+ year programs. Returns 0 if already received.
+        """
         student = submission.student
         has_deps = (getattr(student, 'num_dependents', 0) if student else 0) > 0
 
-        # Graduation travel uses its own section if the form title hints at it
         form_title = (submission.form.title.lower() if submission.form else '')
-        if 'graduation' in form_title:
+        is_graduation = 'graduation' in form_title
+
+        if is_graduation:
+            # One-time only — check if student already received it
+            if student:
+                already_received = Payment.objects.filter(
+                    user=student,
+                    payment_type__icontains='Graduation Travel',
+                ).exclude(submission=submission).exists()
+                if already_received:
+                    return {
+                        'award_type': 'Graduation Travel (already received)',
+                        'max_allowed': Decimal(0),
+                        'total': Decimal(0),
+                        'payment_items': [],
+                        'ineligible_reason': 'Graduation Travel Bursary is a one-time award and has already been received.',
+                    }
             max_amount = CalculationService._get_policy_value('psssp_graduation_travel', 'max_total')
         else:
+            # Regular travel: max 2 trips per fiscal year
+            if student:
+                from django.utils import timezone as _tz
+                from datetime import date as _date
+                today = _tz.now().date()
+                fy_start = _date(today.year if today.month >= 4 else today.year - 1, 4, 1)
+                trips_used = Payment.objects.filter(
+                    user=student,
+                    payment_type__icontains='Travel',
+                    date_issued__date__gte=fy_start,
+                ).exclude(submission=submission).count()
+                if trips_used >= 2:
+                    return {
+                        'award_type': 'Travel Bursary (max trips reached)',
+                        'max_allowed': Decimal(0),
+                        'total': Decimal(0),
+                        'payment_items': [],
+                        'ineligible_reason': 'Maximum 2 travel bursary trips per year already used.',
+                    }
             field_key = 'max_per_trip_with_dependents' if has_deps else 'max_per_trip_no_dependents'
             max_amount = CalculationService._get_policy_value('psssp_travel', field_key)
 
         return {
-            'award_type': 'Travel Claim',
+            'award_type': 'Graduation Travel Claim' if is_graduation else 'Travel Claim',
             'max_allowed': max_amount,
-            'total': Decimal(0),  # Manual review required — finance enters actual amount
-            'payment_items': []
+            'total': Decimal(0),  # Reimbursement only — finance enters actual amount after travel
+            'payment_items': [],
         }
 
     @staticmethod
     def _calculate_funding(submission):
-        """Standard funding (Form A/B/C). Reads from seeded policy sections:
+        """Standard funding (Form A/B/C).
+
+        §4.1 STACKING: if a student qualifies for both a C-DFN stream AND DGGR,
+        both are calculated and combined. DGGR supplements C-DFN — it does not
+        replace it. Living allowances are additive (each stream has its own rate).
+
+        Policy sections used:
           - Living:           {psssp|ucepp|dggr}_living . {fulltime|parttime}_{no|with}_dependents
           - Tuition (PSSSP):  psssp_tuition . max_per_semester
           - Tuition (UCEPP):  ucepp_tuition . max_per_semester
           - Tuition (DGGR):   dggr_tuition  . {fulltime|parttime}_per_semester
           - Extra (DGGR):     dggr_extra_tuition . {threshold_per_semester, max_percent_covered, max_per_semester}
           - Books:            system_config . book_allowance
-        See `backend/api/management/commands/seed_policies.py` for canonical key names.
         """
         answers, get_val = CalculationService._get_answers_and_helper(submission)
 
         student = submission.student
-        # Stream
+        # Stream — may be comma-separated for stacking e.g. "C-DFN PSSSP, DGGR"
         stream_val = get_val(['funding stream', 'bursarystream', 'stream', 'c-dfn psssp'])
         if not stream_val and student: stream_val = student.primary_stream
-        stream = (stream_val or 'C-DFN PSSSP').upper()
+        stream_raw = (stream_val or 'C-DFN PSSSP').upper()
+
+        # Determine which streams apply
+        has_psssp = 'PSSSP' in stream_raw
+        has_ucepp = 'UCEPP' in stream_raw
+        has_dggr  = 'DGGR'  in stream_raw
+        # If nothing matched, default to PSSSP
+        if not any([has_psssp, has_ucepp, has_dggr]):
+            has_psssp = True
+
+        # SFA active? — C-DFN living + tuition not available to SFA recipients
+        profile = getattr(student, 'profile', None) if student else None
+        is_sfa = getattr(profile, 'is_sfa_active', False) if profile else False
 
         # Enrollment status
         enrollment_val = get_val(['enrollment status', 'enrollmenttype', 'course load'])
@@ -336,71 +398,189 @@ class CalculationService:
             except Exception:
                 pass
 
-        # ── Living allowance (per month × months) ──
-        if 'PSSSP' in stream:
-            living_section = 'psssp_living'
-        elif 'UCEPP' in stream:
-            living_section = 'ucepp_living'
-        else:
-            living_section = 'dggr_living'
-
         living_field = f"{load_key}_{dep_key}"  # e.g. fulltime_with_dependents
-        living_rate = CalculationService._get_policy_value(living_section, living_field)
-        total_living = living_rate * Decimal(months)
+        payment_items = []
+        total_tuition = Decimal(0)
+        total_living = Decimal(0)
+        streams_applied = []
 
-        # ── Tuition cap ──
-        if 'PSSSP' in stream:
+        # ── C-DFN PSSSP ────────────────────────────────────────────────────────
+        if has_psssp and not is_sfa:
+            psssp_tuition_limit = CalculationService._get_policy_value('psssp_tuition', 'max_per_semester')
+            psssp_tuition = min(requested_tuition, psssp_tuition_limit) if requested_tuition > 0 else psssp_tuition_limit
+            psssp_living_rate = CalculationService._get_policy_value('psssp_living', living_field)
+            psssp_living = psssp_living_rate * Decimal(months)
+            payment_items.append(('Tuition (PSSSP)', psssp_tuition))
+            payment_items.append(('Living Allowance (PSSSP)', psssp_living))
+            total_tuition += psssp_tuition
+            total_living += psssp_living
+            streams_applied.append('PSSSP')
+
+        # ── C-DFN UCEPP ────────────────────────────────────────────────────────
+        if has_ucepp and not is_sfa:
+            ucepp_tuition_limit = CalculationService._get_policy_value('ucepp_tuition', 'max_per_semester')
+            ucepp_tuition = min(requested_tuition, ucepp_tuition_limit) if requested_tuition > 0 else ucepp_tuition_limit
+            ucepp_living_rate = CalculationService._get_policy_value('ucepp_living', living_field)
+            ucepp_living = ucepp_living_rate * Decimal(months)
+            payment_items.append(('Tuition (UCEPP)', ucepp_tuition))
+            payment_items.append(('Living Allowance (UCEPP)', ucepp_living))
+            total_tuition += ucepp_tuition
+            total_living += ucepp_living
+            streams_applied.append('UCEPP')
+
+        # ── DGGR ────────────────────────────────────────────────────────────────
+        if has_dggr:
+            dggr_tuition_limit = CalculationService._get_policy_value('dggr_tuition', f"{load_key}_per_semester")
+            dggr_tuition = dggr_tuition_limit  # fixed rate, not tied to actual tuition
+            dggr_living_rate = CalculationService._get_policy_value('dggr_living', living_field)
+            dggr_living = dggr_living_rate * Decimal(months)
+            payment_items.append(('Tuition (DGGR)', dggr_tuition))
+            payment_items.append(('Living Allowance (DGGR)', dggr_living))
+            total_tuition += dggr_tuition
+            total_living += dggr_living
+            streams_applied.append('DGGR')
+
+            # ── DGGR Extra Tuition Bursary ──────────────────────────────────────
+            # §4.3: only when tuition > threshold; inclusive of (not additive to)
+            # the regular DGGR bursary; subject to $36k/year pool cap.
+            if requested_tuition > 0:
+                threshold = CalculationService._get_policy_value('dggr_extra_tuition', 'threshold_per_semester')
+                if threshold > 0 and requested_tuition > threshold:
+                    pct_raw = CalculationService._get_policy_value('dggr_extra_tuition', 'max_percent_covered')
+                    percent = pct_raw / Decimal(100) if pct_raw else Decimal(0)
+                    cap = CalculationService._get_policy_value('dggr_extra_tuition', 'max_per_semester')
+                    total_inclusive = min(requested_tuition * percent, cap)
+                    # "Inclusive" means the extra is the DIFFERENCE above regular DGGR
+                    extra_before_pool = max(Decimal(0), total_inclusive - dggr_tuition)
+
+                    if extra_before_pool > 0:
+                        # §4.3 $36k annual pool cap across ALL students
+                        extra_amount = CalculationService._apply_extra_tuition_pool_cap(
+                            extra_before_pool, submission
+                        )
+                        if extra_amount > 0:
+                            payment_items.append(('Extra Tuition Cap Relief', extra_amount))
+                            total_tuition += extra_amount
+
+        # ── Single-stream fallback for backward compat (no DGGR, no C-DFN chosen) ──
+        if not streams_applied:
+            # Default to PSSSP
             tuition_limit = CalculationService._get_policy_value('psssp_tuition', 'max_per_semester')
-        elif 'UCEPP' in stream:
-            tuition_limit = CalculationService._get_policy_value('ucepp_tuition', 'max_per_semester')
-        else:
-            tuition_limit = CalculationService._get_policy_value('dggr_tuition', f"{load_key}_per_semester")
+            final_tuition = min(requested_tuition, tuition_limit) if requested_tuition > 0 else tuition_limit
+            living_rate = CalculationService._get_policy_value('psssp_living', living_field)
+            total_living = living_rate * Decimal(months)
+            total_tuition = final_tuition
+            payment_items = [('Tuition', final_tuition), ('Living Allowance', total_living)]
+            streams_applied = ['PSSSP (default)']
 
-        final_tuition = min(requested_tuition, tuition_limit) if requested_tuition > 0 else tuition_limit
-
-        # ── DGGR Extra Tuition Bursary (only when DGGR + tuition > threshold) ──
-        extra_amount = Decimal(0)
-        if 'DGGR' in stream and requested_tuition > 0:
-            threshold = CalculationService._get_policy_value('dggr_extra_tuition', 'threshold_per_semester')
-            if threshold > 0 and requested_tuition >= threshold:
-                pct_raw = CalculationService._get_policy_value('dggr_extra_tuition', 'max_percent_covered')
-                percent = pct_raw / Decimal(100) if pct_raw else Decimal(0)
-                cap = CalculationService._get_policy_value('dggr_extra_tuition', 'max_per_semester')
-                # Extra = (% of tuition − regular tuition top-up), capped, never negative.
-                extra_amount = min(requested_tuition * percent, cap) - final_tuition
-                if extra_amount < 0:
-                    extra_amount = Decimal(0)
-
-        # ── Books & supplies (per semester) ──
+        # ── Books & supplies (per semester, once regardless of streams) ──
         books = CalculationService._get_policy_value('system_config', 'book_allowance')
+        if books > 0:
+            payment_items.append(('Books', books))
 
-        total = final_tuition + total_living + books + extra_amount
+        total = total_tuition + total_living + books
+        # Deduplicate living_rate for return (use primary stream)
+        primary_section = 'psssp_living' if has_psssp else ('ucepp_living' if has_ucepp else 'dggr_living')
+        living_rate = CalculationService._get_policy_value(primary_section, living_field)
+        primary_tuition_limit = (
+            CalculationService._get_policy_value('psssp_tuition', 'max_per_semester') if has_psssp else
+            CalculationService._get_policy_value('ucepp_tuition', 'max_per_semester') if has_ucepp else
+            CalculationService._get_policy_value('dggr_tuition', f"{load_key}_per_semester")
+        )
         return {
             'total': total,
-            'stream': stream,
+            'stream': ' + '.join(streams_applied) or stream_raw,
             'enrollment': 'Full-Time' if is_full_time else 'Part-Time',
             'has_dependents': has_deps,
             'months': months,
             'living_rate': living_rate,
-            'tuition_cap': tuition_limit,
+            'tuition_cap': primary_tuition_limit,
             'requested_tuition': requested_tuition,
-            'payment_items': [
-                ('Tuition', final_tuition),
-                ('Living Allowance', total_living),
-                ('Books', books),
-            ] + ([('Extra Tuition Cap Relief', extra_amount)] if extra_amount > 0 else [])
+            'payment_items': payment_items,
         }
 
+    @staticmethod
+    def _apply_extra_tuition_pool_cap(extra_requested, submission):
+        """§4.3: Total annual pool for DGGR Extra Tuition across ALL students is $36k.
+        Returns the amount this submission can receive without busting the cap."""
+        from django.db.models import Sum
+        from django.utils import timezone as _tz
+        from datetime import date as _date
+
+        pool_cap = CalculationService._get_policy_value('dggr_extra_tuition', 'annual_pool_cap')
+        if pool_cap <= 0:
+            pool_cap = Decimal('36000')  # §4.3 hard default
+
+        # Fiscal year: April 1 to March 31
+        today = (_tz.now().date() if CalculationService._as_of_date is None
+                 else CalculationService._as_of_date)
+        if today.month >= 4:
+            fy_start = _date(today.year, 4, 1)
+        else:
+            fy_start = _date(today.year - 1, 4, 1)
+
+        # Sum of all Extra Tuition payments issued so far this fiscal year
+        already_used = Payment.objects.filter(
+            payment_type__icontains='Extra Tuition',
+            date_issued__date__gte=fy_start,
+        ).aggregate(total=Sum('amount'))['total'] or Decimal(0)
+
+        # Exclude this submission's own prior calculation (recalculation scenario)
+        own_used = Payment.objects.filter(
+            submission=submission,
+            payment_type__icontains='Extra Tuition',
+        ).aggregate(total=Sum('amount'))['total'] or Decimal(0)
+        already_used = max(Decimal(0), already_used - own_used)
+
+        remaining = pool_cap - already_used
+        if remaining <= 0:
+            return Decimal(0)
+        return min(extra_requested, remaining)
+
     _policy_cache = {}
+    # as_of_date set at the top of calculate_and_pay for the current submission
+    _as_of_date = None
 
     @staticmethod
     def _get_policy_value(section, field_key):
-        cache_key = f"{section}:{field_key}"
+        """Return the policy value that was in effect on _as_of_date.
+
+        §4.3/§7.5: if the admin scheduled a future effective_date on a
+        PolicyHistory entry, submissions from before that date use the old_value.
+        Also returns 0 if the setting is deactivated (is_active=False).
+        """
+        as_of = CalculationService._as_of_date  # may be None → use current value
+        cache_key = f"{section}:{field_key}:{as_of}"
         if cache_key in CalculationService._policy_cache:
             return CalculationService._policy_cache[cache_key]
 
         try:
-            val = PolicySetting.objects.get(section=section, field_key=field_key).value
+            setting = PolicySetting.objects.get(section=section, field_key=field_key)
+
+            # §3.1.G: deactivated settings return 0 — award is suspended
+            if not setting.is_active:
+                CalculationService._policy_cache[cache_key] = Decimal(0)
+                return Decimal(0)
+
+            val = setting.value
+
+            # §7.5: if a future-dated change exists and our submission predates it,
+            # walk PolicyHistory to find the value that was in effect on as_of
+            if as_of is not None:
+                from api.models import PolicyHistory
+                # Find history entries whose effective_date is AFTER as_of_date
+                # (meaning those changes hadn't taken effect yet)
+                future_changes = PolicyHistory.objects.filter(
+                    setting=setting,
+                    effective_date__gt=str(as_of),
+                ).order_by('effective_date')
+                if future_changes.exists():
+                    # The oldest "not-yet-active" change's old_value is what applied on as_of
+                    try:
+                        val = Decimal(future_changes.first().old_value)
+                    except Exception:
+                        pass  # fall back to current value
+
             CalculationService._policy_cache[cache_key] = val
             return val
         except PolicySetting.DoesNotExist:

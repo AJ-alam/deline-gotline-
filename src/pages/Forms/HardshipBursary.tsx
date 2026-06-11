@@ -15,15 +15,18 @@ const HardshipBursary: React.FC<HardshipBursaryProps> = ({ profile, onBack, onCo
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  // BUG 1: Connectivity & State
-  const [formData, setFormData] = useState({
-    studentName: '',
-    studentId: '',
-    institution: '',
-    hardshipDescription: '',
-    othersAttempted: '',
-    signature: '',
-    isCompliant: true
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem('dgg_autosave_Hardship');
+    if (saved) { try { return JSON.parse(saved); } catch (_) {} }
+    return {
+      studentName: '',
+      studentId: '',
+      institution: '',
+      hardshipDescription: '',
+      othersAttempted: '',
+      signature: '',
+      isCompliant: true
+    };
   });
 
   const [expenses, setExpenses] = useState([{ id: Date.now(), purpose: '', amount: 0 }]);
@@ -38,6 +41,10 @@ const HardshipBursary: React.FC<HardshipBursaryProps> = ({ profile, onBack, onCo
       }));
     }
   }, [profile]);
+
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_Hardship', JSON.stringify(formData));
+  }, [formData]);
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -134,6 +141,7 @@ const HardshipBursary: React.FC<HardshipBursaryProps> = ({ profile, onBack, onCo
         form_type: 'Hardship',
         form_data: submissionData
       });
+      localStorage.removeItem('dgg_autosave_Hardship');
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit hardship application.');

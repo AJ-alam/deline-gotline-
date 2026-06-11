@@ -78,7 +78,7 @@ class Application(models.Model):
         db_table = 'student_applications'
 
     def __str__(self):
-        return f"{self.form_type} - {self.student.get_full_name() or self.student.username} ({self.created_at.strftime('%Y-%m-%d')})"
+        return f"{self.form_type} - {self.student.full_name or self.student.email} ({self.created_at.strftime('%Y-%m-%d')})"
 
 class Document(models.Model):
     application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name='documents')
@@ -126,6 +126,10 @@ class PolicySetting(models.Model):
     field_label = models.CharField(max_length=255)    # Human-readable label
     value = models.DecimalField(max_digits=10, decimal_places=2)
     unit = models.CharField(max_length=255, blank=True)  # '$', '%', 'weeks', 'days', or email for system_config
+    # §3.1.G: Director can deactivate an award type without deleting historical records
+    is_active = models.BooleanField(default=True)
+    # §4.3/§7.5: effective date so old rates apply to prior applications
+    effective_date = models.DateField(null=True, blank=True)
     last_updated_by = models.ForeignKey(
         User, # get_user_model() resolve to CustomUser
         null=True, blank=True,
@@ -186,12 +190,26 @@ class Appeal(models.Model):
         PENDING = 'pending', _('Pending')
         REVIEWING = 'reviewing', _('Reviewing')
         DECIDED = 'decided', _('Decided')
+        ESCALATED = 'escalated', _('Escalated')
+
+    # §4.7: escalation levels
+    class EscalationLevel(models.TextChoices):
+        DIRECTOR = 'director', _('Director of Education')
+        DGGR_OFFICIAL = 'dggr_official', _('Senior DGGR Official')
+        CEO = 'ceo', _('CEO')
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='appeals')
     application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name='appeals')
     reason = models.TextField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     decision = models.TextField(blank=True, null=True)
+    # §4.7: escalation tracking
+    escalation_level = models.CharField(
+        max_length=20, choices=EscalationLevel.choices,
+        default=EscalationLevel.DIRECTOR
+    )
+    escalated_at = models.DateTimeField(null=True, blank=True)
+    escalation_notes = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -219,6 +237,63 @@ class ShareableLink(models.Model):
     def __str__(self):
         ref = self.application_id or self.submission_id or 'unknown'
         return f"Share link for {ref} - {self.token}"
+
+
+class DirectorActionToken(models.Model):
+    """§3.1.D / §2: One-click approve/deny from email — no portal login required."""
+
+    ACTION_CHOICES = [
+        ('approve', 'Approve'),
+        ('deny', 'Deny'),
+    ]
+
+    submission = models.ForeignKey(
+        'forms.FormSubmission', on_delete=models.CASCADE,
+        related_name='director_tokens'
+    )
+    token = models.CharField(max_length=64, unique=True)
+    action = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    director = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    reason = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'director_action_tokens'
+
+    def is_valid(self):
+        from django.utils import timezone
+        return self.used_at is None and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"DirectorToken {self.action} sub={self.submission_id}"
+
+
+class FinanceConfirmToken(models.Model):
+    """§3.1.E / §7.3: Finance confirms payments processed via email link — no login."""
+
+    submission = models.ForeignKey(
+        'forms.FormSubmission', on_delete=models.CASCADE,
+        related_name='finance_tokens', null=True, blank=True
+    )
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_by_name = models.CharField(max_length=255, blank=True, default='')
+
+    class Meta:
+        db_table = 'finance_confirm_tokens'
+
+    def is_valid(self):
+        from django.utils import timezone
+        return self.confirmed_at is None and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f"FinanceToken sub={self.submission_id}"
 
 
 class DuplicateDetectionLog(models.Model):

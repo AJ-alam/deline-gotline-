@@ -257,8 +257,38 @@ def email_more_info_requested(student_email: str, student_name: str, form_title:
     )
 
 
-def email_director_approval_request(director_email: str, student_name: str, form_title: str, amount: float, submission_id: int):
-    """Task 9.7: Director approval request notification"""
+def email_director_approval_request(
+    director_email: str,
+    student_name: str,
+    form_title: str,
+    amount: float,
+    submission_id: int,
+    approve_url: str = '',
+    deny_url: str = '',
+):
+    """§3.1.D / §2: Director approval request — includes one-click approve/deny links."""
+    action_buttons = ''
+    if approve_url and deny_url:
+        action_buttons = f"""
+    <div style="margin: 32px 0; text-align: center;">
+      <a href="{approve_url}"
+         style="display:inline-block; background:#16a34a; color:#fff; font-weight:700;
+                padding:14px 32px; border-radius:8px; text-decoration:none; font-size:15px; margin-right:12px;">
+         ✅ Approve
+      </a>
+      <a href="{deny_url}"
+         style="display:inline-block; background:#dc2626; color:#fff; font-weight:700;
+                padding:14px 32px; border-radius:8px; text-decoration:none; font-size:15px;">
+         ❌ Deny
+      </a>
+    </div>
+    <p style="font-size:12px; color:#94a3b8; text-align:center;">
+      These links are single-use and expire in 48 hours. No login required.
+    </p>
+    """
+    else:
+        action_buttons = '<p>Please log in to the Director portal to review and make a final decision.</p>'
+
     body = f"""
     <h2 style="color: #1e293b;">Application Awaiting Your Approval</h2>
     <p>A new application has been reviewed by the SSW team and forwarded for your decision.</p>
@@ -269,11 +299,11 @@ def email_director_approval_request(director_email: str, student_name: str, form
       <p style="margin: 4px 0;"><strong>Calculated Funding:</strong> ${amount:,.2f}</p>
       <p style="margin: 4px 0;"><strong>Reference #:</strong> {submission_id}</p>
     </div>
-    <p>Please log in to the Director portal to review and make a final decision.</p>
+    {action_buttons}
     """
     return send_email_notification(
         recipient_email=director_email,
-        subject=f"Approval Required: #{submission_id} — {student_name}",
+        subject=f"Action Required — #{submission_id}: {student_name} ({form_title})",
         html_body=_base_template(body),
     )
 

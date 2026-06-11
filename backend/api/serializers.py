@@ -56,7 +56,7 @@ class ApplicationSerializer(serializers.ModelSerializer):
             'finance_sent_at', 'finance_sent_by',
             'documents',
         )
-        read_only_fields = ('id', 'created_at', 'updated_at', 'student_details', 'documents')
+        read_only_fields = ('id', 'student', 'created_at', 'updated_at', 'student_details', 'documents')
 
 class AuditLogSerializer(serializers.ModelSerializer):
     performed_by_details = UserSerializer(source='performed_by', read_only=True)
@@ -79,10 +79,14 @@ class PolicyHistorySerializer(serializers.ModelSerializer):
 
 class PolicySettingSerializer(serializers.ModelSerializer):
     last_updated_by_name = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = PolicySetting
-        fields = ('id', 'section', 'field_key', 'field_label', 'value', 'unit', 'last_updated_by', 'last_updated_by_name', 'last_updated_at')
+        fields = (
+            'id', 'section', 'field_key', 'field_label', 'value', 'unit',
+            'is_active', 'effective_date',
+            'last_updated_by', 'last_updated_by_name', 'last_updated_at',
+        )
         read_only_fields = ('id', 'last_updated_by', 'last_updated_at')
 
     def get_last_updated_by_name(self, obj):
@@ -124,8 +128,12 @@ class AppealSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'user', 'student_details', 'application', 'reason',
             'status', 'decision', 'created_at', 'updated_at',
+            'escalation_level', 'escalated_at', 'escalation_notes',
         )
-        read_only_fields = ('id', 'created_at', 'updated_at', 'student_details')
+        read_only_fields = (
+            'id', 'user', 'created_at', 'updated_at', 'student_details',
+            'escalated_at',
+        )
 
 class ShareableLinkSerializer(serializers.ModelSerializer):
     class Meta:

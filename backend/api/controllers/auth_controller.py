@@ -19,6 +19,12 @@ class AuthRateThrottle(AnonRateThrottle):
     rate = '10/minute'
     scope = 'auth'
 
+    def allow_request(self, request, view):
+        from django.conf import settings as _s
+        if getattr(_s, 'TESTING', False):
+            return True
+        return super().allow_request(request, view)
+
 
 class RegisterController(generics.CreateAPIView):
     queryset = User.objects.all()
@@ -185,7 +191,7 @@ class StaffUserListController(generics.GenericAPIView):
     def get(self, request):
         users = (
             User.objects
-            .filter(role__in=['admin', 'director'])
+            .filter(role__in=['admin', 'director', 'ssw'])
             .order_by('role', 'full_name')
         )
         data = [
@@ -211,8 +217,8 @@ class StaffUserListController(generics.GenericAPIView):
             return api_response(False, None, "A valid email address is required", status.HTTP_400_BAD_REQUEST)
         if not full_name:
             return api_response(False, None, "Full name is required", status.HTTP_400_BAD_REQUEST)
-        if role not in ('admin', 'director'):
-            return api_response(False, None, "Role must be 'admin' or 'director'", status.HTTP_400_BAD_REQUEST)
+        if role not in ('admin', 'director', 'ssw'):
+            return api_response(False, None, "Role must be 'admin', 'director', or 'ssw'", status.HTTP_400_BAD_REQUEST)
         if not password:
             return api_response(False, None, "Password is required", status.HTTP_400_BAD_REQUEST)
         if User.objects.filter(email__iexact=email).exists():
@@ -251,7 +257,7 @@ class StaffUserDetailController(generics.GenericAPIView):
 
     def _get_user(self, pk):
         try:
-            return User.objects.get(pk=pk, role__in=['admin', 'director'])
+            return User.objects.get(pk=pk, role__in=['admin', 'director', 'ssw'])
         except User.DoesNotExist:
             return None
 
@@ -265,8 +271,8 @@ class StaffUserDetailController(generics.GenericAPIView):
         password  = (request.data.get('password') or '').strip()
         is_active = request.data.get('is_active', user.is_active)
 
-        if role not in ('admin', 'director'):
-            return api_response(False, None, "Role must be 'admin' or 'director'", status.HTTP_400_BAD_REQUEST)
+        if role not in ('admin', 'director', 'ssw'):
+            return api_response(False, None, "Role must be 'admin', 'director', or 'ssw'", status.HTTP_400_BAD_REQUEST)
 
         # Guard: cannot demote the only active director
         if user.role == 'director' and role != 'director':

@@ -44,7 +44,6 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
     enrollment: null
   });
 
-  // Fix: Only auto-fill if the fields are currently empty to avoid overwriting user input during polling
   useEffect(() => {
     if (profile) {
       setFormData(prev => ({
@@ -60,6 +59,26 @@ const FormC: React.FC<FormCProps> = ({ profile, onBack, onComplete }) => {
       }));
     }
   }, [profile]);
+
+  // §5: Pre-fill from prior accepted Form A/C submission
+  useEffect(() => {
+    const hasSavedDraft = !!localStorage.getItem('dgg_autosave_FormC');
+    if (hasSavedDraft) return; // don't overwrite in-progress draft
+    API.getFormPrefill('Form C').then((prefill) => {
+      if (!prefill || Object.keys(prefill).length === 0) return;
+      setFormData(prev => ({
+        ...prev,
+        fullName: prev.fullName || prefill['Full Name'] || '',
+        beneficiaryNumber: prev.beneficiaryNumber || prefill['Beneficiary Number'] || '',
+        email: prev.email || prefill['Email'] || '',
+        phone: prev.phone || prefill['Phone'] || '',
+        institution: prev.institution || prefill['Institution Name'] || prefill['Institution'] || '',
+        program: prev.program || prefill['Program'] || '',
+        courseLoad: prev.courseLoad || prefill['Course Load'] || prefill['Enrollment Status'] || 'Full-Time',
+        dependents: prev.dependents || prefill['Number of Dependents'] || prefill['Dependents'] || '0',
+      }));
+    }).catch(() => {});
+  }, []);
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));

@@ -10,6 +10,7 @@ import HardshipBursary from './pages/Forms/HardshipBursary';
 import FormF from './pages/Forms/FormF';
 import FormG from './pages/Forms/FormG';
 import FormD from './pages/Forms/FormD';
+import FormH from './pages/Forms/FormH';
 import AcademicScholarship from './pages/Forms/AcademicScholarship';
 import FormBPublic from './pages/FormBPublic';
 import StandaloneFormWrapper from './components/Forms/StandaloneFormWrapper';
@@ -67,10 +68,10 @@ function App() {
             {(props) => <FormG {...props} />}
           </StandaloneFormWrapper>
         } />
-        {/* Appeals (Form D) — public, no login required */}
+        {/* Appeals (Form H) — public, no login required */}
         <Route path="/forms/appeal" element={
           <StandaloneFormWrapper>
-            {(props) => <FormD {...props} onNavigate={() => {}} />}
+            {(props) => <FormH {...props} />}
           </StandaloneFormWrapper>
         } />
         {/* Special Awards / Academic Scholarship — public, no login required */}

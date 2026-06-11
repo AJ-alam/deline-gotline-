@@ -15,17 +15,20 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  // BUG 1: Connectivity & State
-  const [formData, setFormData] = useState({
-    studentName: '',
-    studentId: '',
-    institution: '',
-    semester: 'Fall',
-    year: '',
-    gpaAchieved: '',
-    transcriptSubmitted: 'No',
-    signature: '',
-    declarationConfirmed: false
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem('dgg_autosave_Scholarship');
+    if (saved) { try { return JSON.parse(saved); } catch (_) {} }
+    return {
+      studentName: '',
+      studentId: '',
+      institution: '',
+      semester: 'Fall',
+      year: '',
+      gpaAchieved: '',
+      transcriptSubmitted: 'No',
+      signature: '',
+      declarationConfirmed: false
+    };
   });
 
   const [selectedTranscript, setSelectedTranscript] = useState<File | null>(null);
@@ -42,6 +45,10 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
       }));
     }
   }, [profile]);
+
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_Scholarship', JSON.stringify(formData));
+  }, [formData]);
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -128,6 +135,7 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
           form_data: submissionData
         })
       ]);
+      localStorage.removeItem('dgg_autosave_Scholarship');
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit scholarship application. Please try again.');

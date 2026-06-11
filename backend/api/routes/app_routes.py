@@ -1,8 +1,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from api.views import (
-    UserDocumentViewSet, ProfileViewSet, ApplicationViewSet, 
-    DocumentViewSet, AuditLogViewSet, PaymentViewSet, AppealViewSet
+    UserDocumentViewSet, ProfileViewSet, ApplicationViewSet,
+    DocumentViewSet, AuditLogViewSet, PaymentViewSet, AppealViewSet,
+    SharedApplicationView, DirectorActionView, FinanceConfirmView,
 )
 from api.controllers.policy_controller import PolicyViewSet
 
@@ -14,7 +15,10 @@ router.register(r'documents', DocumentViewSet, basename='documents')
 router.register(r'audit-logs', AuditLogViewSet, basename='audit-logs')
 router.register(r'payments', PaymentViewSet, basename='payments')
 router.register(r'appeals', AppealViewSet, basename='appeals')
+router.register(r'shared-view', SharedApplicationView, basename='shared-view')
 router.register(r'policy', PolicyViewSet, basename='policy')
+router.register(r'director-action', DirectorActionView, basename='director-action')
+router.register(r'finance-confirm', FinanceConfirmView, basename='finance-confirm')
 
 urlpatterns = [
     path('auth/', include('api.routes.auth_routes')),

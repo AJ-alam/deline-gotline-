@@ -17,28 +17,31 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [showSin, setShowSin] = useState(false);
 
-  // BUG 1: Connectivity & State
-  const [formData, setFormData] = useState({
-    fullName: '',
-    dob: '',
-    treatyNumber: '',
-    sin: '',
-    phone: '',
-    email: '',
-    city: '',
-    province: '',
-    postalCode: '',
-    institution: '',
-    program: '',
-    completionDate: '',
-    credential: 'Degree (Bachelors)',
-    bankInstitution: '',
-    bankTransit: '',
-    bankAccount: '',
-    releaseToOther: false,
-    recipientName: '',
-    recipientRelationship: '',
-    signature: ''
+  const [formData, setFormData] = useState(() => {
+    const saved = localStorage.getItem('dgg_autosave_FormG');
+    if (saved) { try { return JSON.parse(saved); } catch (_) {} }
+    return {
+      fullName: '',
+      dob: '',
+      treatyNumber: '',
+      sin: '',
+      phone: '',
+      email: '',
+      city: '',
+      province: '',
+      postalCode: '',
+      institution: '',
+      program: '',
+      completionDate: '',
+      credential: 'Degree (Bachelors)',
+      bankInstitution: '',
+      bankTransit: '',
+      bankAccount: '',
+      releaseToOther: false,
+      recipientName: '',
+      recipientRelationship: '',
+      signature: ''
+    };
   });
 
   const [selectedProof, setSelectedProof] = useState<File | null>(null);
@@ -67,6 +70,10 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
       }));
     }
   }, [profile]);
+
+  useEffect(() => {
+    localStorage.setItem('dgg_autosave_FormG', JSON.stringify(formData));
+  }, [formData]);
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -163,6 +170,7 @@ const FormG: React.FC<FormGProps> = ({ profile, onBack, onComplete }) => {
         form_type: 'Graduation Bursary',
         form_data: submissionData
       });
+      localStorage.removeItem('dgg_autosave_FormG');
       setIsSubmitted(true);
     } catch (err: any) {
       setError(err.message || 'Failed to submit graduation award application.');

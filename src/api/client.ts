@@ -436,6 +436,20 @@ class API {
         }));
     }
 
+    static async getFormPrefill(formType: string): Promise<Record<string, string>> {
+        const forms = await this.getForms() as unknown as any[];
+        const normalize = (s: string) => s.toLowerCase().replace(/[\s\-—–]+/g, '');
+        const target = normalize(formType);
+        const form = forms.find((f: any) => normalize(f.title).includes(target) || target.includes(normalize(f.title)));
+        if (!form) return {};
+        try {
+            const resp: any = await apiClient.get(`/forms/forms/${form.id}/prefill/`);
+            return resp?.prefill || {};
+        } catch {
+            return {};
+        }
+    }
+
     // Eligibility check
     static checkEligibility(submissionId: number): Promise<any> {
         return apiClient.post(`/forms/submissions/${submissionId}/check-eligibility/`, {});

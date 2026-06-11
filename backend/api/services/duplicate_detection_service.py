@@ -6,9 +6,12 @@ Uses SHA-256 hashing to ensure identifiers cannot be reversed.
 """
 
 import hashlib
+import logging
 from django.utils import timezone
 from api.models import AuditLog, DuplicateDetectionLog
 from django.contrib.auth import get_user_model
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -34,20 +37,24 @@ class DuplicateDetectionService:
         Returns:
             str: SHA-256 hash of the identifier components
         """
-        # Extract components
+        # §6.3: identifier must be based on something that doesn't change between
+        # accounts. Email is intentionally EXCLUDED — the whole purpose of this
+        # check is detecting the same person who created two profiles with
+        # DIFFERENT email addresses. Using email in the hash would make every
+        # account unique regardless of the person.
+        #
+        # We combine: date_of_birth + full beneficiary_number + indian_status_number
+        # All three together uniquely identify a person without being reversible.
         dob = str(student_profile.date_of_birth) if student_profile.date_of_birth else ''
-        beneficiary = student_profile.beneficiary_number or ''
-        email = student_profile.user.email if hasattr(student_profile, 'user') else ''
-        
-        # Get last 4 of beneficiary number
-        beneficiary_last4 = beneficiary[-4:] if len(beneficiary) >= 4 else beneficiary
-        
-        # Create identifier string
-        identifier_string = f"{dob}|{beneficiary_last4}|{email}".lower()
-        
+        beneficiary = (student_profile.beneficiary_number or '').strip()
+        # Indian Status / Treaty number stored in profile.indian_status
+        indian_status = (student_profile.indian_status or '').strip()
+
+        identifier_string = f"{dob}|{beneficiary}|{indian_status}".lower()
+
         # Hash using SHA-256 (one-way, cannot be reversed)
         identifier_hash = hashlib.sha256(identifier_string.encode()).hexdigest()
-        
+
         return identifier_hash
 
     @staticmethod
@@ -109,8 +116,7 @@ class DuplicateDetectionService:
             result['log_id'] = log.id
             
         except Exception as e:
-            # Log error but don't fail the submission
-            print(f"Duplicate detection error: {str(e)}")
+            logger.error("Duplicate detection error for submission %s: %s", getattr(submission, 'id', '?'), e)
             result['error'] = str(e)
         
         return result

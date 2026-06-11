@@ -25,7 +25,12 @@ logger = logging.getLogger(__name__)
 
 
 def _is_staff(user):
-    return user.is_authenticated and user.role in ('admin', 'director')
+    return user.is_authenticated and user.role in ('admin', 'director', 'ssw')
+
+
+def _is_director(user):
+    """Banking details and full student files are Director-only (§6.4)."""
+    return user.is_authenticated and user.role == 'director'
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +39,11 @@ def _is_staff(user):
 # dispatch_report (ALL records emailed to finance).
 # ---------------------------------------------------------------------------
 
-def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_statuses=False, unsent_only=False):
+def _build_full_csv(
+    funding_type='all', date_from=None, date_to=None,
+    all_statuses=False, unsent_only=False,
+    student_name=None, semester=None, year=None, award_type=None,
+):
     """
     Build the comprehensive student records CSV with personal + banking info.
 
@@ -62,13 +71,15 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
     from forms.models import FormSubmission
     from django.db.models import Q
 
+    # §6.3: UPI (unique identifier) must NEVER appear in any export.
+    # §6.4: Banking details are Director-only — omitted from general CSV.
     HEADERS = [
         # ── Submission ──
         'Submission ID', 'Form/Type', 'Status', 'Stream',
         # ── Personal ──
         'Full Name', 'Email', 'Phone', 'Alternate Phone',
         'Date of Birth', 'Gender', 'Pronouns',
-        'Beneficiary #', 'Treaty #', 'UPI',
+        'Beneficiary #', 'Treaty #',
         'Mailing Address', 'Town/City', 'Postal Code', 'Province',
         'No. of Dependents', 'Dependent Ages',
         'Financial Assistance Status', 'SFA Active (Profile)',
@@ -140,6 +151,21 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
         qs = qs.filter(submitted_at__date__lte=date_to)
         legacy_qs = legacy_qs.filter(created_at__date__lte=date_to)
 
+    # ── §3.1.H ad-hoc filters ──
+    if student_name:
+        qs = qs.filter(student__full_name__icontains=student_name)
+        legacy_qs = legacy_qs.filter(student__full_name__icontains=student_name)
+    if semester:
+        # Semester stored in form title or office_use_data
+        qs = qs.filter(office_use_data__semester__icontains=semester)
+        legacy_qs = legacy_qs.filter(semester__icontains=semester)
+    if year:
+        qs = qs.filter(submitted_at__year=year)
+        legacy_qs = legacy_qs.filter(created_at__year=year)
+    if award_type:
+        qs = qs.filter(form__title__icontains=award_type)
+        legacy_qs = legacy_qs.filter(form_type__icontains=award_type)
+
     D = '—'  # default for missing values
 
     def _student_personal_banking(student, profile):
@@ -157,7 +183,7 @@ def _build_full_csv(funding_type='all', date_from=None, date_to=None, all_status
             (u.pronouns or (p.pronouns if p else D) or D) if u else D,
             (u.beneficiary_number or (p.beneficiary_number if p else D) or D) if u else D,
             (u.treaty_number or D) if u else D,
-            (u.upi or D) if u else D,
+            # UPI intentionally excluded — §6.3 prohibits it in any export
             (u.mailing_address or (p.mailing_address if p else D) or D) if u else D,
             (p.town_city or D) if p else D,
             (p.postal_code or D) if p else D,
@@ -257,11 +283,12 @@ def _build_full_csv_from_qs(qs):
     Used by dispatch_report so it only includes the exact unsent submissions.
     Returns (csv_bytes, row_count).
     """
+    # §6.3: UPI (unique identifier) must NEVER appear in any export.
     HEADERS = [
         'Submission ID', 'Form/Type', 'Status', 'Approved Amount ($)', 'Stream',
         'Full Name', 'Email', 'Phone', 'Alternate Phone',
         'Date of Birth', 'Gender', 'Pronouns',
-        'Beneficiary #', 'Treaty #', 'UPI',
+        'Beneficiary #', 'Treaty #',
         'Mailing Address', 'Town/City', 'Postal Code', 'Province',
         'No. of Dependents', 'Dependent Ages',
         'Financial Assistance Status', 'SFA Active (Profile)',
@@ -287,7 +314,8 @@ def _build_full_csv_from_qs(qs):
             (u.gender or (p.gender if p else D) or D) if u else D,
             (u.pronouns or (p.pronouns if p else D) or D) if u else D,
             (u.beneficiary_number or (p.beneficiary_number if p else D) or D) if u else D,
-            (u.treaty_number or D) if u else D, (u.upi or D) if u else D,
+            (u.treaty_number or D) if u else D,
+            # UPI intentionally excluded — §6.3
             (u.mailing_address or (p.mailing_address if p else D) or D) if u else D,
             (p.town_city or D) if p else D, (p.postal_code or D) if p else D,
             (u.province_of_residence or D) if u else D,
@@ -374,6 +402,42 @@ class ProfileViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
 
+    def perform_update(self, serializer):
+        old_instance = serializer.instance
+        change_triggers = []
+
+        _FORM_D_FIELDS = {
+            'is_sfa_active': 'SFA status',
+            'enrollment_status': 'Enrollment status',
+            'num_dependents': 'Number of dependents',
+            'institution_name': 'Institution name',
+        }
+        for field, label in _FORM_D_FIELDS.items():
+            if field in serializer.validated_data:
+                old_val = getattr(old_instance, field, None)
+                new_val = serializer.validated_data[field]
+                if old_val != new_val:
+                    change_triggers.append((field, label, str(old_val), str(new_val)))
+
+        instance = serializer.save()
+
+        if change_triggers:
+            self._auto_trigger_form_d(instance, change_triggers)
+
+    def _auto_trigger_form_d(self, profile, change_triggers):
+        """§5: When student updates profile in ways that affect funding, create a
+        notification prompting them to submit Form D (Change of Information)."""
+        try:
+            create_notification(
+                profile.user,
+                "Important: Submit Change of Information (Form D)",
+                "Your profile was updated in a way that may affect your funding. "
+                "Please submit a Form D (Change of Information) as soon as possible "
+                "to ensure your funding is recalculated correctly.",
+            )
+        except Exception as exc:
+            logger.warning("Form D auto-trigger notification failed: %s", exc)
+
 
 class ApplicationViewSet(viewsets.ModelViewSet):
     queryset = Application.objects.all()
@@ -389,10 +453,8 @@ class ApplicationViewSet(viewsets.ModelViewSet):
             'documents'
         ).order_by('-created_at')
 
-        if user.role == 'director':
-            return qs.filter(status__in=['pending', 'approved', 'denied'])
-        if user.role == 'admin':
-            return qs
+        if user.role in ('admin', 'director', 'ssw'):
+            return qs  # All staff see every application + complete history (§3.1.B)
         return qs.filter(student=user)
 
     def perform_create(self, serializer):
@@ -434,14 +496,20 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
+        # §3.1.D: only the Director may approve/deny applications
+        if not _is_director(request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only the Director may approve applications.")
         application = self.get_object()
         application.status = Application.Status.APPROVED
-        application.decision_by = request.user.username
+        application.decision_by = request.user.full_name or request.user.email
         application.decision_notes = request.data.get('notes', '')
+        application.decision_at = timezone.now()
         application.save()
         AuditLog.objects.create(
             action=f"Approved Application {application.id}",
             performed_by=request.user,
+            role=request.user.role,
             application=application,
             details=application.decision_notes
         )
@@ -449,14 +517,20 @@ class ApplicationViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def deny(self, request, pk=None):
+        # §3.1.D: only the Director may approve/deny applications
+        if not _is_director(request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only the Director may deny applications.")
         application = self.get_object()
         application.status = Application.Status.DENIED
-        application.decision_by = request.user.username
+        application.decision_by = request.user.full_name or request.user.email
         application.decision_notes = request.data.get('notes', '')
+        application.decision_at = timezone.now()
         application.save()
         AuditLog.objects.create(
             action=f"Denied Application {application.id}",
             performed_by=request.user,
+            role=request.user.role,
             application=application,
             details=application.decision_notes
         )
@@ -523,19 +597,27 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='export-csv')
     def export_csv(self, request):
-        """Download CSV — approved records only (same as before)."""
+        """Download CSV — approved records only, filterable by all report dimensions."""
         from django.http import HttpResponse
 
         funding_type = request.query_params.get('funding_type', 'all').lower()
         date_from    = request.query_params.get('date_from')
         date_to      = request.query_params.get('date_to')
+        student_name = request.query_params.get('student')
+        semester     = request.query_params.get('semester')
+        year         = request.query_params.get('year')
+        award_type   = request.query_params.get('award_type')
 
         csv_bytes, row_count = _build_full_csv(
             funding_type=funding_type,
             date_from=date_from,
             date_to=date_to,
-            all_statuses=False,   # approved-only for the download
-            unsent_only=True
+            all_statuses=False,
+            unsent_only=False,
+            student_name=student_name,
+            semester=semester,
+            year=year,
+            award_type=award_type,
         )
 
         AuditLog.objects.create(
@@ -547,6 +629,174 @@ class PaymentViewSet(viewsets.ModelViewSet):
         response = HttpResponse(csv_bytes, content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename="payment_export.csv"'
         return response
+
+    @action(detail=False, methods=['get'], url_path='export-excel')
+    def export_excel(self, request):
+        """Download Excel (.xlsx) report — same filters as export-csv. §3.1.H."""
+        from django.http import HttpResponse
+
+        funding_type = request.query_params.get('funding_type', 'all').lower()
+        date_from    = request.query_params.get('date_from')
+        date_to      = request.query_params.get('date_to')
+        student_name = request.query_params.get('student')
+        semester     = request.query_params.get('semester')
+        year         = request.query_params.get('year')
+        award_type   = request.query_params.get('award_type')
+
+        csv_bytes, row_count = _build_full_csv(
+            funding_type=funding_type,
+            date_from=date_from,
+            date_to=date_to,
+            all_statuses=False,
+            unsent_only=False,
+            student_name=student_name,
+            semester=semester,
+            year=year,
+            award_type=award_type,
+        )
+
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+            import io, csv as _csv
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Student Funding Report"
+
+            reader = _csv.reader(io.StringIO(csv_bytes.decode('utf-8')))
+            rows = list(reader)
+            if rows:
+                # Header row styling
+                header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+                header_font = Font(color="FFFFFF", bold=True)
+                for col_idx, cell_val in enumerate(rows[0], start=1):
+                    cell = ws.cell(row=1, column=col_idx, value=cell_val)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center')
+                # Data rows
+                for row_idx, row in enumerate(rows[1:], start=2):
+                    for col_idx, cell_val in enumerate(row, start=1):
+                        ws.cell(row=row_idx, column=col_idx, value=cell_val)
+                # Auto-fit columns (approximate)
+                for col in ws.columns:
+                    max_len = max((len(str(cell.value or '')) for cell in col), default=10)
+                    ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
+
+            buffer = io.BytesIO()
+            wb.save(buffer)
+            excel_bytes = buffer.getvalue()
+
+            AuditLog.objects.create(
+                action="Payment Excel Export Triggered",
+                performed_by=request.user,
+                details=f"Exported {row_count} records"
+            )
+
+            response = HttpResponse(
+                excel_bytes,
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = 'attachment; filename="payment_export.xlsx"'
+            return response
+
+        except ImportError:
+            return Response(
+                {'error': 'openpyxl not installed. Run: pip install openpyxl'},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+
+    @action(detail=False, methods=['get'], url_path='export-pdf')
+    def export_pdf(self, request):
+        """Download PDF report. §3.1.H: all reports exportable as PDF."""
+        from django.http import HttpResponse
+
+        funding_type = request.query_params.get('funding_type', 'all').lower()
+        date_from    = request.query_params.get('date_from')
+        date_to      = request.query_params.get('date_to')
+        student_name = request.query_params.get('student')
+        semester     = request.query_params.get('semester')
+        year         = request.query_params.get('year')
+        award_type   = request.query_params.get('award_type')
+
+        csv_bytes, row_count = _build_full_csv(
+            funding_type=funding_type, date_from=date_from, date_to=date_to,
+            all_statuses=False, unsent_only=False,
+            student_name=student_name, semester=semester, year=year, award_type=award_type,
+        )
+
+        try:
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.pagesizes import landscape, A4
+            from reportlab.lib import colors
+            from reportlab.lib.styles import getSampleStyleSheet
+            import io, csv as _csv
+
+            buffer = io.BytesIO()
+            doc = SimpleDocTemplate(buffer, pagesize=landscape(A4),
+                                    leftMargin=20, rightMargin=20, topMargin=30, bottomMargin=20)
+            styles = getSampleStyleSheet()
+            elements = []
+            elements.append(Paragraph("DGG Post-Secondary Funding — Student Report", styles['Title']))
+            filters = ' | '.join(filter(None, [
+                f"Type: {funding_type}" if funding_type != 'all' else '',
+                f"From: {date_from}" if date_from else '',
+                f"To: {date_to}" if date_to else '',
+                f"Student: {student_name}" if student_name else '',
+                f"Semester: {semester}" if semester else '',
+                f"Year: {year}" if year else '',
+            ]))
+            if filters:
+                elements.append(Paragraph(f"Filters: {filters}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+
+            reader = _csv.reader(io.StringIO(csv_bytes.decode('utf-8')))
+            rows = list(reader)
+
+            if rows:
+                # Only include key columns to fit landscape A4
+                KEY_COLS = [0, 1, 2, 3, 4, 5, 6, 34, 35, 36, 37, 38, 39]  # submission + personal + totals + dates
+                def pick_cols(row):
+                    return [str(row[i]) if i < len(row) else '' for i in KEY_COLS]
+
+                table_data = [pick_cols(r) for r in rows]
+                col_widths = [55, 90, 55, 55, 90, 90, 70, 60, 60, 60, 60, 70, 70]
+
+                t = Table(table_data, colWidths=col_widths, repeatRows=1)
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 7),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
+                    ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#e2e8f0')),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('TOPPADDING', (0, 0), (-1, -1), 3),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ]))
+                elements.append(t)
+            else:
+                elements.append(Paragraph("No records found matching the selected filters.", styles['Normal']))
+
+            doc.build(elements)
+            pdf_bytes = buffer.getvalue()
+
+            AuditLog.objects.create(
+                action="Payment PDF Export Triggered",
+                performed_by=request.user,
+                details=f"Exported {row_count} records"
+            )
+
+            response = HttpResponse(pdf_bytes, content_type='application/pdf')
+            response['Content-Disposition'] = 'attachment; filename="payment_report.pdf"'
+            return response
+
+        except ImportError:
+            return Response(
+                {'error': 'reportlab not installed. Run: pip install reportlab'},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
 
     @action(detail=False, methods=['post'], url_path='dispatch_report')
     def dispatch_report(self, request):
@@ -574,11 +824,34 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
         triggered_by = getattr(request.user, 'full_name', '') or request.user.email
 
+        # ── 2b. Create a batch FinanceConfirmToken for the first unsent submission
+        #        (or a "batch" token not tied to a specific submission) so Finance
+        #        can click once to confirm the whole dispatch. §7.3.
+        confirm_url = ''
+        try:
+            import uuid as _uuid
+            from datetime import timedelta as _td
+            from django.utils import timezone as _tz2
+            from api.models import FinanceConfirmToken
+            from django.conf import settings as _s2
+            first_sub = unsent_subs.first()
+            batch_token = FinanceConfirmToken.objects.create(
+                submission=first_sub,
+                token=_uuid.uuid4().hex,
+                expires_at=_tz2.now() + _td(days=30),
+            )
+            base_url = getattr(_s2, 'SITE_URL', request.build_absolute_uri('/').rstrip('/'))
+            confirm_url = f"{base_url}/api/finance-confirm/{batch_token.token}/"
+        except Exception as _e:
+            import logging
+            logging.getLogger(__name__).warning("FinanceConfirmToken creation failed: %s", _e)
+
         # ── 3. Send email ──
         ok = send_finance_report(
             csv_bytes=csv_bytes,
             total_students=total_rows,
             triggered_by=triggered_by,
+            confirm_url=confirm_url,
         )
 
         if not ok:
@@ -878,6 +1151,47 @@ class AppealViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
+    @action(detail=True, methods=['post'], url_path='escalate')
+    def escalate(self, request, pk=None):
+        """§4.7: Escalate appeal to next level (director → dggr_official → ceo)."""
+        appeal = self.get_object()
+        if not _is_staff(request.user):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only staff can escalate appeals.")
+
+        level_order = [
+            Appeal.EscalationLevel.DIRECTOR,
+            Appeal.EscalationLevel.DGGR_OFFICIAL,
+            Appeal.EscalationLevel.CEO,
+        ]
+        current_idx = level_order.index(appeal.escalation_level) if appeal.escalation_level in level_order else 0
+        if current_idx >= len(level_order) - 1:
+            return Response({'error': 'Appeal is already at the highest escalation level (CEO).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        appeal.escalation_level = level_order[current_idx + 1]
+        appeal.status = Appeal.Status.ESCALATED
+        appeal.escalated_at = timezone.now()
+        appeal.escalation_notes = request.data.get('notes', '')
+        appeal.save()
+
+        AuditLog.objects.create(
+            action=f"Appeal #{appeal.id} escalated to {appeal.escalation_level}",
+            performed_by=request.user,
+            role=request.user.role,
+            application=appeal.application,
+            details=appeal.escalation_notes,
+        )
+        create_notification(
+            appeal.user,
+            "Appeal Escalated",
+            f"Your appeal has been escalated to the {appeal.get_escalation_level_display()}.",
+        )
+        return Response({
+            'status': 'escalated',
+            'new_level': appeal.escalation_level,
+            'level_display': appeal.get_escalation_level_display(),
+        })
+
 
 class DocumentViewSet(viewsets.ModelViewSet):
     queryset = Document.objects.all()
@@ -952,3 +1266,168 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         if application:
             qs = qs.filter(application_id=application)
         return qs
+
+
+# ---------------------------------------------------------------------------
+# DIRECTOR ONE-CLICK APPROVE / DENY  (§3.1.D / §2)
+# ---------------------------------------------------------------------------
+
+class DirectorActionView(viewsets.GenericViewSet):
+    """
+    Tokenized one-click approve/deny used from the director's email notification.
+    No portal login required. Token is single-use and expires in 48 hours.
+
+    GET  /api/director-action/{token}/   → shows confirmation page (HTML or JSON)
+    POST /api/director-action/{token}/   → executes the action
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def retrieve(self, request, pk=None):
+        """Return submission summary for the director to review before confirming."""
+        from api.models import DirectorActionToken
+        try:
+            token_obj = DirectorActionToken.objects.select_related(
+                'submission', 'submission__form', 'submission__student'
+            ).get(token=pk)
+        except DirectorActionToken.DoesNotExist:
+            return Response({'error': 'Invalid or expired link.'}, status=status.HTTP_404_NOT_FOUND)
+        if not token_obj.is_valid():
+            return Response({'error': 'This link has already been used or has expired.'}, status=status.HTTP_410_GONE)
+        sub = token_obj.submission
+        return Response({
+            'action': token_obj.action,
+            'submission_id': sub.id,
+            'student': sub.student.full_name if sub.student else '—',
+            'form': sub.form.title if sub.form else '—',
+            'amount': str(sub.amount or 0),
+            'status': sub.status,
+        })
+
+    def update(self, request, pk=None):
+        """Execute the approve or deny action."""
+        from api.models import DirectorActionToken
+        from api.services.form_service import FormService
+        from django.utils import timezone as tz
+
+        try:
+            token_obj = DirectorActionToken.objects.select_related(
+                'submission', 'director'
+            ).get(token=pk)
+        except DirectorActionToken.DoesNotExist:
+            return Response({'error': 'Invalid or expired link.'}, status=status.HTTP_404_NOT_FOUND)
+        if not token_obj.is_valid():
+            return Response({'error': 'This link has already been used or has expired.'}, status=status.HTTP_410_GONE)
+
+        action = token_obj.action  # 'approve' or 'deny'
+        reason = request.data.get('reason', token_obj.reason or '')
+        new_status = 'accepted' if action == 'approve' else 'rejected'
+
+        # Use director if available, else create a synthetic actor for the audit trail
+        actor = token_obj.director
+        if actor is None:
+            # Fall back: any director account (first one found)
+            from django.contrib.auth import get_user_model as _gum
+            actor = _gum().objects.filter(role='director', is_active=True).first()
+        if actor is None:
+            return Response({'error': 'No active director account found.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        try:
+            FormService.update_submission_status(
+                token_obj.submission, new_status, actor,
+                {'decision_notes': reason, 'reason': reason}
+            )
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Mark token as used
+        token_obj.used_at = tz.now()
+        token_obj.save(update_fields=['used_at'])
+
+        AuditLog.objects.create(
+            action=f"Director one-click {action.upper()} for submission {token_obj.submission_id}",
+            performed_by=actor,
+            role='director',
+            details=f"Via email token. Reason: {reason}",
+        )
+
+        return Response({
+            'status': 'success',
+            'action': action,
+            'submission_id': token_obj.submission_id,
+            'message': f"Application #{token_obj.submission_id} has been {action}d.",
+        })
+
+
+# ---------------------------------------------------------------------------
+# FINANCE CONFIRM WITHOUT LOGIN  (§3.1.E / §7.3)
+# ---------------------------------------------------------------------------
+
+class FinanceConfirmView(viewsets.GenericViewSet):
+    """
+    Finance confirms payment processed via a single click from their email.
+    No portal login required. Token expires in 30 days.
+
+    GET  /api/finance-confirm/{token}/  → shows what's being confirmed
+    POST /api/finance-confirm/{token}/  → marks payments as processed
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def retrieve(self, request, pk=None):
+        from api.models import FinanceConfirmToken
+        try:
+            tok = FinanceConfirmToken.objects.select_related(
+                'submission', 'submission__student', 'submission__form'
+            ).get(token=pk)
+        except FinanceConfirmToken.DoesNotExist:
+            return Response({'error': 'Invalid or expired link.'}, status=status.HTTP_404_NOT_FOUND)
+        if not tok.is_valid():
+            if tok.confirmed_at:
+                return Response({
+                    'status': 'already_confirmed',
+                    'confirmed_at': tok.confirmed_at,
+                    'confirmed_by': tok.confirmed_by_name,
+                })
+            return Response({'error': 'Link has expired.'}, status=status.HTTP_410_GONE)
+        sub = tok.submission
+        return Response({
+            'submission_id': sub.id if sub else None,
+            'student': sub.student.full_name if sub and sub.student else '—',
+            'amount': str(sub.amount or 0) if sub else '0',
+            'form': sub.form.title if sub and sub.form else '—',
+        })
+
+    def update(self, request, pk=None):
+        from api.models import FinanceConfirmToken, Payment
+        from django.utils import timezone as tz
+
+        try:
+            tok = FinanceConfirmToken.objects.select_related('submission').get(token=pk)
+        except FinanceConfirmToken.DoesNotExist:
+            return Response({'error': 'Invalid or expired link.'}, status=status.HTTP_404_NOT_FOUND)
+        if not tok.is_valid():
+            return Response({'error': 'Link has already been used or has expired.'}, status=status.HTTP_410_GONE)
+
+        confirmed_by = request.data.get('name', 'Finance Staff')
+        now = tz.now()
+
+        tok.confirmed_at = now
+        tok.confirmed_by_name = confirmed_by
+        tok.save(update_fields=['confirmed_at', 'confirmed_by_name'])
+
+        # Mark associated payments as ISSUED
+        if tok.submission:
+            Payment.objects.filter(
+                submission=tok.submission, status=Payment.Status.PENDING
+            ).update(status=Payment.Status.ISSUED)
+
+        AuditLog.objects.create(
+            action=f"Finance confirmed payment for submission {tok.submission_id}",
+            performed_by=None,
+            details=f"Confirmed by: {confirmed_by} via email token at {now}",
+        )
+
+        return Response({
+            'status': 'confirmed',
+            'message': 'Payment confirmed. Thank you.',
+            'confirmed_by': confirmed_by,
+        })

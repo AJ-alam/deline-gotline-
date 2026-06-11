@@ -2,10 +2,11 @@ from rest_framework import permissions
 
 class IsAdminUser(permissions.BasePermission):
     """
-    Allows access to admin (Staff) and Director users.
+    Allows access to admin (SSW/staff), director, and ssw users.
+    Finance role is excluded — finance users only access the payment list endpoint.
     """
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.role in ['admin', 'director'])
+        return bool(request.user and request.user.is_authenticated and request.user.role in ['admin', 'director', 'ssw'])
 
 class IsDirectorUser(permissions.BasePermission):
     """
@@ -26,7 +27,7 @@ class IsOwnerOrAdmin(permissions.BasePermission):
         if not (request.user and request.user.is_authenticated):
             return False
             
-        if request.user.role in ['admin', 'director']:
+        if request.user.role in ['admin', 'director', 'ssw']:
             return True
         
         if hasattr(obj, 'student'):

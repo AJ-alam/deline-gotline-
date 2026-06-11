@@ -196,15 +196,18 @@ def send_finance_report(
     csv_bytes: bytes,
     total_students: int,
     triggered_by: str = "",
+    confirm_url: str = "",
 ) -> bool:
     """
     Send the full student-applications CSV to the Finance Department.
+    \u00a77.3: includes a one-click "Confirm Processed" button (no login required).
 
     Parameters
     ----------
     csv_bytes       : raw bytes of the CSV file
     total_students  : number of student rows in the CSV
     triggered_by    : name / email of the staff member who triggered the export
+    confirm_url     : tokenized URL Finance clicks to confirm payments processed
     """
     finance_email = _cfg("FINANCE_EMAIL")
     if not finance_email:
@@ -215,12 +218,24 @@ def send_finance_report(
     date_str = datetime.now().strftime("%Y-%m-%d")
     subject  = f"DGG Post-Secondary Funding \u2014 Student Applications Report [{date_str}]"
 
+    confirm_button = ""
+    if confirm_url:
+        confirm_button = (
+            f"<div style='margin:32px 0;text-align:center;'>"
+            f"<a href='{confirm_url}' style='display:inline-block;background:#16a34a;color:#fff;"
+            f"font-weight:700;padding:14px 36px;border-radius:8px;text-decoration:none;font-size:15px;'>"
+            f"\u2705 Confirm Payments Processed</a></div>"
+            f"<p style='font-size:12px;color:#94a3b8;text-align:center;'>"
+            f"Click once payments have been processed in your banking system. No login required.</p>"
+        )
+
     plain = (
         f"DGG Post-Secondary Funding - Student Applications Report\n"
         f"Generated: {now_str}\n"
         f"Total students: {total_students}\n"
         f"Triggered by: {triggered_by or 'DGG Staff'}\n\n"
-        f"Please see the attached CSV file for the full breakdown."
+        f"Please see the attached CSV file for the full breakdown.\n"
+        + (f"Confirm processed: {confirm_url}" if confirm_url else "")
     )
 
     html_content = (
@@ -232,7 +247,8 @@ def send_finance_report(
         + _row("Triggered by", triggered_by or "DGG Education Staff")
         + _row("Attachment", "student_applications_report.csv")
         + "</table>"
-        f"<p style='color:#64748b;font-size:13px;'>"
+        + confirm_button
+        + f"<p style='color:#64748b;font-size:13px;'>"
         f"The attached CSV contains the full breakdown of all student applications "
         f"including funding details, statuses, and contact information.</p>"
     )
