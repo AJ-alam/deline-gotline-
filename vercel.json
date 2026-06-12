@@ -7,15 +7,15 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/index"
     },
     {
       "source": "/admin/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/index"
     },
     {
       "source": "/static/(.*)",
-      "destination": "/api/index.py"
+      "destination": "/api/index"
     },
     {
       "source": "/(.*)",
