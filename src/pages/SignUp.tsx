@@ -228,13 +228,13 @@ const SignUp: React.FC = () => {
       navigate('/signin');
     } catch (err: any) {
       if (err.data && typeof err.data === 'object' && !Array.isArray(err.data)) {
-        // Extract first validation error if it's a field-level error
         const firstField = Object.keys(err.data)[0];
         const firstError = err.data[firstField];
-        const errorMessage = Array.isArray(firstError) ? firstError[0] : String(firstError);
-        setError(`${firstField.replace('_', ' ').toUpperCase()}: ${errorMessage}`);
+        const raw = Array.isArray(firstError) ? firstError[0] : firstError;
+        const errorMessage = typeof raw === 'string' ? raw : (raw?.message || raw?.string || JSON.stringify(raw));
+        setError(`${firstField.replace(/_/g, ' ').toUpperCase()}: ${errorMessage}`);
       } else {
-        setError(err.message || 'Registration failed');
+        setError(typeof err.message === 'string' ? err.message : 'Registration failed');
       }
     } finally {
       setIsLoading(false);

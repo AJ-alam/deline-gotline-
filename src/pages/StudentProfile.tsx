@@ -89,14 +89,16 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, category: string = 'Profile Upload') => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Reset input so the same file can be re-selected
+    e.target.value = '';
 
     const formData = new FormData();
     formData.append('file', file);
     formData.append('name', file.name);
-    formData.append('category', 'Profile Upload');
+    formData.append('category', category);
 
     setIsUploading(true);
     setUploadMessage(null);
@@ -393,9 +395,20 @@ const StudentProfile: React.FC<StudentProfileProps> = ({ profile: initialProfile
                 {isDocVerified('cheque') ? 'UPLOADED' : 'REQUIRED'}
               </span>
               <span className="p-val muted" style={{ fontSize: '11px' }}>
-                {isDocVerified('cheque') ? 'File on record: void_cheque.pdf' : 'No file uploaded'}
+                {isDocVerified('cheque')
+                  ? `File on record: ${documents.find(d => (d.category || '').toLowerCase().includes('cheque'))?.name || 'void cheque'}`
+                  : 'No file uploaded'}
               </span>
-              <button className="section-edit-btn" onClick={() => window.location.href='/dashboard/documents'}>Upload Void Cheque</button>
+              <label className="section-edit-btn" style={{ cursor: 'pointer' }}>
+                {isUploading ? 'Uploading...' : (isDocVerified('cheque') ? 'Replace Void Cheque' : 'Upload Void Cheque')}
+                <input
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => handleFileUpload(e, 'Void Cheque')}
+                  style={{ display: 'none' }}
+                  disabled={isUploading}
+                />
+              </label>
             </div>
           </div>
         </div>

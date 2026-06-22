@@ -98,6 +98,7 @@ const Dashboard: React.FC = () => {
   const [isDocumentsLoading, setIsDocumentsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState<any>(null);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [showPaperFormsModal, setShowPaperFormsModal] = useState(false);
   const [submittedFormPopup, setSubmittedFormPopup] = useState<string | null>(null);
   const [availableForms, setAvailableForms] = useState<any[]>([]);
@@ -154,6 +155,17 @@ const Dashboard: React.FC = () => {
         const targetApp = applications.find(a => a.id.toString() === appId);
         if (targetApp) {
           setSelectedApplication(targetApp);
+          if (!targetApp._is_standard && !targetApp.answers) {
+            setIsDetailLoading(true);
+            API.getSubmission(targetApp.id)
+              .then((full: any) => {
+                setSelectedApplication((prev: any) =>
+                  prev && prev.id === targetApp.id ? { ...prev, ...full } : prev
+                );
+              })
+              .catch((err: any) => console.error('Failed to load submission detail:', err))
+              .finally(() => setIsDetailLoading(false));
+          }
         }
       }
     } else if (segments.length === 1 && segments[0] === 'dashboard') {
@@ -164,6 +176,20 @@ const Dashboard: React.FC = () => {
   const handleViewApplication = (app: any) => {
     setSelectedApplication(app);
     setCurrentView('application-detail');
+    // The list endpoint omits answers for performance — pull the full
+    // submission (with answers) when opening the detail view. Legacy
+    // Application records (_is_standard) have no submission detail endpoint.
+    if (!app._is_standard && !app.answers) {
+      setIsDetailLoading(true);
+      API.getSubmission(app.id)
+        .then((full: any) => {
+          setSelectedApplication((prev: any) =>
+            prev && prev.id === app.id ? { ...prev, ...full } : prev
+          );
+        })
+        .catch((err: any) => console.error('Failed to load submission detail:', err))
+        .finally(() => setIsDetailLoading(false));
+    }
   };
 
   const renderAnswerText = (text: string) => {
@@ -213,10 +239,32 @@ const Dashboard: React.FC = () => {
     ]).then(([subsResp, appsResp]: [any, any]) => {
       const subs = Array.isArray(subsResp) ? subsResp : (subsResp?.results || []);
       const apps = Array.isArray(appsResp) ? appsResp : (appsResp?.results || []);
-      
+
+      // Legacy Application rows (form_type codes like "FormA") are internal
+      // payment-linkage records the backend auto-creates alongside a
+      // FormSubmission. Hide any whose category is already covered by a real
+      // submission so students don't see duplicates; keep them only as a
+      // fallback for old data with no matching submission.
+      const deriveCode = (title: string): string | null => {
+        const t = (title || '').toLowerCase();
+        if (['form a', 'forma', 'psssp', 'c-dfn', 'new student', 'admission'].some(x => t.includes(x))) return 'FormA';
+        if (['form b', 'formb', 'enrollment verif', 'enrolment verif', 'profile update'].some(x => t.includes(x))) return 'FormB';
+        if (['form c', 'formc', 'continuing fund'].some(x => t.includes(x))) return 'FormC';
+        if (['form d', 'formd', 'appeal', 'reconsider', 'specialized train'].some(x => t.includes(x))) return 'FormD';
+        if (['form e', 'forme', 'travel', 'emergency fund'].some(x => t.includes(x))) return 'FormE';
+        if (['form f', 'formf', 'practicum', 'placement'].some(x => t.includes(x))) return 'FormF';
+        if (['form g', 'formg', 'graduation'].some(x => t.includes(x))) return 'FormG';
+        if (['form h', 'formh', 'summer student'].some(x => t.includes(x))) return 'FormH';
+        if (t.includes('hardship')) return 'FormHardship';
+        if (t.includes('scholarship')) return 'FormScholarship';
+        return null;
+      };
+      const subCodes = new Set(subs.map((s: any) => deriveCode(s.form_title || s.form?.title || '')).filter(Boolean));
+      const uniqueApps = apps.filter((a: any) => !subCodes.has(deriveCode(a.form_type || '')));
+
       const merged = [
         ...subs,
-        ...apps.map((a: any) => ({ ...a, _is_standard: true, form_title: a.form_type }))
+        ...uniqueApps.map((a: any) => ({ ...a, _is_standard: true, form_title: a.form_type }))
       ];
       setApplications(merged);
 
@@ -456,7 +504,8 @@ const Dashboard: React.FC = () => {
       setSelectedApplication(null);
     }
 
-    navigate(`/dashboard/${view}`);
+    // The home view lives at /dashboard, not /dashboard/dashboard
+    navigate(view === 'dashboard' ? '/dashboard' : `/dashboard/${view}`);
     // Immediately update currentView for responsiveness
     setCurrentView(view);
   };
@@ -1217,7 +1266,16 @@ const Dashboard: React.FC = () => {
                   <div className="sec-card">
                     <div className="sec-head"><span className="sec-title">Application Content</span></div>
                     <div style={{ padding: '0 20px 20px' }}>
-                      {selectedApplication.answers && selectedApplication.answers.length > 0 ? (
+                      {isDetailLoading ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }} aria-busy="true">
+                          {[0, 1, 2, 3, 4].map(i => (
+                            <div key={`detail-skel-${i}`} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                              <span className="skeleton skeleton-line-xs" style={{ width: `${22 + (i * 13) % 30}%`, display: 'block', marginBottom: '8px' }} aria-hidden>·</span>
+                              <span className="skeleton skeleton-line" style={{ width: `${48 + (i * 17) % 40}%`, display: 'block' }} aria-hidden>·</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : selectedApplication.answers && selectedApplication.answers.length > 0 ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           {selectedApplication.answers.map((ans: any) => (
                             <div key={ans.id} style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
@@ -1518,7 +1576,7 @@ const Dashboard: React.FC = () => {
             {currentView === 'continuing-funding' && (
               <FormC
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Continuing Funding')}
               />
             )}
@@ -1527,9 +1585,9 @@ const Dashboard: React.FC = () => {
             {currentView === 'information-update' && (
               <FormD
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Information Update')}
-                onNavigate={(view: any) => setCurrentView(view)}
+                onNavigate={(view: any) => handleNavClick(view)}
               />
             )}
 
@@ -1537,7 +1595,7 @@ const Dashboard: React.FC = () => {
             {currentView === 'travel-claim' && (
               <FormE
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Travel Claim')}
               />
             )}
@@ -1546,7 +1604,7 @@ const Dashboard: React.FC = () => {
             {currentView === 'practicum-report' && (
               <FormF
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Practicum Report')}
               />
             )}
@@ -1560,7 +1618,7 @@ const Dashboard: React.FC = () => {
             {currentView === 'graduation-award' && (
               <FormG
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Graduation Award')}
               />
             )}
@@ -1569,7 +1627,7 @@ const Dashboard: React.FC = () => {
             {currentView === 'scholarship' && (
               <AcademicScholarship
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Scholarship')}
               />
             )}
@@ -1578,7 +1636,7 @@ const Dashboard: React.FC = () => {
             {currentView === 'hardship' && (
               <HardshipBursary
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Hardship Bursary')}
               />
             )}
@@ -1587,7 +1645,7 @@ const Dashboard: React.FC = () => {
             {currentView === 'appeal-request' && (
               <FormH
                 profile={profile}
-                onBack={() => setCurrentView('dashboard')}
+                onBack={() => handleNavClick('dashboard')}
                 onComplete={() => handleFormComplete('Appeal Request')}
               />
             )}

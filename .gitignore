@@ -68,3 +68,10 @@ Thumbs.db
 
 # ─── Deployment ────────────────────────────────────────────────────────────
 .vercel/
+
+.vercel
+
+#
+.claude/
+
+.claude

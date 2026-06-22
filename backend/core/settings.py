@@ -154,9 +154,14 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
+# Public URL of the frontend — used to build links in outgoing emails
+# (Form B registrar links, password resets). Must be a real Django setting:
+# email builders read it via getattr(settings, 'FRONTEND_URL', ...).
+FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000').rstrip('/')
+
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
-    config('FRONTEND_URL', default='http://localhost:3000'),
+    FRONTEND_URL,
     config('FRONTEND_URL_ALT', default='http://localhost:5173'),
 ]
 if config('VERCEL_URL', default=None):

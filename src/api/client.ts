@@ -106,11 +106,12 @@ apiClient.interceptors.response.use(
             }
         }
         
-        return Promise.reject({
-            status: error.response?.status,
-            message: error.response?.data?.message || error.response?.data?.detail || 'An error occurred',
-            data: error.response?.data?.data || error.response?.data
-        });
+        const respData = error.response?.data;
+        const message = (typeof respData?.message === 'string' && respData.message)
+            || (typeof respData?.detail === 'string' && respData.detail)
+            || 'An error occurred';
+        const data = respData?.data ?? null;
+        return Promise.reject({ status: error.response?.status, message, data });
     }
 );
 
