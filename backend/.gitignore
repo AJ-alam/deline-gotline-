@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.production
+__pycache__/
+*.pyc
+db.sqlite3
+staticfiles/
+media/
+*.log
+.vscode/
+.idea/
