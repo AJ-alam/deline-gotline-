@@ -400,7 +400,22 @@ class ProfileViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return self.queryset.filter(user=self.request.user)
+        user = self.request.user
+        if _is_staff(user):
+            student_id = self.request.query_params.get('student_id')
+            if student_id:
+                return self.queryset.filter(user_id=student_id)
+            return self.queryset.all()
+        return self.queryset.filter(user=user)
+
+    def get_object(self):
+        # Allow staff to retrieve/update by profile pk directly
+        obj = super().get_object()
+        user = self.request.user
+        if not _is_staff(user) and obj.user != user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You do not have permission to access this profile.")
+        return obj
 
     def perform_update(self, serializer):
         old_instance = serializer.instance
@@ -1019,9 +1034,10 @@ class PaymentViewSet(viewsets.ModelViewSet):
         D = '—'
         headers = [
             'Student Full Name', 'Beneficiary #',
+            'Institution', 'Program', 'Semester',
             'Account Holder Name', 'Bank Name',
             'Transit #', 'Institution #', 'Account #',
-            'Total Amount ($)',
+            'Total Amount ($)', 'Commitment #',
         ]
         buf = _io.StringIO()
         writer = _csv.writer(buf)
@@ -1034,7 +1050,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
             u = p.user
             if not u:
                 continue
-            entry = agg.setdefault(u.id, {'user': u, 'total': 0})
+            entry = agg.setdefault(u.id, {'user': u, 'total': 0, 'submission': p.submission})
             try:
                 entry['total'] += float(p.amount or 0)
             except (TypeError, ValueError):
@@ -1043,17 +1059,28 @@ class PaymentViewSet(viewsets.ModelViewSet):
         summary_rows = []  # (name, payment_type, formatted_amount) for HTML preview — type left blank
         for entry in agg.values():
             u = entry['user']
+            sub = entry.get('submission')
             profile = getattr(u, 'profile', None)
             beneficiary = (u.beneficiary_number or (profile.beneficiary_number if profile else None) or D)
+            institution = u.institution_name or (profile.institute if profile else None) or D
+            program = u.program_credential or D
+            semester = u.current_semester or D
+            commitment = ''
+            if sub and sub.office_use_data:
+                commitment = sub.office_use_data.get('commitmentNum', '') or ''
             writer.writerow([
                 u.full_name or D,
                 beneficiary,
+                institution,
+                program,
+                semester,
                 u.account_holder_name or u.full_name or D,
                 u.bank_name or D,
                 u.transit_number or D,
                 u.inst_number or D,
                 u.account_number or D,
                 f"{entry['total']:.2f}",
+                commitment or D,
             ])
             summary_rows.append((u.full_name or 'Student', '', f"{entry['total']:,.2f}"))
 
@@ -1249,7 +1276,32 @@ class UserDocumentViewSet(viewsets.ModelViewSet):
         uploaded_file = self.request.FILES.get('file')
         if uploaded_file:
             self._validate_upload(uploaded_file)
-        serializer.save(user=self.request.user)
+        instance = serializer.save(user=self.request.user)
+        # Notify all admin/ssw staff that a student uploaded a document
+        staff_users = User.objects.filter(role__in=('admin', 'ssw'))
+        student_name = self.request.user.get_full_name() or self.request.user.email
+        file_name = uploaded_file.name if uploaded_file else 'a document'
+        for staff in staff_users:
+            try:
+                create_notification(
+                    staff,
+                    f"Student Document Upload: {student_name}",
+                    f"{student_name} uploaded '{file_name}' to their personal documents.",
+                )
+            except Exception:
+                pass
+
+    def perform_update(self, serializer):
+        # Allow the document owner to re-upload; staff can always update
+        obj = serializer.instance
+        user = self.request.user
+        if not _is_staff(user) and obj.user != user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You do not have permission to update this document.")
+        uploaded_file = self.request.FILES.get('file')
+        if uploaded_file:
+            self._validate_upload(uploaded_file)
+        serializer.save()
 
 
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):

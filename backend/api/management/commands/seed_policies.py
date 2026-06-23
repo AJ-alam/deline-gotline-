@@ -114,6 +114,8 @@ class Command(BaseCommand):
             # SECTION: system_config (stored as value=0, unit=actual string for text fields)
             # finance_email: value unused, unit holds the email string
             ('system_config', 'finance_email', 'Finance Email Address', 0, 'finance@deline.ca'),
+            # registrar_email: fallback used when student does not supply a registrar email on their application
+            ('system_config', 'registrar_email', 'Registrar Email (fallback for Form B)', 0, 'education.support@gov.deline.ca'),
             ('system_config', 'contact_email', 'Public Contact Email', 0, 'education.support@gov.deline.ca'),
             ('system_config', 'contact_phone', 'Public Contact Phone', 0, '(867) 589-3515 ext. 1110'),
             ('system_config', 'contact_address', 'Mailing Address', 0, 'P.O. Box 156, Délı̨nę, NT X0E 0G0'),

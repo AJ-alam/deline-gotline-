@@ -149,6 +149,16 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
   ];
 
   const handleSubmit = async () => {
+    // Warn if any required documents (marked with *) are missing
+    const requiredDocs = FORM_A_DOCUMENTS.filter(d => d.label.endsWith('*'));
+    const missingDocs = requiredDocs.filter(d => !selectedFiles[d.label]);
+    if (missingDocs.length > 0) {
+      const names = missingDocs.map(d => d.label.replace(' *', '')).join(', ');
+      const proceed = window.confirm(
+        `The following required documents are missing:\n\n• ${missingDocs.map(d => d.label.replace(' *', '')).join('\n• ')}\n\nYour application may be delayed without them. Do you want to submit anyway?`
+      );
+      if (!proceed) return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -163,24 +173,29 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
         { field_label: 'Phone',               answer_text: formData.phone },
         { field_label: 'Email',               answer_text: formData.email },
         { field_label: 'Date of Birth',       answer_text: formData.dob },
-        { field_label: 'Mailing Address',     answer_text: formData.address },
+        { field_label: 'Permanent Residential Address', answer_text: formData.address },
+        { field_label: 'Current Address',     answer_text: formData.currentAddress },
         { field_label: 'City',                answer_text: formData.city },
         { field_label: 'Province',            answer_text: formData.province },
         { field_label: 'Postal Code',         answer_text: formData.postalCode },
         { field_label: 'SIN',                 answer_text: formData.sin },
         { field_label: 'Gender',              answer_text: formData.sex },
         { field_label: 'Beneficiary Number',  answer_text: formData.beneficiaryNo },
+        { field_label: 'Student ID',          answer_text: formData.studentId },
         { field_label: 'Institution Name',    answer_text: formData.institution },
+        { field_label: 'Institution Location',answer_text: formData.institutionLocation },
         { field_label: 'Program',             answer_text: formData.program },
+        { field_label: 'Program Start Date',  answer_text: formData.programStart },
+        { field_label: 'Program End Date',    answer_text: formData.programEnd },
+        { field_label: 'Learning Style',      answer_text: formData.learningStyle },
+        { field_label: 'Semester',            answer_text: formData.semester },
         { field_label: 'Semester Start Date', answer_text: formData.semStart },
         { field_label: 'Semester End Date',   answer_text: formData.semEnd },
         { field_label: 'Registrar Email',     answer_text: formData.registrarEmail },
-        { field_label: 'Tuition Amount',      answer_text: formData.tuition },
+        { field_label: 'Tuition Amount Requested', answer_text: formData.tuition },
         { field_label: 'Enrollment Status',   answer_text: formData.courseLoad },
         { field_label: 'Has Dependents',      answer_text: formData.hasDependents },
         { field_label: 'Number of Dependents',answer_text: String(formData.dependentCount || 0) },
-        { field_label: 'Semester',            answer_text: formData.semester },
-        { field_label: 'Institution Location',answer_text: formData.institutionLocation },
         { field_label: 'Funding Stream',      answer_text: getBursaryStream() },
         { field_label: 'Account Holder',      answer_text: formData.accountHolder },
         { field_label: 'Transit Number',      answer_text: formData.transitNumber },
@@ -377,7 +392,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
 
   return (
     <FormWizard
-      title="New Student Application"
+      title="C-DFN PSSSP — Admission Application"
       subtitle={currentStep === 1
         ? "Please confirm your personal information below. This data will pre-fill the Enrollment Verification form for your registrar."
         : currentStep === 4
@@ -423,7 +438,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
               </tr>
               <tr>
                 <td colSpan={2}>
-                  <label className="field-label" htmlFor="fa-address">Permanent Address in NT *</label>
+                  <label className="field-label" htmlFor="fa-address">Permanent Residential Address *</label>
                   <input
                     id="fa-address"
                     className="field-input" type="text" placeholder="Street address or PO Box"
@@ -509,7 +524,13 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                   <input
                     id="fa-dob"
                     className="field-input" type="date"
-                    value={formData.dob} onChange={e => setFormData({ ...formData, dob: e.target.value })}
+                    max={new Date().toISOString().split('T')[0]}
+                    value={formData.dob}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val && val > new Date().toISOString().split('T')[0]) return;
+                      setFormData({ ...formData, dob: val });
+                    }}
                   />
                 </td>
               </tr>
@@ -699,6 +720,26 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
             </tbody>
           </table>
 
+          <div className="section-divider">Requested Funding</div>
+          <div className="policy-note info" style={{ marginBottom: 16 }}>
+            Enter the tuition amount as quoted by your institution (from your tuition invoice or acceptance letter). This is your requested amount — final funding is determined by DGG policy and confirmed after review.
+          </div>
+          <table className="form-grid">
+            <tbody>
+              <tr>
+                <td width="60%">
+                  <label className="field-label" htmlFor="fa-tuition">Tuition Amount Requested ($) * <FieldHint text="Enter the exact tuition amount shown on your institution's invoice or fee statement for this semester. Do NOT include books, living costs, or other expenses here." /></label>
+                  <input
+                    id="fa-tuition"
+                    className="field-input" type="number" min="0" step="0.01" placeholder="0.00"
+                    value={formData.tuition} onChange={e => setFormData({ ...formData, tuition: e.target.value })}
+                  />
+                  <div style={{ fontSize: '9px', color: '#64748b', marginTop: '4px' }}>From your institution's tuition invoice — attach as a supporting document for verification</div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
           <div className="section-divider">Registrar Contact (Enrollment Verification Delivery)</div>
           <div className="policy-note info" style={{ marginBottom: 16 }}>
             The Enrollment Verification form will be pre-filled and emailed to this address for registrar verification.
@@ -837,8 +878,8 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
 
           <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', padding: '16px', borderRadius: '8px', marginTop: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ flex: 1, paddingRight: 20 }}>
-              <div style={{ fontSize: '13px', fontWeight: '700', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '6px' }}><Ic.Clipboard size={14} /> Enrollment Verification Preview</div>
-              <div style={{ fontSize: '11px', color: '#0369a1', marginTop: 4 }}>This document is pre-filled from your entries and sent to your registrar. Please check for accuracy before finalizing.</div>
+              <div style={{ fontSize: '13px', fontWeight: '700', color: '#0369a1', display: 'flex', alignItems: 'center', gap: '6px' }}><Ic.Clipboard size={14} /> Enrollment Verification (Form B) — Auto-Generated</div>
+              <div style={{ fontSize: '11px', color: '#0369a1', marginTop: 4 }}>Form B is <strong>automatically generated</strong> from your application responses and emailed directly to your registrar — you do not need to complete it separately. Please preview and verify accuracy before submitting.</div>
             </div>
             <button className="btn-primary" style={{ padding: '8px 16px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }} onClick={() => setShowFormBPreview(true)}><Ic.Eye size={14} /> Preview Enrollment Verification</button>
           </div>
@@ -987,9 +1028,9 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
 
               <div style={{ marginTop: '14px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: '3px', padding: '10px 14px', fontSize: '10px', color: '#555', textAlign: 'center', lineHeight: '1.7' }}>
                 <strong>Please submit application and supporting documents to:</strong><br />
-                Department of Education, Délı̨nę Got'ı̨nę Government<br />
-                P.O. Box 156 Délı̨nę, NT X0E 0G0<br />
-                Email: education.support@gov.deline.ca · Ph: (867) 589-3515 ext. 1110
+                <strong>Email:</strong> education.support@gov.deline.ca<br />
+                <strong>Or, if living in Délı̨nę:</strong> drop off at the <strong>VBB Building, Education Department</strong><br />
+                P.O. Box 156 Délı̨nę, NT X0E 0G0 · Ph: (867) 589-3515 ext. 1110
               </div>
             </div>
             <div className="modal-footer">

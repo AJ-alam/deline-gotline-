@@ -105,6 +105,23 @@ const Dashboard: React.FC = () => {
   const [hasFormA, setHasFormA] = useState(false);
   const [isFirstTimeCheck, setIsFirstTimeCheck] = useState(true);
 
+  // More info popup detection
+  const [moreInfoPopup, setMoreInfoPopup] = useState<{ id: number; notes: string } | null>(null);
+
+  // Detect when any application newly enters more_info_required status and show a popup
+  useEffect(() => {
+    const seenKey = 'dgg_seen_more_info';
+    const seen: Record<string, boolean> = JSON.parse(sessionStorage.getItem(seenKey) || '{}');
+    const newInfoApp = applications.find(
+      a => a.status === 'more_info_required' && !seen[String(a.id)]
+    );
+    if (newInfoApp) {
+      seen[String(newInfoApp.id)] = true;
+      sessionStorage.setItem(seenKey, JSON.stringify(seen));
+      setMoreInfoPopup({ id: newInfoApp.id, notes: newInfoApp.more_info_request_notes || 'Your Student Support Worker has requested additional information about your application.' });
+    }
+  }, [applications]);
+
   // More info response state
   const [infoResponseText, setInfoResponseText] = useState('');
   const [infoResponseFiles, setInfoResponseFiles] = useState<File[]>([]);
@@ -435,7 +452,7 @@ const Dashboard: React.FC = () => {
   const getApprovedTotal = () => {
     if (!Array.isArray(applications)) return 0;
     return applications
-      .filter(app => app.status === 'accepted')
+      .filter(app => normalizeAppStatus(app.status) === 'accepted')
       .reduce((sum, app) => {
         const amt = parseFloat(app.amount || '0');
         return sum + (isNaN(amt) ? 0 : amt);
@@ -443,17 +460,22 @@ const Dashboard: React.FC = () => {
   };
 
 
+  const normalizeAppStatus = (status: string) =>
+    status === 'approved' ? 'accepted' : status === 'denied' ? 'rejected' : status;
+
   const getJourneyStage = () => {
     if (applications.length === 0) {
       return { title: '1. Getting Started', milestone: 'Start Admission Application to begin', pips: [true, false, false] };
     }
 
     const latest = applications[0]; // Ordered by -submitted_at in backend
+    const normalizedStatus = latest.status === 'approved' ? 'accepted' : latest.status === 'denied' ? 'rejected' : latest.status;
 
-    if (latest.status === 'accepted') return { title: '4. Funding Active', milestone: 'Disbursement Phase', pips: [true, true, true] };
-    if (latest.status === 'rejected') return { title: 'Policy Notice', milestone: 'Application Rejected', pips: [true, true, true] };
-    if (latest.status === 'forwarded') return { title: '3. Final Approval', milestone: 'In Director Queue', pips: [true, true, true] };
-    if (latest.status === 'reviewed') return { title: '2. Review Process', milestone: 'SSW Reviewed', pips: [true, true, false] };
+    if (normalizedStatus === 'accepted' || normalizedStatus === 'sent_to_finance') return { title: '4. Funding Active', milestone: 'Disbursement Phase', pips: [true, true, true] };
+    if (normalizedStatus === 'rejected') return { title: 'Policy Notice', milestone: 'Application Rejected', pips: [true, true, true] };
+    if (normalizedStatus === 'forwarded') return { title: '3. Final Approval', milestone: 'In Director Queue', pips: [true, true, true] };
+    if (normalizedStatus === 'reviewed') return { title: '2. Review Process', milestone: 'SSW Reviewed', pips: [true, true, false] };
+    if (normalizedStatus === 'more_info_required') return { title: 'Action Required', milestone: 'Staff has requested more information — please respond', pips: [true, true, false] };
 
     return { title: '1. Submitted', milestone: 'Awaiting Staff Review', pips: [true, false, false] };
   };
@@ -793,10 +815,10 @@ const Dashboard: React.FC = () => {
                                 Submitted on {new Date(app.submitted_at).toLocaleDateString()} ·
                                 <span style={{
                                   marginLeft: '8px',
-                                  color: app.status === 'accepted' ? '#166534' : app.status === 'rejected' ? '#991b1b' : '#075985',
+                                  color: normalizeAppStatus(app.status) === 'accepted' ? '#166534' : normalizeAppStatus(app.status) === 'rejected' ? '#991b1b' : '#075985',
                                   fontWeight: '700'
                                 }}>
-                                  {app.status.toUpperCase()}
+                                  {normalizeAppStatus(app.status).toUpperCase()}
                                 </span>
                               </div>
                             </div>
@@ -868,40 +890,44 @@ const Dashboard: React.FC = () => {
                                 <td style={{ fontWeight: '700' }}>#{app.id.toString().padStart(6, '0')}</td>
                                 <td style={{ fontWeight: '600' }}>{app.form_title}</td>
                                 <td>
+                                  {(() => { const s = normalizeAppStatus(app.status); return (
                                   <span style={{
                                     padding: '4px 10px',
                                     borderRadius: '4px',
                                     fontSize: '9px',
                                     fontWeight: '800',
-                                    background: app.status === 'accepted' ? '#f0fdf4'
-                                      : app.status === 'sent_to_finance' ? '#e0f2fe'
-                                        : app.status === 'rejected' ? '#fef2f2'
-                                          : app.status === 'more_info_required' ? '#fff7ed'
+                                    background: s === 'accepted' ? '#f0fdf4'
+                                      : s === 'sent_to_finance' ? '#e0f2fe'
+                                        : s === 'rejected' ? '#fef2f2'
+                                          : s === 'more_info_required' ? '#fff7ed'
                                             : '#f0f9ff',
-                                    color: app.status === 'accepted' ? '#166534'
-                                      : app.status === 'sent_to_finance' ? '#0369a1'
-                                        : app.status === 'rejected' ? '#991b1b'
-                                          : app.status === 'more_info_required' ? '#c2410c'
+                                    color: s === 'accepted' ? '#166534'
+                                      : s === 'sent_to_finance' ? '#0369a1'
+                                        : s === 'rejected' ? '#991b1b'
+                                          : s === 'more_info_required' ? '#c2410c'
                                             : '#075985',
-                                    border: `1px solid ${app.status === 'accepted' ? '#bbf7d0'
-                                      : app.status === 'sent_to_finance' ? '#7dd3fc'
-                                        : app.status === 'rejected' ? '#fecaca'
-                                          : app.status === 'more_info_required' ? '#fed7aa'
+                                    border: `1px solid ${s === 'accepted' ? '#bbf7d0'
+                                      : s === 'sent_to_finance' ? '#7dd3fc'
+                                        : s === 'rejected' ? '#fecaca'
+                                          : s === 'more_info_required' ? '#fed7aa'
                                             : '#bae6fd'}`
                                   }}>
-                                    {app.status === 'more_info_required' ? 'ACTION REQUIRED'
-                                      : app.status === 'sent_to_finance' ? 'SENT TO FINANCE'
-                                        : app.status.toUpperCase()}
+                                    {s === 'more_info_required' ? 'ACTION REQUIRED'
+                                      : s === 'sent_to_finance' ? 'SENT TO FINANCE'
+                                        : s.toUpperCase()}
                                   </span>
+                                  ); })()}
                                 </td>
                                 <td style={{ fontSize: '10px', color: '#64748b' }}>
-                                  {app.status === 'pending' ? 'Under Review'
-                                    : app.status === 'accepted' ? 'Funds Authorized'
-                                      : app.status === 'sent_to_finance' ? 'Payment Processing (2–5 days)'
-                                        : app.status === 'reviewed' ? 'SSW Reviewed'
-                                          : app.status === 'forwarded' ? 'Awaiting Director'
-                                            : app.status === 'more_info_required' ? 'Info Requested'
-                                              : 'Policy Non-Compliance'}
+                                  {(() => { const s = normalizeAppStatus(app.status); return (
+                                    s === 'pending' ? 'Under Review'
+                                    : s === 'accepted' ? 'Funds Authorized'
+                                      : s === 'sent_to_finance' ? 'Payment Processing (2–5 days)'
+                                        : s === 'reviewed' ? 'SSW Reviewed'
+                                          : s === 'forwarded' ? 'Awaiting Director'
+                                            : s === 'more_info_required' ? 'Info Requested'
+                                              : 'Policy Non-Compliance'
+                                  ); })()}
                                 </td>
                                 <td>
                                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -995,7 +1021,7 @@ const Dashboard: React.FC = () => {
                     return (
                       <>
                         <div className="kpi-row">
-                          <div className="kpi-card"><div className="kpi-val">{kpiVal(authorizedTotal)}</div><div className="kpi-label">Authorized Total</div></div>
+                          <div className="kpi-card"><div className="kpi-val">{kpiVal(authorizedTotal)}</div><div className="kpi-label">Projected Eligible Total Funding</div></div>
                           <div className="kpi-card"><div className="kpi-val">{kpiVal(paidTotal)}</div><div className="kpi-label">Paid To Date</div></div>
                           <div className="kpi-card"><div className="kpi-val">{kpiVal(remaining)}</div><div className="kpi-label">Remaining Balance</div></div>
                           <div className="kpi-card"><div className="kpi-val">{kpiVal(pendingTotal)}</div><div className="kpi-label">Upcoming Scheduled</div></div>
@@ -1146,10 +1172,10 @@ const Dashboard: React.FC = () => {
                         fontSize: '11px',
                         fontWeight: '800',
                         marginLeft: '12px',
-                        background: selectedApplication.status === 'accepted' ? '#f0fdf4' : selectedApplication.status === 'rejected' ? '#fef2f2' : '#f0f9ff',
-                        color: selectedApplication.status === 'accepted' ? '#166534' : selectedApplication.status === 'rejected' ? '#991b1b' : '#075985',
+                        background: normalizeAppStatus(selectedApplication.status) === 'accepted' ? '#f0fdf4' : normalizeAppStatus(selectedApplication.status) === 'rejected' ? '#fef2f2' : '#f0f9ff',
+                        color: normalizeAppStatus(selectedApplication.status) === 'accepted' ? '#166534' : normalizeAppStatus(selectedApplication.status) === 'rejected' ? '#991b1b' : '#075985',
                       }}>
-                        {selectedApplication.status.toUpperCase()}
+                        {normalizeAppStatus(selectedApplication.status).toUpperCase()}
                       </span>
                     </div>
                     <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
@@ -1167,7 +1193,7 @@ const Dashboard: React.FC = () => {
                       </div>
                       {selectedApplication.amount && (
                         <div>
-                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Authorized Amount</div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Conditional Eligible Funding</div>
                           <div style={{ fontWeight: '700', color: '#166534' }}>${parseFloat(selectedApplication.amount).toLocaleString()}</div>
                         </div>
                       )}
@@ -1654,6 +1680,35 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* More Info Required Popup */}
+      {moreInfoPopup && (
+        <div className="modal-overlay" style={{ zIndex: 4000 }}>
+          <div className="modal-card" style={{ maxWidth: '480px', padding: '32px', textAlign: 'center' }}>
+            <div style={{ color: '#f97316', marginBottom: '16px' }}><Ic.AlertTriangle size={40} /></div>
+            <h2 style={{ fontSize: '20px', fontWeight: '800', color: '#1e293b', marginBottom: '12px' }}>Action Required</h2>
+            <p style={{ fontSize: '14px', color: '#64748b', lineHeight: '1.6', marginBottom: '16px' }}>
+              The Education Department has requested additional information about your application. Please respond as soon as possible to avoid delays.
+            </p>
+            <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: '8px', padding: '16px', marginBottom: '24px', textAlign: 'left' }}>
+              <div style={{ fontSize: '11px', fontWeight: '700', color: '#9a3412', textTransform: 'uppercase', marginBottom: '6px' }}>What was requested:</div>
+              <p style={{ fontSize: '14px', color: '#7c2d12', margin: 0, lineHeight: '1.6' }}>{moreInfoPopup.notes}</p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <button className="btn-primary" style={{ width: '100%' }} onClick={() => {
+                const app = applications.find(a => a.id === moreInfoPopup.id);
+                if (app) handleViewApplication(app);
+                setMoreInfoPopup(null);
+              }}>
+                Respond Now →
+              </button>
+              <button className="btn-ghost" style={{ width: '100%' }} onClick={() => setMoreInfoPopup(null)}>
+                Dismiss (I'll respond later)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Error Popup Modal */}
       {errorPopup && (
         <div className="error-popup-overlay" onClick={() => setErrorPopup(null)}>
@@ -1722,11 +1777,11 @@ const Dashboard: React.FC = () => {
                 marginBottom: '20px' 
               }}>
                 <div style={{ fontSize: '12px', color: '#1e40af', lineHeight: '1.6' }}>
-                  <strong>Mail or deliver completed forms to:</strong><br />
+                  <strong>Submit completed forms by:</strong><br />
                   <div style={{ marginTop: '8px', paddingLeft: '20px' }}>
-                    Department of Education, Délı̨nę Got'ı̨nę Government<br />
-                    P.O. Box 156 Délı̨nę, NT X0E 0G0<br />
-                    Ph: (867) 589-3515 ext. 1110
+                    <strong>Email:</strong> education.support@gov.deline.ca<br />
+                    <strong>Or, if living in Délı̨nę:</strong> drop off at the <strong>VBB Building, Education Department</strong><br />
+                    P.O. Box 156 Délı̨nę, NT X0E 0G0 · Ph: (867) 589-3515 ext. 1110
                   </div>
                 </div>
               </div>

@@ -132,6 +132,28 @@ class RegisterSerializer(serializers.ModelSerializer):
             attrs['num_dependents'] = 0
         if attrs.get('course_load') is None:
             attrs['course_load'] = 100
+
+        # Duplicate phone detection: same phone number but different email → flag to admin
+        phone = attrs.get('phone', '').strip()
+        email = attrs.get('email', '').strip().lower()
+        if phone:
+            existing = User.objects.filter(phone=phone).exclude(email__iexact=email).first()
+            if existing:
+                # Notify all admin/ssw staff of the potential duplicate
+                try:
+                    from notifications.utils import create_notification
+                    staff_users = User.objects.filter(role__in=('admin', 'ssw'))
+                    for staff in staff_users:
+                        create_notification(
+                            staff,
+                            "Possible Duplicate Account Registration",
+                            f"A new registration with phone '{phone}' (email: {email}) "
+                            f"matches an existing account (email: {existing.email}). "
+                            "Please review both accounts.",
+                        )
+                except Exception:
+                    pass
+
         return attrs
 
     def create(self, validated_data):

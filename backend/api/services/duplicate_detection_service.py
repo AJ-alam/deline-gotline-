@@ -107,10 +107,17 @@ class DuplicateDetectionService:
                     'is_flagged': result['is_flagged']
                 }
             )
-            
+
             if not created:
                 log.identifier_hash = identifier_hash
-                log.is_flagged = result['is_flagged']
+                # Do not re-raise the flag once an admin has explicitly cleared it
+                # (reviewed_by is set by mark_as_legitimate). Only override if
+                # the log has never been reviewed.
+                if log.reviewed_by is None:
+                    log.is_flagged = result['is_flagged']
+                else:
+                    # Already reviewed — preserve the cleared state
+                    result['is_flagged'] = log.is_flagged
                 log.save()
             
             result['log_id'] = log.id

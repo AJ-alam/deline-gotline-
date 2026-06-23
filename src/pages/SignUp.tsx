@@ -213,6 +213,12 @@ const SignUp: React.FC = () => {
         .filter(Boolean)
         .join(', ');
 
+      // Map new Q4 radio values to a readable province_of_residence string
+      const provinceMap: Record<string, string> = {
+        nwt_yes: 'Northwest Territories (permanent)',
+        nwt_new: 'Northwest Territories (< 12 months)',
+        nwt_no:  'Outside NWT',
+      };
       await API.register({
         ...normalizedData,
         primary_stream,
@@ -222,7 +228,7 @@ const SignUp: React.FC = () => {
         dependent_ages,
         is_indian_act_registered: q1 === 'yes',
         is_deline_beneficiary: q2 === 'yes',
-        province_of_residence: q4,
+        province_of_residence: provinceMap[q4] || q4,
         eligibility
       });
       navigate('/signin');
@@ -288,7 +294,13 @@ const SignUp: React.FC = () => {
             <div className="section-divider" style={{ marginTop: 0 }}>Eligibility Check</div>
             <div className="elig-check-container" style={{ background: '#fafafa', border: '1px solid #ddd', padding: '16px', borderRadius: '3px', marginBottom: '20px' }}>
               <div className="checkbox-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#333' }}>1. Are you registered under the Indian Act, with your status affiliated with the band formerly known as the Délı̨nę First Nation?</div>
+                <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#333' }}>
+                  1. Are you registered under the Indian Act, with your status affiliated with the band formerly known as the Délı̨nę First Nation?{' '}
+                  <span style={{ fontWeight: 400, fontSize: '10px', color: '#166534', cursor: 'help', textDecoration: 'underline' }} title="'Registered under the Indian Act' means your name appears on the Indian Register administered by Indigenous Services Canada, with your band listed as Deline First Nation (or its historical predecessors). This is NOT the same as being a Délı̨nę Beneficiary — see Question 2. [Additional explanatory copy to be supplied by Education Department]">[?] What does this mean?</span>
+                </div>
+                <div style={{ fontSize: '10px', color: '#555', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '4px', padding: '6px 10px', lineHeight: '1.5' }}>
+                  <strong>Note:</strong> Being a "registered band member" (Indian Act) is different from being a "Délı̨nę Beneficiary" (Land Claim). You may qualify as one, both, or neither — answer each question independently. <em>[Detailed definition placeholder — copy to be supplied by Education Department]</em>
+                </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <label className="radio-label"><input type="radio" name="elig_q1" value="yes" checked={eligibility.q1 === 'yes'} onChange={(e) => handleEligChange('q1', e.target.value)} /> Yes</label>
                   <label className="radio-label"><input type="radio" name="elig_q1" value="no" checked={eligibility.q1 === 'no'} onChange={(e) => handleEligChange('q1', e.target.value)} /> No</label>
@@ -317,16 +329,15 @@ const SignUp: React.FC = () => {
               </div>
 
               <div className="checkbox-row" style={{ alignItems: 'flex-start', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#333' }}>4. Where do you currently live?</div>
-                <select className="field-select" style={{ width: 'auto', padding: '6px 24px 6px 8px' }} value={eligibility.q4} onChange={(e) => handleEligChange('q4', e.target.value)}>
-                  <option value="">Select location...</option>
-                  <option value="nwt">Northwest Territories</option>
-                  <option value="other">Other Canadian province or territory</option>
-                  <option value="outside">Outside Canada</option>
-                </select>
-                {eligibility.q4 === 'nwt' && (
+                <div style={{ fontSize: '11.5px', fontWeight: 600, color: '#333' }}>4. Are you a permanent resident of the Northwest Territories (NWT)?</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label className="radio-label"><input type="radio" name="elig_q4" value="nwt_yes" checked={eligibility.q4 === 'nwt_yes'} onChange={(e) => handleEligChange('q4', e.target.value)} /> Yes — I am a permanent NWT resident</label>
+                  <label className="radio-label"><input type="radio" name="elig_q4" value="nwt_no" checked={eligibility.q4 === 'nwt_no'} onChange={(e) => handleEligChange('q4', e.target.value)} /> No — I do not live in the NWT</label>
+                  <label className="radio-label"><input type="radio" name="elig_q4" value="nwt_new" checked={eligibility.q4 === 'nwt_new'} onChange={(e) => handleEligChange('q4', e.target.value)} /> Not yet — I have lived in the NWT for less than 12 months</label>
+                </div>
+                {(eligibility.q4 === 'nwt_yes' || eligibility.q4 === 'nwt_new') && (
                   <div className="policy-note info" style={{ fontSize: '9.5px', marginTop: '4px', borderLeftColor: '#3182ce' }}>
-                    <strong>Note:</strong> Most NWT residents may qualify for GNWT SFA. If you are not receiving SFA, you will be asked to upload proof (e.g. denial letter or proof of ineligibility).
+                    <strong>Note:</strong> NWT residents may qualify for GNWT Student Financial Assistance (SFA). If you are not receiving SFA, you will be asked to upload proof of denial or ineligibility when submitting your application.
                   </div>
                 )}
               </div>
@@ -375,8 +386,13 @@ const SignUp: React.FC = () => {
                       id="su-dob"
                       className="field-input"
                       type="date"
+                      max={new Date().toISOString().split('T')[0]}
                       value={formData.dob}
-                      onChange={e => updateFormData('dob', e.target.value)}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val && val > new Date().toISOString().split('T')[0]) return;
+                        updateFormData('dob', val);
+                      }}
                     />
                   </div>
                   <div className="field-group">

@@ -164,7 +164,7 @@ REQUIRED_POLICIES = [
     # ── System Config ──────────────────────────────────────────────────────
     ('system_config', 'share_link_expiry_days',     'Share Link Expiry (days)',              7,      'days'),
     ('system_config', 'finance_email',              'Finance Department Email',             0,      'finance@deline.ca'),
-    ('system_config', 'registrar_email',            'Registrar Email',                      0,      'registrar@institution.ca'),
+    ('system_config', 'registrar_email',            'Registrar Email (fallback)',            0,      'education.support@gov.deline.ca'),
 ]
 
 

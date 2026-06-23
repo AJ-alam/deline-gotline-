@@ -95,6 +95,11 @@ const StaffDashboard: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>(role === 'director' ? 'director-queue' : 'dashboard');
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [detailApp, setDetailApp] = useState<any>(null);
+  const [studentDocs, setStudentDocs] = useState<any[]>([]);
+  const [isLoadingStudentDocs, setIsLoadingStudentDocs] = useState(false);
+  const [studentProfile, setStudentProfile] = useState<any>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [profileEdits, setProfileEdits] = useState<Record<string, string>>({});
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -816,7 +821,7 @@ const StaffDashboard: React.FC = () => {
     misconduct_rules: ['suspension_misconduct_years', 'suspension_overpayment_years'],
     application_deadlines: ['fall_deadline', 'winter_deadline', 'spring_deadline', 'summer_deadline'],
     payment_schedule: ['tuition_payment_weeks_after_deadline', 'living_payment_day_of_month', 'other_bursary_max_processing_days'],
-    system_config: ['finance_email', 'contact_email', 'contact_phone', 'contact_address', 'travel_claim_days', 'share_link_expiry_days', 'book_allowance'],
+    system_config: ['finance_email', 'registrar_email', 'contact_email', 'contact_phone', 'contact_address', 'travel_claim_days', 'share_link_expiry_days', 'book_allowance'],
   };
   const customFieldsForTab = (sections: string[]): Array<{ section: string; field: any }> => {
     const out: Array<{ section: string; field: any }> = [];
@@ -1133,6 +1138,33 @@ const StaffDashboard: React.FC = () => {
       cancelled = true;
     };
   }, [selectedAppId, currentView]);
+
+  // ── STUDENT DOCUMENTS & PROFILE: Fetch when detail view opens ──
+  useEffect(() => {
+    if (!selectedAppId || (currentView !== 'detail' && currentView !== 'director-detail')) {
+      setStudentDocs([]);
+      setStudentProfile(null);
+      setEditingProfile(false);
+      setProfileEdits({});
+      return;
+    }
+    const app = detailApp || applications.find((a: any) => String(a.id) === String(selectedAppId));
+    const studentId = app?.student_details?.user_id || app?.student;
+    if (!studentId) return;
+
+    setIsLoadingStudentDocs(true);
+    API.getStudentDocuments(Number(studentId))
+      .then((data: any) => setStudentDocs(Array.isArray(data) ? data : (data?.results || [])))
+      .catch(() => setStudentDocs([]))
+      .finally(() => setIsLoadingStudentDocs(false));
+
+    API.getStudentProfile(Number(studentId))
+      .then((data: any) => {
+        const results = Array.isArray(data) ? data : (data?.results || []);
+        setStudentProfile(results[0] || null);
+      })
+      .catch(() => setStudentProfile(null));
+  }, [selectedAppId, currentView, detailApp]);
 
   const handleSaveOfficeUse = async () => {
     if (!selectedAppId) return;
@@ -1559,7 +1591,8 @@ const StaffDashboard: React.FC = () => {
   // policy settings loaded after the selection).
   useEffect(() => {
     if (!selectedAppId || !autoSuggested || autoSuggested.ineligible) return;
-    if (breakdownRows.length > 0) return; // already loaded from office_use_data or edited
+    // Guard moved to functional update below — do not early-return here as the
+    // stale closure may see length=0 even when rows exist.
 
     // Determine every stream the student is eligible for so the table lists
     // ALL streams (primary + secondary). Signup persists these on the user;
@@ -1590,7 +1623,9 @@ const StaffDashboard: React.FC = () => {
         seeded.push({ id: `special-${stream}`, label: `Special Awards${tag}`, stream, note: breakdown.special?.rule || '', amount: Number(breakdown.special?.system) || 0 });
       }
     });
-    setBreakdownRows(seeded);
+    // Use functional update so we always read the latest state — avoids the stale-
+    // closure bug where the guard saw an empty array even after the user added a row.
+    setBreakdownRows(prev => prev.length > 0 ? prev : seeded);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAppId, autoSuggested?.total, autoSuggested?.stream, policySettings]);
 
@@ -1854,7 +1889,7 @@ const StaffDashboard: React.FC = () => {
 
     const tuitionAmount = autoSuggested.tuition?.system ?? 0;
     const livingAmount = autoSuggested.living?.system ?? 0;
-    const booksAmount = autoSuggested.books?.system ?? getPolicySetting('system_config', 'book_allowance') ?? 500;
+    const booksAmount = autoSuggested.books?.system ?? getPolicySetting('system_config', 'book_allowance') ?? 0;
     const specialAmount = autoSuggested.special?.system ?? 0;
     const totalAmount = autoSuggested.total ?? 0;
 
@@ -1869,7 +1904,7 @@ const StaffDashboard: React.FC = () => {
         icon: <Ic.Home size={16} />,
         label: 'Living Allowance',
         amount: livingAmount,
-        note: autoSuggested.living?.rule,
+        note: (autoSuggested.living?.rule ? autoSuggested.living.rule + ' — ' : '') + 'This is the total amount you may be eligible for the full semester.',
       },
       {
         icon: <Ic.BookOpen size={16} />,
@@ -3020,7 +3055,21 @@ const StaffDashboard: React.FC = () => {
                         <td className="apps-cell-date">
                           {app.submitted_at ? new Date(app.submitted_at).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                         </td>
-                        <td>{getStatusBadge(app.status, app)}</td>
+                        <td>
+                          {getStatusBadge(app.status, app)}
+                          {(() => {
+                            const hasFileDocs = (app.answers || []).some((a: any) => a.answer_file);
+                            const hasAppDocs = (app.documents || []).length > 0;
+                            if (!hasFileDocs && !hasAppDocs) {
+                              return (
+                                <span title="No documentation attached to this application" style={{ marginLeft: '6px', display: 'inline-flex', alignItems: 'center', gap: '2px', padding: '2px 6px', background: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a', borderRadius: '4px', fontSize: '9px', fontWeight: '800', verticalAlign: 'middle' }}>
+                                  <Ic.AlertTriangle size={9} /> NO DOCS
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </td>
                         <td className="apps-cell-amount">
                           {parseFloat(app.amount) > 0
                             ? <span className="apps-amount-positive">${parseFloat(app.amount).toLocaleString()}</span>
@@ -3346,12 +3395,127 @@ const StaffDashboard: React.FC = () => {
                     {/* Submitted Information Section */}
                     {renderSubmittedInformation()}
 
+                    {/* Student Personal Documents (from My Documents) */}
+                    <div style={{ marginTop: '32px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '800', margin: 0 }}>STUDENT PERSONAL DOCUMENTS</h3>
+                        {studentDocs.length > 0 && (
+                          <span className="admin-badge" style={{ background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', fontSize: '9px' }}>{studentDocs.length} FILE{studentDocs.length !== 1 ? 'S' : ''}</span>
+                        )}
+                      </div>
+                      {isLoadingStudentDocs ? (
+                        <div style={{ fontSize: '12px', color: '#64748b', padding: '16px', background: '#f8fafc', borderRadius: '8px' }}>Loading documents…</div>
+                      ) : studentDocs.length === 0 ? (
+                        <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic', padding: '16px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #e2e8f0', textAlign: 'center' }}>
+                          No personal documents uploaded by this student.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gap: '10px' }}>
+                          {studentDocs.map((doc: any) => (
+                            <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                                <Ic.FileText size={16} style={{ flexShrink: 0, color: '#3b82f6' }} />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontSize: '12px', fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name || doc.original_filename || (doc.file || '').split('/').pop() || 'Document'}</div>
+                                  <div style={{ fontSize: '10px', color: '#94a3b8' }}>{doc.document_type || 'Personal document'} · Uploaded {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString('en-CA') : '—'}</div>
+                                </div>
+                              </div>
+                              <a href={doc.file} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', fontWeight: '800', color: 'var(--admin-accent)', textDecoration: 'none', flexShrink: 0 }}>View</a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Admin: Edit Student Profile */}
+                    {role !== 'director' && (
+                    <div style={{ marginTop: '32px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                        <h3 style={{ fontSize: '14px', fontWeight: '800', margin: 0 }}>EDIT STUDENT PROFILE</h3>
+                        <button className="btn-ghost" style={{ fontSize: '11px', padding: '4px 10px' }} onClick={() => { setEditingProfile(p => !p); setProfileEdits({}); }}>
+                          {editingProfile ? 'Cancel' : 'Edit'}
+                        </button>
+                      </div>
+                      {editingProfile && studentProfile ? (
+                        <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '20px', border: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+                            {[
+                              { key: 'beneficiary_number', label: 'Beneficiary Number' },
+                              { key: 'treaty_number', label: 'Treaty Number' },
+                              { key: 'num_dependents', label: 'Number of Dependents' },
+                              { key: 'financial_assistance_status', label: 'Financial Assistance Status' },
+                              { key: 'institution_name', label: 'Institution Name' },
+                              { key: 'enrollment_status', label: 'Enrollment Status' },
+                            ].map(({ key, label }) => {
+                              const app = detailApp || applications.find((a: any) => String(a.id) === String(selectedAppId));
+                              const sd = app?.student_details || {};
+                              const currentVal = profileEdits[key] !== undefined ? profileEdits[key] : (sd[key] ?? '');
+                              return (
+                                <div key={key}>
+                                  <label style={{ fontSize: '10px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>{label}</label>
+                                  <input
+                                    className="admin-input"
+                                    style={{ fontSize: '13px' }}
+                                    value={currentVal}
+                                    onChange={e => setProfileEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <button
+                            className="btn-primary"
+                            style={{ fontSize: '12px', padding: '8px 20px' }}
+                            onClick={async () => {
+                              if (!studentProfile?.id || Object.keys(profileEdits).length === 0) return;
+                              try {
+                                await API.updateStudentProfile(studentProfile.id, profileEdits);
+                                setEditingProfile(false);
+                                setProfileEdits({});
+                                // Re-fetch detail to refresh student_details
+                                const refreshed = await API.getSubmission(Number(selectedAppId));
+                                setDetailApp(refreshed);
+                              } catch (err: any) {
+                                alert(err?.message || 'Failed to save profile changes.');
+                              }
+                            }}
+                          >
+                            Save Profile Changes
+                          </button>
+                        </div>
+                      ) : !editingProfile && studentProfile ? (
+                        <div style={{ fontSize: '12px', color: '#64748b', padding: '12px 16px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                          Click <strong>Edit</strong> to modify beneficiary number, dependents, financial status, institution info, and more.
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>Profile data not available.</div>
+                      )}
+                    </div>
+                    )}
+
                     {/* AUTO FUNDING CALCULATION is the single source of truth — replaces
                         the prior read-only FUNDING BREAKDOWN duplicate. Admin can edit
                         rows live; director sees the persisted breakdown. */}
 
                     {role !== 'director' && (
                     <div style={{ marginTop: '32px' }}>
+                      {/* Student-requested tuition callout */}
+                      {(() => {
+                        const app = detailApp || applications.find((a: any) => String(a.id) === String(selectedAppId));
+                        const tuitionAnswer = (app?.answers || []).find((a: any) =>
+                          (a.label || a.field_label || '').toLowerCase().includes('tuition amount')
+                        );
+                        const requestedTuition = tuitionAnswer?.answer_text;
+                        if (!requestedTuition || requestedTuition === '0' || requestedTuition === '') return null;
+                        return (
+                          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <Ic.Info size={14} style={{ color: '#d97706', flexShrink: 0 }} />
+                            <div style={{ fontSize: '12px', color: '#92400e' }}>
+                              <strong>Student's requested tuition:</strong> ${parseFloat(requestedTuition).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — compare to policy cap below.
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
                         <h3 style={{ fontSize: '14px', fontWeight: '800', margin: 0 }}>AUTO FUNDING CALCULATION</h3>
                         {(selectedApp?.office_use_data?.funding_breakdown || []).length > 0 ? (
@@ -5067,6 +5231,9 @@ const StaffDashboard: React.FC = () => {
                         );
                       })()}
                     </div>
+
+                    {/* Full submitted form answers for director review */}
+                    {renderSubmittedInformation()}
 
                     <div style={{ marginBottom: '32px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>

@@ -284,6 +284,10 @@ class API {
         return apiClient.get('/user-documents/');
     }
 
+    static getStudentDocuments(studentId: number) {
+        return apiClient.get(`/user-documents/?student_id=${studentId}`);
+    }
+
     static uploadUserDocument(formData: FormData) {
         // Remove manual Content-Type header to let axios/browser handle the multipart boundary
         return apiClient.post('/user-documents/', formData);
@@ -291,6 +295,14 @@ class API {
 
     static deleteUserDocument(id: number) {
         return apiClient.delete(`/user-documents/${id}/`);
+    }
+
+    static getStudentProfile(studentId: number) {
+        return apiClient.get(`/profiles/?student_id=${studentId}`);
+    }
+
+    static updateStudentProfile(profileId: number, data: Record<string, unknown>) {
+        return apiClient.patch(`/profiles/${profileId}/`, data);
     }
 
     static getDashboardStats() {

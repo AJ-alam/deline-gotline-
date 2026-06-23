@@ -93,10 +93,18 @@ class Document(models.Model):
     def __str__(self):
         return f"{self.name} for {self.application.id}"
 
+def _user_document_path(instance, filename):
+    """Organise uploads as: user_documents/<user_id>/<year>/<filename>"""
+    import datetime
+    year = datetime.date.today().year
+    return f'user_documents/{instance.user_id}/{year}/{filename}'
+
+
 class UserDocument(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_documents')
     name = models.CharField(max_length=255)
-    file = models.FileField(upload_to='user_documents/', max_length=255)
+    file = models.FileField(upload_to=_user_document_path, max_length=512)
+    document_type = models.CharField(max_length=100, blank=True, null=True)
     category = models.CharField(max_length=100, blank=True, null=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
