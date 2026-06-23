@@ -1497,7 +1497,7 @@ const Dashboard: React.FC = () => {
                       </div>
                       <div className="contact-item">
                         <div className="contact-label">Phone</div>
-                        <div className="contact-val">{sysConfig['contact_phone'] || '(867) 589-3515 ext. 1110'}</div>
+                        <div className="contact-val">{sysConfig['contact_phone'] || '(867) 589-3515'}</div>
                       </div>
                       <div className="contact-item">
                         <div className="contact-label">Mailing Address</div>
@@ -1781,7 +1781,7 @@ const Dashboard: React.FC = () => {
                   <div style={{ marginTop: '8px', paddingLeft: '20px' }}>
                     <strong>Email:</strong> education.support@gov.deline.ca<br />
                     <strong>Or, if living in Délı̨nę:</strong> drop off at the <strong>VBB Building, Education Department</strong><br />
-                    P.O. Box 156 Délı̨nę, NT X0E 0G0 · Ph: (867) 589-3515 ext. 1110
+                    P.O. Box 156 Délı̨nę, NT X0E 0G0 · Ph: (867) 589-3515
                   </div>
                 </div>
               </div>

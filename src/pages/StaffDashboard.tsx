@@ -618,7 +618,7 @@ const StaffDashboard: React.FC = () => {
 
       doc.text('------------------------------------------------', 20, 80);
       doc.text('Decision Details:', 20, 90);
-      doc.text(`Authorized Amount: $${app.amount || 0}`, 20, 100);
+      doc.text(`Conditional Eligible Funding: $${app.amount || 0}`, 20, 100);
       doc.text(`Notes: ${app.decision_reason || 'None'}`, 20, 110);
 
       doc.save(`Application_${getRef(app.id)}.pdf`);
@@ -1314,7 +1314,7 @@ const StaffDashboard: React.FC = () => {
   const prettyFormName = (raw: string | null | undefined): string => {
     if (!raw) return 'Application';
     const t = String(raw).toLowerCase();
-    if (/(form\s*a|forma|psssp|c-dfn|new student|admission)/.test(t)) return 'New Student Application';
+    if (/(form\s*a|forma|psssp|c-dfn|new student|admission)/.test(t)) return 'Admission Application';
     if (/(form\s*b|formb|enroll?ment verif|profile update)/.test(t)) return 'Enrollment Verification';
     if (/(form\s*c|formc|continuing fund)/.test(t)) return 'Continuing Funding Application';
     if (/(form\s*d|formd|appeal|reconsider|specialized train)/.test(t)) return 'Appeal & Reconsideration';
@@ -5322,7 +5322,7 @@ const StaffDashboard: React.FC = () => {
                                   </tr>
                                 ))}
                                 <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                                  <td colSpan={3} style={{ fontWeight: '800', textAlign: 'right', paddingRight: '20px' }}>Total Authorized</td>
+                                  <td colSpan={3} style={{ fontWeight: '800', textAlign: 'right', paddingRight: '20px' }}>Total (Conditional)</td>
                                   <td style={{ fontSize: '16px', fontWeight: '800' }}>${parseFloat(app?.amount || 0).toLocaleString()}</td>
                                 </tr>
                               </tbody>

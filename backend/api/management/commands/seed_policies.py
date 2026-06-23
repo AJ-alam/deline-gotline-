@@ -117,11 +117,11 @@ class Command(BaseCommand):
             # registrar_email: fallback used when student does not supply a registrar email on their application
             ('system_config', 'registrar_email', 'Registrar Email (fallback for Form B)', 0, 'education.support@gov.deline.ca'),
             ('system_config', 'contact_email', 'Public Contact Email', 0, 'education.support@gov.deline.ca'),
-            ('system_config', 'contact_phone', 'Public Contact Phone', 0, '(867) 589-3515 ext. 1110'),
+            ('system_config', 'contact_phone', 'Public Contact Phone', 0, '(867) 589-3515'),
             ('system_config', 'contact_address', 'Mailing Address', 0, 'P.O. Box 156, Délı̨nę, NT X0E 0G0'),
             ('system_config', 'travel_claim_days', 'Travel Claim Window (days)', 30, 'days'),
             ('system_config', 'share_link_expiry_days', 'Share Link Expiry (days)', 7, 'days'),
-            ('system_config', 'book_allowance', 'Books & Supplies Allowance Per Semester', 500, '$'),
+            ('system_config', 'book_allowance', 'Books & Supplies Allowance Per Semester', 0, '$'),
         ]
 
         count = 0

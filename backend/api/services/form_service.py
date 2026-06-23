@@ -20,7 +20,7 @@ def pretty_form_title(raw: str) -> str:
     """Map any DB/frontend form title variant to a clean human-readable name."""
     t = (raw or '').lower()
     if any(x in t for x in ('form a', 'forma', 'psssp', 'c-dfn', 'new student', 'admission')):
-        return 'New Student Application'
+        return 'Admission Application'
     if any(x in t for x in ('form b', 'formb', 'enrollment verif', 'enrolment verif', 'profile update')):
         return 'Enrollment Verification'
     if any(x in t for x in ('form c', 'formc', 'continuing fund')):

@@ -470,6 +470,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                   <input
                     id="fa-postalCode"
                     className="field-input" type="text" placeholder="X0E 0G0"
+                    autoComplete="off" name="fa-postalCode"
                     value={formData.postalCode} onChange={e => setFormData({ ...formData, postalCode: e.target.value })}
                   />
                 </td>
@@ -479,6 +480,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                     <input
                       id="fa-sin"
                       className="field-input" type={showSin ? 'text' : 'password'} placeholder="000-000-000"
+                      autoComplete="off" name="fa-sin"
                       value={formData.sin} onChange={e => setFormData({ ...formData, sin: e.target.value })}
                       style={{ paddingRight: '36px' }}
                     />
@@ -1030,7 +1032,7 @@ const FormA: React.FC<FormAProps> = ({ profile, onBack, onComplete }) => {
                 <strong>Please submit application and supporting documents to:</strong><br />
                 <strong>Email:</strong> education.support@gov.deline.ca<br />
                 <strong>Or, if living in Délı̨nę:</strong> drop off at the <strong>VBB Building, Education Department</strong><br />
-                P.O. Box 156 Délı̨nę, NT X0E 0G0 · Ph: (867) 589-3515 ext. 1110
+                P.O. Box 156 Délı̨nę, NT X0E 0G0 · Ph: (867) 589-3515
               </div>
             </div>
             <div className="modal-footer">

@@ -230,7 +230,7 @@ class SubmissionController(viewsets.ModelViewSet):
 
     def get_permissions(self):
         # Directors can only approve/reject (update_status) — not SSW-only actions
-        director_allowed = ['update_status', 'respond_info']
+        director_allowed = ['update_status']
         admin_only = ['add_note', 'share', 'check_eligibility', 'check_duplicates', 'mark_legitimate', 'mark_duplicate']
 
         if self.action in admin_only:
@@ -238,6 +238,11 @@ class SubmissionController(viewsets.ModelViewSet):
 
         if self.action in director_allowed:
             return [IsAdminUser()]  # both admin and director
+
+        # respond_info is the student's own reply to a more-info request — owner
+        # (or staff) only. The action body re-checks ownership before saving.
+        if self.action == 'respond_info':
+            return [IsOwnerOrAdmin()]
 
         # For list and retrieve, allow students to see their own + staff to see all
         if self.action in ['list', 'retrieve']:

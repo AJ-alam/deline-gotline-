@@ -68,7 +68,7 @@ const ResetPassword: React.FC = () => {
             </div>
             <div className="left-footer">
               <Link to="/signup">Apply for Student Funding</Link>
-              <p>(867) 589-3515 ext. 1110</p>
+              <p>(867) 589-3515</p>
             </div>
           </div>
 
@@ -142,7 +142,7 @@ const ResetPassword: React.FC = () => {
                 <div className="help-text" style={{ lineHeight: 1.5 }}>
                   Need help or can't access your account?<br />
                   <a href="mailto:education.support@gov.deline.ca">Contact Student Support Worker</a><br />
-                  or call <strong>(867) 589-3515 ext. 1110</strong> for manual verification.
+                  or call <strong>(867) 589-3515</strong> for manual verification.
                 </div>
               </div>
             ) : (
@@ -169,7 +169,7 @@ const ResetPassword: React.FC = () => {
                 <div className="help-text" style={{ lineHeight: 1.5 }}>
                   Need help or can't access your phone/email?<br />
                   <a href="mailto:education.support@gov.deline.ca">Contact Student Support Worker</a><br />
-                  or call <strong>(867) 589-3515 ext. 1110</strong> for manual verification.
+                  or call <strong>(867) 589-3515</strong> for manual verification.
                 </div>
               </div>
             )}
