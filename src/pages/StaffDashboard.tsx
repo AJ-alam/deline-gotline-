@@ -3159,22 +3159,30 @@ const StaffDashboard: React.FC = () => {
                       const isApprovedByAdmin = selectedApp?.status === 'reviewed' || selectedApp?.status === 'review';
                       const isForwarded = selectedApp?.status === 'forwarded' || (isStandard && selectedApp?.status === 'pending');
                       const isDecided = selectedApp?.status === 'accepted' || selectedApp?.status === 'rejected';
+                      // BUG-001 fix: block forward progress while the application is paused
+                      // waiting for student info — the action button must not be clickable
+                      // in this state so staff cannot accidentally advance the workflow.
+                      const isAwaitingInfo = selectedApp?.status === 'more_info_required';
                       // Form B (Enrollment Verification) gate — required for Admission (Form A) BEFORE
                       // admin can approve AND before forwarding to director. Other form types skip
                       // the gate entirely (form_b_status will be null/undefined on non-Admission apps).
                       const fbStatus = selectedApp?.form_b_status;
                       const isFormA = fbStatus !== undefined && fbStatus !== null;
                       const formBBlocked = isFormA && fbStatus !== 'received';
-                      const isDisabled = isForwarded || isDecided || isSubmittingDecision || formBBlocked;
+                      const isDisabled = isForwarded || isDecided || isAwaitingInfo || isSubmittingDecision || formBBlocked;
 
                       return (
                         <button
                           className="admin-input"
-                          title={formBBlocked
-                            ? (isApprovedByAdmin
-                                ? 'Cannot forward — Form B (Enrollment Verification) not yet received from registrar.'
-                                : 'Cannot approve — Form B (Enrollment Verification) not yet received from registrar.')
-                            : undefined}
+                          title={
+                            isAwaitingInfo
+                              ? 'Application is paused — waiting for the student to provide additional information.'
+                              : formBBlocked
+                                ? (isApprovedByAdmin
+                                    ? 'Cannot forward — Form B (Enrollment Verification) not yet received from registrar.'
+                                    : 'Cannot approve — Form B (Enrollment Verification) not yet received from registrar.')
+                                : undefined
+                          }
                           style={{
                             width: 'auto', fontSize: '11px', fontWeight: '700',
                             background: isDisabled ? '#94a3b8' : isSubmittingDecision ? '#64748b' : isApprovedByAdmin ? 'var(--admin-accent)' : '#10b981',
@@ -3201,6 +3209,8 @@ const StaffDashboard: React.FC = () => {
                             '✓ SENT TO DIRECTOR'
                           ) : isDecided ? (
                             '✓ DECIDED'
+                          ) : isAwaitingInfo ? (
+                            'AWAITING STUDENT INFO'
                           ) : formBBlocked ? (
                             'AWAITING FORM B'
                           ) : isApprovedByAdmin ? (

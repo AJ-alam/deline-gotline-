@@ -134,41 +134,47 @@ class FormService:
         if not extra_data:
             extra_data = {}
 
-        # 0. Prevent redundant processing if status is unchanged
-        if submission.status == new_status:
+        status_changed = submission.status != new_status
+
+        # 0. Return early only when the status is unchanged AND there is no other
+        # data to persist (amount override or office-use edits).  Previously this
+        # returned early unconditionally on unchanged status, which silently
+        # discarded funding-breakdown and office-use saves (BUG-003).
+        if not status_changed and 'amount' not in extra_data and 'office_use_data' not in extra_data:
             return submission
 
-        # 1. Role-based permission check
-        if new_status in ['reviewed', 'forwarded'] and performed_by.role == 'director':
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied("Directors cannot perform administrative review or forwarding actions.")
+        # 1. Role-based permission check (only relevant for actual status transitions)
+        if status_changed:
+            if new_status in ['reviewed', 'forwarded'] and performed_by.role == 'director':
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Directors cannot perform administrative review or forwarding actions.")
 
-        # 2. Block transitions until Admin Review/Form B is complete
-        if new_status in ['reviewed', 'forwarded']:
-            # Special check for Form A: Form B must be received before Review OR Forwarding
-            form_title_lower = (submission.form.title or '').lower()
-            is_form_a = ('form a' in form_title_lower or 'psssp' in form_title_lower
-                         or 'admission' in form_title_lower)
-            
-            if is_form_a:
-                from forms.models import FormBResponse
-                form_b = FormBResponse.objects.filter(submission=submission).first()
-                if not form_b or form_b.status != 'received':
+            # 2. Block transitions until Admin Review/Form B is complete
+            if new_status in ['reviewed', 'forwarded']:
+                # Special check for Form A: Form B must be received before Review OR Forwarding
+                form_title_lower = (submission.form.title or '').lower()
+                is_form_a = ('form a' in form_title_lower or 'psssp' in form_title_lower
+                             or 'admission' in form_title_lower)
+
+                if is_form_a:
+                    from forms.models import FormBResponse
+                    form_b = FormBResponse.objects.filter(submission=submission).first()
+                    if not form_b or form_b.status != 'received':
+                        from rest_framework.exceptions import ValidationError
+                        raise ValidationError(
+                            f"Cannot mark this Admission Application as '{new_status.title()}' — "
+                            "Form B (Enrollment Verification) has not been received from the registrar yet."
+                        )
+
+                # Enforce that it must be reviewed before it can be forwarded
+                if new_status == 'forwarded' and submission.status != 'reviewed':
                     from rest_framework.exceptions import ValidationError
                     raise ValidationError(
-                        f"Cannot mark this Admission Application as '{new_status.title()}' — "
-                        "Form B (Enrollment Verification) has not been received from the registrar yet."
+                        "This application must be marked as 'Reviewed' by an administrator before it can be forwarded to the Director."
                     )
-            
-            # Enforce that it must be reviewed before it can be forwarded
-            if new_status == 'forwarded' and submission.status != 'reviewed':
-                from rest_framework.exceptions import ValidationError
-                raise ValidationError(
-                    "This application must be marked as 'Reviewed' by an administrator before it can be forwarded to the Director."
-                )
-            
-        submission.status = new_status
-        
+
+            submission.status = new_status
+
         if 'amount' in extra_data:
             submission.amount = extra_data.get('amount')
 
@@ -182,45 +188,44 @@ class FormService:
             else:
                 submission.office_use_data = incoming
 
-        if new_status == 'more_info_required':
-            submission.more_info_requested_at = timezone.now()
-            submission.more_info_requested_by = performed_by
-            submission.more_info_request_notes = extra_data.get('notes', '')
-        elif new_status == 'reviewed':
-            submission.reviewed_at = timezone.now()
-            submission.reviewed_by = performed_by
-        elif new_status == 'forwarded':
-            submission.forwarded_at = timezone.now()
-            submission.forwarded_by = performed_by
-        elif new_status in ['accepted', 'rejected']:
-            submission.decided_at = timezone.now()
-            submission.decided_by = performed_by
-            submission.decision_reason = extra_data.get('decision_notes', extra_data.get('reason', ''))
+        # Status-specific metadata — only set when the status is actually changing
+        # so that data-only saves (amount/office_use_data) don't overwrite timestamps.
+        if status_changed:
+            if new_status == 'more_info_required':
+                submission.more_info_requested_at = timezone.now()
+                submission.more_info_requested_by = performed_by
+                submission.more_info_request_notes = extra_data.get('notes', '')
+            elif new_status == 'reviewed':
+                submission.reviewed_at = timezone.now()
+                submission.reviewed_by = performed_by
+            elif new_status == 'forwarded':
+                submission.forwarded_at = timezone.now()
+                submission.forwarded_by = performed_by
+            elif new_status in ['accepted', 'rejected']:
+                submission.decided_at = timezone.now()
+                submission.decided_by = performed_by
+                submission.decision_reason = extra_data.get('decision_notes', extra_data.get('reason', ''))
 
-            # AUTOMATED CALCULATION & PAYMENT GENERATION
-            if new_status == 'accepted':
-                from api.services.calculation_service import CalculationService
-                CalculationService.calculate_and_pay(submission)
+                # AUTOMATED CALCULATION & PAYMENT GENERATION
+                if new_status == 'accepted':
+                    from api.services.calculation_service import CalculationService
+                    CalculationService.calculate_and_pay(submission)
 
-                # §4.4/§4.5: Late application back-pay
-                # If submission was submitted after the deadline and this approval
-                # is the "late exception", back-pay all missed monthly living allowance
-                # payments from the semester start date.
-                if submission.submitted_after_deadline and submission.late_application_approved_by is None:
-                    submission.late_application_approved_by = performed_by
-                    submission.late_application_approved_at = timezone.now()
-                    FormService._generate_back_pay(submission, performed_by)
+                    # §4.4/§4.5: Late application back-pay
+                    if submission.submitted_after_deadline and submission.late_application_approved_by is None:
+                        submission.late_application_approved_by = performed_by
+                        submission.late_application_approved_at = timezone.now()
+                        FormService._generate_back_pay(submission, performed_by)
 
         submission.save()
 
-        # Status change notifications
-        if submission.student:
+        # Notifications only fire on genuine status transitions
+        if status_changed and submission.student:
             FormService._send_status_notification(submission, new_status, extra_data)
 
-        # Task 9.7: Director approval request when forwarded
-        if new_status == 'forwarded':
+        if status_changed and new_status == 'forwarded':
             FormService._notify_directors_for_approval(submission)
-            
+
         return submission
 
     @staticmethod

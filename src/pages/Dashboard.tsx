@@ -1191,9 +1191,9 @@ const Dashboard: React.FC = () => {
                         <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Submission Date</div>
                         <div style={{ fontWeight: '600' }}>{new Date(selectedApplication.submitted_at).toLocaleDateString()}</div>
                       </div>
-                      {selectedApplication.amount && (
+                      {selectedApplication.amount && normalizeAppStatus(selectedApplication.status) === 'accepted' && (
                         <div>
-                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Conditional Eligible Funding</div>
+                          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Approved Funding</div>
                           <div style={{ fontWeight: '700', color: '#166534' }}>${parseFloat(selectedApplication.amount).toLocaleString()}</div>
                         </div>
                       )}

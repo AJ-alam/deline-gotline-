@@ -213,11 +213,11 @@ const SignUp: React.FC = () => {
         .filter(Boolean)
         .join(', ');
 
-      // Map new Q4 radio values to a readable province_of_residence string
+      // Map Q4 radio values to short codes stored in the DB (max 20 chars)
       const provinceMap: Record<string, string> = {
-        nwt_yes: 'Northwest Territories (permanent)',
-        nwt_new: 'Northwest Territories (< 12 months)',
-        nwt_no:  'Outside NWT',
+        nwt_yes: 'nwt',
+        nwt_new: 'nwt',
+        nwt_no:  'outside',
       };
       await API.register({
         ...normalizedData,
