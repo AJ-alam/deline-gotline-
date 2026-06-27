@@ -53,6 +53,16 @@ class UserSerializer(serializers.ModelSerializer):
         return getattr(getattr(obj, 'profile', None), 'institute', None)
 
     _PROFILE_FIELDS = ('town_city', 'postal_code', 'institute')
+    _VALID_PROVINCE_CODES = {'nwt', 'outside', 'other', ''}
+
+    def validate_province_of_residence(self, value):
+        if value is None:
+            return value
+        if value not in self._VALID_PROVINCE_CODES:
+            raise serializers.ValidationError(
+                f"Invalid province code '{value}'. Must be one of: nwt, outside, other."
+            )
+        return value
 
     def to_internal_value(self, data):
         # Capture profile-only fields BEFORE normal validation runs,
@@ -115,6 +125,17 @@ class RegisterSerializer(serializers.ModelSerializer):
         if value in ('admin', 'director'):
             raise serializers.ValidationError(
                 "You cannot register with an elevated role. Contact an administrator."
+            )
+        return value
+
+    _VALID_PROVINCE_CODES = {'nwt', 'outside', 'other', ''}
+
+    def validate_province_of_residence(self, value):
+        if value is None:
+            return value
+        if value not in self._VALID_PROVINCE_CODES:
+            raise serializers.ValidationError(
+                f"Invalid province code '{value}'. Must be one of: nwt, outside, other."
             )
         return value
 

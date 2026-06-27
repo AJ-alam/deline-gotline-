@@ -871,8 +871,8 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
         if not ok:
             return Response(
-                {'status': 'error', 'message': 'Failed to send email — check server logs.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {'status': 'email_error', 'message': 'Report generated but email delivery failed — check SMTP settings in server logs.'},
+                status=status.HTTP_200_OK,
             )
 
         # ── 4. Post-send: mark as sent and notify students ──
