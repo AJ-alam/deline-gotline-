@@ -71,7 +71,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     is_indian_act_registered = models.BooleanField(null=True, blank=True)   # Q1
     is_deline_beneficiary = models.BooleanField(null=True, blank=True)       # Q2
     # Q3 captured via financial_assistance_status ("SFA Active" / "No SFA")
-    province_of_residence = models.CharField(max_length=20, blank=True, null=True)  # Q4: nwt/other/outside
+    province_of_residence = models.CharField(max_length=100, blank=True, null=True)  # Q4: nwt/other/outside
 
     # Enrollment Information
     institution_name = models.CharField(max_length=255, blank=True, null=True)
