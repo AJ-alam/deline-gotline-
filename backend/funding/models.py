@@ -162,7 +162,9 @@ class ApplicationEvent(models.Model):
 
     class Meta:
         db_table = 'application_event'
-        ordering = ('occurred_at',)
+        # Ordered by id as well as time: auto_now_add timestamps can tie, and an
+        # ambiguous order would fold the same history to different statuses.
+        ordering = ('occurred_at', 'id')
         indexes = [models.Index(fields=('application', 'occurred_at'))]
 
     def __str__(self):
