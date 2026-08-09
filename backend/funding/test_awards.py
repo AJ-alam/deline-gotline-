@@ -63,7 +63,7 @@ def make_application(**kwargs):
     answers.update(kwargs.pop('answers', {}))
     defaults = dict(
         type=ApplicationType.ADMISSION, stream=FundingStream.PSSSP,
-        schema_slug='form-a', answers=answers,
+        schema_slug='admission', answers=answers,
     )
     defaults.update(kwargs)
     return Application.objects.create(student=student, **defaults)

@@ -31,7 +31,7 @@ def make_application(student=None, **kwargs):
     defaults = dict(
         type=ApplicationType.ADMISSION,
         stream=FundingStream.PSSSP,
-        schema_slug='form-a',
+        schema_slug='admission',
         answers={'course_load': 'full_time', 'institution_name': 'Aurora College'},
     )
     defaults.update(kwargs)

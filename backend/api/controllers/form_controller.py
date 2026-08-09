@@ -198,12 +198,6 @@ class FormController(viewsets.ModelViewSet):
 
         logger.info("Submission %s created for user %s", submission.id, getattr(user, 'email', '?'))
 
-        # Dual-write the schema-keyed copy of the answers. SubmissionAnswer stays
-        # authoritative until a form is cut over, so this never blocks a
-        # submission — it logs and moves on if the schema cannot yet clean the data.
-        from forms.answer_ingest import capture_answers_data
-        capture_answers_data(submission)
-
         # Send notifications — synchronous in tests to avoid SQLite locking, async in production
         from django.conf import settings as _django_settings
         submission_id = submission.id
