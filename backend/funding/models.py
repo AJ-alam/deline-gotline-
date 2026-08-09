@@ -356,3 +356,105 @@ class EnrollmentVerification(models.Model):
 
     def __str__(self):
         return f"Enrollment verification for application {self.application_id}"
+
+
+class ShareLink(models.Model):
+    """A time-limited, unauthenticated view of one application.
+
+    Was ShareableLink, which carried FKs to both Application and FormSubmission
+    because the two models overlapped.
+    """
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='share_links',
+    )
+    token = models.CharField(max_length=64, unique=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'share_link'
+        indexes = [models.Index(fields=('token',))]
+
+    @property
+    def is_valid(self):
+        return self.revoked_at is None and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f'Share link for application {self.application_id}'
+
+
+class ActionToken(models.Model):
+    """A single-use link that performs one decision from an email.
+
+    Unifies DirectorActionToken and FinanceConfirmToken, which were the same
+    pattern duplicated for two purposes.
+
+    Consumed exactly once: `used_at` is what stops a forwarded email from being
+    replayed to approve an application twice.
+    """
+
+    class Purpose(models.TextChoices):
+        APPROVE = 'approve', 'Approve application'
+        DECLINE = 'decline', 'Decline application'
+        CONFIRM_PAYMENT = 'confirm_payment', 'Confirm payment issued'
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='action_tokens',
+    )
+    purpose = models.CharField(max_length=24, choices=Purpose.choices)
+    token = models.CharField(max_length=64, unique=True)
+    issued_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    issued_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'action_token'
+        indexes = [models.Index(fields=('token',))]
+
+    @property
+    def is_usable(self):
+        return self.used_at is None and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f'{self.get_purpose_display()} token for application {self.application_id}'
+
+
+class AuditEntry(models.Model):
+    """Who changed what, for actions outside a single application's timeline.
+
+    ApplicationEvent covers an application's own history and PolicyChange covers
+    rate edits; this records the rest — user administration, exports, dispatches.
+    Government funding decisions have to be reconstructable after the fact.
+    """
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    actor_role = models.CharField(max_length=32, blank=True)
+    action = models.CharField(max_length=128)
+    detail = models.TextField(blank=True)
+    application = models.ForeignKey(
+        Application, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='audit_entries',
+    )
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'audit_entry'
+        ordering = ('-occurred_at',)
+        indexes = [
+            models.Index(fields=('-occurred_at',)),
+            models.Index(fields=('actor', '-occurred_at')),
+        ]
+        verbose_name_plural = 'audit entries'
+
+    def __str__(self):
+        return f'{self.action} by {self.actor_id or "system"}'
