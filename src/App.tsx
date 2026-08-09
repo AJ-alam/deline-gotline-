@@ -15,6 +15,8 @@ const SignIn = lazy(() => import('./pages/SignIn'));
 const Register = lazy(() => import('./pages/Register'));
 const Applications = lazy(() => import('./pages/Applications'));
 const Apply = lazy(() => import('./pages/Apply'));
+const ReviewQueue = lazy(() => import('./pages/ReviewQueue'));
+const ApplicationDetail = lazy(() => import('./pages/ApplicationDetail'));
 
 function Loading() {
   return (
@@ -41,6 +43,19 @@ export default function App() {
           <Route
             path="/apply/:type"
             element={<ProtectedRoute><Apply /></ProtectedRoute>}
+          />
+          <Route
+            path="/applications/:id"
+            element={<ProtectedRoute><ApplicationDetail /></ProtectedRoute>}
+          />
+
+          <Route
+            path="/review"
+            element={<ProtectedRoute><ReviewQueue /></ProtectedRoute>}
+          />
+          <Route
+            path="/review/:id"
+            element={<ProtectedRoute><ApplicationDetail /></ProtectedRoute>}
           />
 
           <Route path="*" element={<Navigate to="/signin" replace />} />
