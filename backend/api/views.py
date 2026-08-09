@@ -417,6 +417,51 @@ class ProfileViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You do not have permission to access this profile.")
         return obj
 
+    # Fields the staff edit panel may write that live on the *User* model, not
+    # the Profile row. ProfileSerializer silently dropped these (bank info,
+    # dependents, enrollment...) — apply them to the linked User explicitly.
+    USER_EDITABLE_FIELDS = {
+        'full_name', 'phone', 'alternate_phone', 'mailing_address',
+        'beneficiary_number', 'treaty_number',
+        'num_dependents', 'dependent_ages', 'financial_assistance_status',
+        'primary_stream', 'secondary_stream', 'province_of_residence',
+        'institution_name', 'program_credential', 'current_semester',
+        'enrollment_status', 'course_load', 'program_type',
+        'years_in_program', 'institution_location',
+        'account_holder_name', 'account_type', 'bank_name',
+        'transit_number', 'inst_number', 'account_number',
+    }
+    _FUNDING_RELEVANT_USER_FIELDS = {
+        'enrollment_status': 'Enrollment status',
+        'num_dependents': 'Number of dependents',
+        'institution_name': 'Institution name',
+        'financial_assistance_status': 'Financial assistance status',
+    }
+
+    def update(self, request, *args, **kwargs):
+        profile = self.get_object()
+        user_updates = {k: v for k, v in request.data.items() if k in self.USER_EDITABLE_FIELDS}
+        if user_updates:
+            target = profile.user
+            changed, funding_changes = [], []
+            for k, v in user_updates.items():
+                if k in ('num_dependents', 'course_load'):
+                    try:
+                        v = int(v or 0)
+                    except (TypeError, ValueError):
+                        continue
+                old = getattr(target, k, None)
+                if old != v:
+                    setattr(target, k, v)
+                    changed.append(k)
+                    if k in self._FUNDING_RELEVANT_USER_FIELDS:
+                        funding_changes.append((k, self._FUNDING_RELEVANT_USER_FIELDS[k], str(old), str(v)))
+            if changed:
+                target.save(update_fields=changed)
+                if funding_changes:
+                    self._auto_trigger_form_d(profile, funding_changes)
+        return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         old_instance = serializer.instance
         change_triggers = []
@@ -603,6 +648,14 @@ class PaymentViewSet(viewsets.ModelViewSet):
     queryset = Payment.objects.all()
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        # Students may only read their own payments — creating/editing payment
+        # rows (amount overrides, monthly splits) is staff-only.
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            from users.permissions import IsAdminUser as _IsStaff
+            return [_IsStaff()]
+        return super().get_permissions()
 
     def get_queryset(self):
         user = self.request.user

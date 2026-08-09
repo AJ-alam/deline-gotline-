@@ -126,7 +126,7 @@ class FormService:
                 user=staff_user,
                 title="New Application Received",
                 message=f"New {display_title} from {student.full_name if student else 'Guest Applicant'}.",
-                link=None
+                link=f"/staff/applications?id={submission.id}"
             )
 
     @staticmethod
@@ -229,6 +229,46 @@ class FormService:
         return submission
 
     @staticmethod
+    def approved_breakdown(submission):
+        """
+        The per-category amounts behind an approved total, as [{name, amount}].
+
+        Priority is the breakdown staff actually approved (office_use_data.
+        funding_breakdown), because that is what the decision was made on and it
+        may differ from a fresh calculation. Falls back to calculating one, and
+        finally to a single line so the student is never shown a bare total with
+        no explanation of where it came from.
+        """
+        rows = []
+        saved = (submission.office_use_data or {}).get('funding_breakdown') or []
+        for row in saved:
+            try:
+                amount = float(row.get('amount') or 0)
+            except (TypeError, ValueError):
+                continue
+            if amount:
+                rows.append({'name': row.get('label') or 'Funding', 'amount': amount})
+
+        if not rows:
+            try:
+                from api.services.calculation_service import CalculationService
+                results = CalculationService.calculate_and_pay(
+                    submission, create_payments=False, commit=False
+                ) or {}
+                for label, amount in results.get('payment_items', []):
+                    if amount:
+                        rows.append({'name': label, 'amount': float(amount)})
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception(
+                    "Could not calculate breakdown for submission %s", submission.id
+                )
+
+        if not rows and submission.amount:
+            rows = [{'name': 'Approved Funding', 'amount': float(submission.amount)}]
+        return rows
+
+    @staticmethod
     def _send_status_notification(submission, new_status, extra_data=None):
         if extra_data is None:
             extra_data = {}
@@ -244,8 +284,15 @@ class FormService:
         title = f"Application Update: {status_labels.get(new_status, new_status.replace('_', ' ').title())}"
         msg = f"Your {display_title} status has been updated."
 
+        breakdown = FormService.approved_breakdown(submission) if new_status == 'accepted' else []
+
         if new_status == 'accepted':
             msg = f"Congratulations! Your {display_title} has been APPROVED for ${submission.amount}."
+            # Spell out the categories — a lone total tells the student nothing
+            # about what was funded or why it differs from what they asked for.
+            if len(breakdown) > 1 or (breakdown and breakdown[0]['name'] != 'Approved Funding'):
+                lines = '\n'.join(f"  • {r['name']}: ${r['amount']:,.2f}" for r in breakdown)
+                msg = f"{msg}\n\nBreakdown:\n{lines}"
         elif new_status == 'rejected':
             msg = f"Your {display_title} was not approved. Reason: {submission.decision_reason}"
         elif new_status == 'more_info_required':
@@ -270,6 +317,7 @@ class FormService:
                 student.email, student.full_name,
                 display_title, float(submission.amount or 0),
                 submission_id=submission.id,
+                funding_breakdown=breakdown,
             )
             from api.models import PolicySetting
             finance_cfg = PolicySetting.objects.filter(

@@ -5,6 +5,7 @@ import dj_database_url
 from pathlib import Path
 from datetime import timedelta
 from decouple import config
+from django.core.exceptions import ImproperlyConfigured
 
 # Detected automatically so throttling/threading bypasses work in tests
 TESTING = 'test' in sys.argv
@@ -12,9 +13,27 @@ TESTING = 'test' in sys.argv
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Quick-start development settings - unsuitable for production
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-default-fallback-key')
 DEBUG = config('DEBUG', default=False, cast=bool)
+
+# A deployment that boots with a fallback signing key silently invalidates every
+# session and password-reset token on the next deploy, and anyone who has read
+# this file can forge them. Fail loudly instead of starting up insecure.
+_INSECURE_KEY = 'django-insecure-default-fallback-key'
+_MIN_SECRET_KEY_LENGTH = 32
+SECRET_KEY = config('SECRET_KEY', default=_INSECURE_KEY)
+if not (DEBUG or TESTING):
+    if SECRET_KEY == _INSECURE_KEY:
+        raise ImproperlyConfigured(
+            'SECRET_KEY is not set. Refusing to start with the built-in '
+            'development key — set SECRET_KEY in the environment.'
+        )
+    # An empty or trivially short key is as forgeable as the default one, and a
+    # blank environment variable is the usual way it happens.
+    if len(SECRET_KEY.strip()) < _MIN_SECRET_KEY_LENGTH:
+        raise ImproperlyConfigured(
+            f'SECRET_KEY must be at least {_MIN_SECRET_KEY_LENGTH} characters; '
+            f'got {len(SECRET_KEY.strip())}.'
+        )
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,.vercel.app').split(',')
 if config('VERCEL_URL', default=None):
     ALLOWED_HOSTS.append(config('VERCEL_URL'))
@@ -48,6 +67,8 @@ INSTALLED_APPS = [
     'dashboard.apps.DashboardConfig',
     'notifications.apps.NotificationsConfig',
     'api',
+    # New consolidated domain app — replaces api/ forms/ programs/ models.
+    'funding.apps.FundingConfig',
 ]
 
 MIDDLEWARE = [
@@ -84,6 +105,11 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # Auto-switches between SQLite (local) and PostgreSQL (production via DATABASE_URL)
 _db_url = config('DATABASE_URL', default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}")
+# Never let the test runner touch a real database. Without this, a developer with
+# a Supabase DATABASE_URL in .env has `manage.py test` attempt CREATE DATABASE on
+# the production pooler — it hangs, and a --keepdb run would point tests at live data.
+if TESTING:
+    _db_url = f"sqlite:///{BASE_DIR / 'test-local.sqlite3'}"
 # Persist Django→pooler connections across requests on Gunicorn (saves TCP+TLS
 # handshake per request — major perf win for poll-heavy dashboards). The Supabase
 # Transaction Pooler still recycles the underlying pg backend per transaction, so
@@ -126,8 +152,10 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '200/day',
-        'user': '2000/day',
+        # Anon covers public form discovery + shared office IPs — 200/day locked
+        # out entire test sites for the day (phase-2 feedback).
+        'anon': '2000/day',
+        'user': '5000/day',
         'auth': '10/minute',      # login / register / forgot-password
         'password_reset': '5/hour',
     },
@@ -206,20 +234,42 @@ STORAGES = {
     },
 }
 
-# Production Security
-if not DEBUG:
+# ── Transport and cookie security ───────────────────────────────────────────
+# Hardening is ON unless a developer explicitly opts out for local work. It was
+# previously gated behind `if not DEBUG`, so a single copied .env with DEBUG=True
+# silently disabled TLS redirection, HSTS and every secure-cookie flag in
+# production — with nothing in the logs to say so.
+INSECURE_LOCAL = config('INSECURE_LOCAL', default=False, cast=bool)
+
+# Always safe, regardless of transport.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = 'DENY'                    # clickjacking
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_AGE = 3600                   # 1 hour
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+if INSECURE_LOCAL or TESTING:
+    # Plain HTTP for localhost and the test client.
+    SECURE_SSL_REDIRECT = False
+    SESSION_COOKIE_SECURE = False
+    CSRF_COOKIE_SECURE = False
+    SECURE_HSTS_SECONDS = 0
+else:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    CSRF_COOKIE_HTTPONLY = True
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_HSTS_SECONDS = 31536000          # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    X_FRAME_OPTIONS = 'DENY'               # Block clickjacking
-    SESSION_COOKIE_AGE = 3600              # 1 hour session timeout
+
+    if DEBUG:
+        logging.getLogger(__name__).warning(
+            'DEBUG is enabled with production security settings active. '
+            'Set INSECURE_LOCAL=1 for local development.'
+        )
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -228,6 +278,13 @@ AUTH_PASSWORD_VALIDATORS = [
     { 'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator' },
     { 'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator' },
 ]
+
+# Production keeps Django's default PBKDF2 hasher. It costs ~1.2s per hash, which
+# is the correct trade for stored credentials but makes a suite that creates
+# hundreds of users unusably slow (265s → ~30s with the fast hasher below).
+# Test-only: never let this reach a non-test settings path.
+if TESTING:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
