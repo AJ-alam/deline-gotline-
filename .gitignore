@@ -19,6 +19,9 @@ env/
 *.pyc
 
 # ─── Django ────────────────────────────────────────────────────────────────
+# Catch every local database file. The explicit db.sqlite3 entries missed
+# dev.sqlite3, which ended up committed with real (if throwaway) user rows.
+*.sqlite3
 backend/db.sqlite3
 db.sqlite3
 backend/staticfiles/
@@ -36,6 +39,8 @@ backend/*.log
 *.json.bak
 backend/data_backup.json
 *.dump
+# Pre-reset snapshots — full of personal data, must never be committed
+backups/
 
 # ─── Build artifacts ───────────────────────────────────────────────────────
 index-*.js

@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // 'backend' holds the Python venv, whose site-packages ship vendored JS
+  // (Django admin's jQuery, drf-spectacular's swagger bundle). Linting those
+  // produced 31 parse errors and drowned the real findings.
+  globalIgnores(['dist', 'backend', 'api', 'scripts']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
