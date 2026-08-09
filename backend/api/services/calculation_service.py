@@ -1,110 +1,52 @@
+import threading
 from decimal import Decimal
 from datetime import datetime
-from api.models import PolicySetting, Payment, Application
+from api.models import PolicySetting, Payment
 from forms.models import FormSubmission
 
 
-def _derive_form_type_code(form_title: str) -> str | None:
-    """Map a form title to the Application.form_type code.
+class MissingPolicySettingError(Exception):
+    """Raised when an award would be committed using policy settings that do not exist.
 
-    Mirrors the title categories in api.services.form_service.pretty_form_title
-    so payments stay in sync with the canonical form taxonomy. Returns None when
-    the title doesn't fit any known bucket — caller then leaves application=None.
+    Without this, an unseeded or mistyped PolicySetting produced a $0.00 award that
+    looked exactly like a legitimate calculation, and the payment was written anyway.
     """
-    t = (form_title or '').lower()
-    if any(x in t for x in ('form a', 'forma', 'psssp', 'c-dfn', 'new student', 'admission')):
-        return 'FormA'
-    if any(x in t for x in ('form b', 'formb', 'enrollment verif', 'enrolment verif', 'profile update')):
-        return 'FormB'
-    if any(x in t for x in ('form c', 'formc', 'continuing fund')):
-        return 'FormC'
-    if any(x in t for x in ('form d', 'formd', 'appeal', 'reconsider', 'specialized train')):
-        return 'FormD'
-    if any(x in t for x in ('form e', 'forme', 'travel', 'emergency fund')):
-        return 'FormE'
-    if any(x in t for x in ('form f', 'formf', 'practicum', 'placement')):
-        return 'FormF'
-    if any(x in t for x in ('form g', 'formg', 'graduation')):
-        return 'FormG'
-    if any(x in t for x in ('form h', 'formh', 'summer student')):
-        return 'FormH'
-    if 'hardship' in t:
-        return 'FormHardship'
-    if 'scholarship' in t:
-        return 'FormScholarship'
-    return None
 
+    def __init__(self, missing):
+        self.missing = list(missing)
+        super().__init__(
+            "Cannot compute award — missing policy settings: " + ", ".join(self.missing)
+        )
 
-def _resolve_or_create_application(submission):
-    """Resolve the Application row tied to a submission, creating one if absent.
-
-    The Payments dashboard groups by Application FK first, falling back to the
-    raw FormSubmission. To make the linkage fully dynamic — so every payment
-    always rolls up under the student's matching application — we ensure an
-    Application row exists for the (student, form_type) pair the moment a
-    payment is generated. Returns None for guest/anonymous submissions where
-    no student is attached (Payments require a student anyway).
-    """
-    if not submission.student or not submission.form:
-        return None
-    code = _derive_form_type_code(submission.form.title)
-    if not code:
-        return None
-
-    # Pull metadata from submission answers for richer Application context.
-    answers = {
-        (a.field.label or '').strip().lower(): a.answer_text
-        for a in submission.answers.all() if a.field
-    }
-    def pick(*keys):
-        for k in keys:
-            for label, text in answers.items():
-                if k in label and text:
-                    return text
-        return None
-
-    semester = (pick('semester', 'term') or '').strip().lower() or None
-    if semester and semester not in {'fall', 'winter', 'spring', 'summer'}:
-        semester = None  # only keep recognised tokens; Application.Semester enforces a choice
-    academic_year = pick('academic year', 'year of study')
-    institution = pick('institution', 'school name', 'university', 'college')
-    program = pick('program', 'major', 'field of study')
-
-    # Reuse the most recent matching Application; otherwise auto-create one so
-    # the Payment row has a stable FK target.
-    app = (Application.objects
-           .filter(student=submission.student, form_type=code)
-           .order_by('-created_at')
-           .first())
-    if app:
-        return app
-    return Application.objects.create(
-        student=submission.student,
-        form_type=code,
-        status=Application.Status.APPROVED,  # payment generation implies approval
-        amount=submission.amount or 0,
-        semester=semester,
-        academic_year=academic_year,
-        institution=institution,
-        program=program,
-    )
 
 class CalculationService:
     @staticmethod
-    def calculate_and_pay(submission, create_payments=True):
+    def calculate_and_pay(submission, create_payments=True, commit=True):
         """
         Calculates funding based on submission answers and policy settings,
         then optionally creates individual payment records.
+
+        commit=False computes and returns the result without touching the
+        database — used by the staff breakdown preview.
         """
-        # Clear cache to ensure fresh policy values
-        CalculationService._policy_cache = {}
         # §4.3/§7.5: lock effective-date to the submission's submitted_at so
         # policy changes made after the submission use the rate that was in effect
-        # when the student applied.
-        CalculationService._as_of_date = (
+        # when the student applied. Scoped to this thread and always torn down, so
+        # a concurrent calculation cannot observe or overwrite this submission's date.
+        CalculationService._begin_calculation(
             submission.submitted_at.date() if submission.submitted_at else None
         )
+        try:
+            return CalculationService._calculate_and_pay(
+                submission, create_payments=create_payments, commit=commit
+            )
+        finally:
+            CalculationService._end_calculation()
 
+    @staticmethod
+    def _calculate_and_pay(submission, create_payments=True, commit=True):
+        """Body of calculate_and_pay. Must only be called with calculation state
+        already established by _begin_calculation."""
         form_title = submission.form.title.lower() if submission.form else ''
 
         # Route to the correct calculator based on form type
@@ -124,6 +66,18 @@ class CalculationService:
         if not results:
             return None
 
+        if not commit:
+            # Preview path: hand the misconfiguration to the caller so staff see
+            # "policy not configured" rather than a confident $0.00 breakdown.
+            results['missing_policy_settings'] = list(CalculationService.get_missing_policies())
+            return results
+
+        # Never persist an amount derived from settings that don't exist. The award
+        # would read as a real $0.00 decision and a payment row would be written for it.
+        missing = CalculationService.get_missing_policies()
+        if missing:
+            raise MissingPolicySettingError(missing)
+
         # Update submission total amount
         submission.amount = results['total']
         submission.save()
@@ -135,24 +89,111 @@ class CalculationService:
             # Clear existing pending payments for this submission to avoid duplicates
             Payment.objects.filter(submission=submission, status=Payment.Status.PENDING).delete()
 
-            # Resolve (or auto-create) the matching Application so every payment
-            # is fully linked: user → application → submission. This is what makes
-            # the Payments dashboard group correctly under the student's
-            # application instead of falling back to "No application linked".
-            application = _resolve_or_create_application(submission)
-
+            # The submission is the application. Generating a payment used to also
+            # mint a shadow Application row (already marked approved) purely to give
+            # Payment.application an FK target — which made the same application
+            # appear twice on the staff dashboard, with two independently mutable
+            # statuses, and let it be "approved" down a path that pays nobody and
+            # notifies nobody. Payments link to the submission and nothing else.
             for p_type, amount in results.get('payment_items', []):
                 if amount and amount > 0:
                     Payment.objects.create(
                         user=submission.student,
                         submission=submission,
-                        application=application,
                         amount=amount,
                         payment_type=p_type,
                         status=Payment.Status.PENDING
                     )
 
         return results
+
+    @staticmethod
+    def _to_decimal(raw):
+        """Pull a Decimal out of free-text money/number answers ('$5,200.00' → 5200.00)."""
+        import re as _re
+        if raw is None:
+            return None
+        cleaned = _re.sub(r'[^\d.]', '', str(raw))
+        if not cleaned or cleaned == '.':
+            return None
+        try:
+            return Decimal(cleaned)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _resolve_dependents(get_val, student):
+        """
+        True when the student has at least one dependent.
+
+        Answers arrive in two shapes: a yes/no ('Has Dependents') and a count
+        ('Number of Dependents' = '2'). Reading a count as a yes/no is what made
+        students with dependents fall onto the no-dependent rate.
+        """
+        raw = get_val(['has dependents', 'dependents'])
+        if raw is not None:
+            text = str(raw).strip().lower()
+            if text in ('yes', 'true', 'y', '1'):
+                return True
+            if text in ('no', 'false', 'n', '0', ''):
+                # A plain '0' count and an explicit 'no' agree — but keep looking
+                # at the profile in case the form field was left blank.
+                if text != '':
+                    return False
+            count = CalculationService._to_decimal(text)
+            if count is not None:
+                return count > 0
+        return (getattr(student, 'num_dependents', 0) or 0) > 0
+
+    @staticmethod
+    def _resolve_full_time(get_val, student):
+        """
+        True for a full-time course load.
+
+        'Course Load' holds a percentage ('100'), not the words full/part-time, so
+        a substring test for 'full' silently demoted those students to part-time
+        rates. Percentages are compared against the policy threshold instead.
+        """
+        raw = get_val(['enrollment status', 'enrollmenttype', 'enrollment type'])
+        if raw is None and student:
+            raw = student.enrollment_status
+        text = str(raw or '').strip().lower()
+        if 'full' in text:
+            return True
+        if 'part' in text:
+            return False
+
+        load = CalculationService._to_decimal(get_val(['course load', 'load percent']))
+        if load is None and student:
+            load = CalculationService._to_decimal(getattr(student, 'course_load', None))
+        if load is not None:
+            threshold = CalculationService._get_policy_value(
+                'eligibility_rules', 'fulltime_min_load_percent'
+            ) or Decimal(60)
+            return load >= threshold
+
+        return True  # nothing said otherwise — full-time is the common case
+
+    @staticmethod
+    def _count_months(start_str, end_str, default=4):
+        """
+        Months of study, counting every month the student is in class.
+
+        Sept 3 → Dec 20 is four monthly living payments (Sept, Oct, Nov, Dec),
+        not three: the old elapsed-months arithmetic dropped the final partial
+        month and left every standard semester one payment short.
+        """
+        if not start_str or not end_str:
+            return default
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%m/%d/%Y'):
+            try:
+                start = datetime.strptime(str(start_str).strip(), fmt)
+                end = datetime.strptime(str(end_str).strip(), fmt)
+            except ValueError:
+                continue
+            months = (end.year - start.year) * 12 + (end.month - start.month) + 1
+            return months if months > 0 else default
+        return default
 
     @staticmethod
     def _get_answers_and_helper(submission):
@@ -364,119 +405,172 @@ class CalculationService:
         profile = getattr(student, 'profile', None) if student else None
         is_sfa = getattr(profile, 'is_sfa_active', False) if profile else False
 
-        # Enrollment status
-        enrollment_val = get_val(['enrollment status', 'enrollmenttype', 'course load'])
-        if not enrollment_val and student: enrollment_val = student.enrollment_status
-        enrollment = (enrollment_val or 'full-time').lower()
-        is_full_time = 'full' in enrollment
+        # Enrollment status and dependents
+        is_full_time = CalculationService._resolve_full_time(get_val, student)
         load_key = 'fulltime' if is_full_time else 'parttime'
-
-        # Dependents
-        has_deps_val = get_val(['has dependents', 'dependents'])
-        if has_deps_val is None and student:
-            has_deps = (student.num_dependents or 0) > 0
-        else:
-            has_deps = (has_deps_val or 'no').lower() in ('yes', 'true', '1')
+        has_deps = CalculationService._resolve_dependents(get_val, student)
         dep_key = 'with_dependents' if has_deps else 'no_dependents'
 
-        # Requested tuition (from Form B confirmation, falls back to student form input)
-        tuition_str = get_val(['tuition amount', 'confirmed tuition', 'tuition']) or '0'
-        import re as _re
-        tuition_str = _re.sub(r'[^\d.]', '', str(tuition_str)) or '0'
-        requested_tuition = Decimal(tuition_str)
+        # Tuition actually billed — from the registrar's Form B confirmation where
+        # available, otherwise what the student entered. None means "not yet known":
+        # no tuition is awarded until a figure is confirmed, because assuming the
+        # cap over-pays every student whose real tuition is lower.
+        actual_tuition = CalculationService._to_decimal(
+            get_val(['confirmed tuition', 'tuition amount', 'tuition'])
+        )
+        tuition_confirmed = actual_tuition is not None and actual_tuition > 0
+        unfunded_tuition = actual_tuition if tuition_confirmed else Decimal(0)
 
-        # Semester duration in months (defaults to 4)
-        start_str = get_val(['semester start date', 'semstart', 'start date'])
-        end_str = get_val(['semester end date', 'semend', 'end date'])
-        months = 4
-        if start_str and end_str:
-            try:
-                start = datetime.strptime(start_str, '%Y-%m-%d')
-                end = datetime.strptime(end_str, '%Y-%m-%d')
-                months = (end.year - start.year) * 12 + (end.month - start.month)
-                if months <= 0: months = 4
-            except Exception:
-                pass
+        months = CalculationService._count_months(
+            get_val(['semester start date', 'semstart', 'start date']),
+            get_val(['semester end date', 'semend', 'end date']),
+        )
 
         living_field = f"{load_key}_{dep_key}"  # e.g. fulltime_with_dependents
         payment_items = []
+        breakdown = []
         total_tuition = Decimal(0)
         total_living = Decimal(0)
         streams_applied = []
 
+        def add(category, stream, amount, rule):
+            """Record a funded line for the payment run and the staff breakdown."""
+            breakdown.append({
+                'category': category, 'stream': stream,
+                'amount': amount, 'rule': rule,
+            })
+            payment_items.append((category, amount))
+
+        # Tuition is allocated stream by stream against the real bill, so no two
+        # streams fund the same dollar and nobody is funded above what they owe.
+        def award_tuition(category, stream, cap, rule):
+            nonlocal unfunded_tuition, total_tuition
+            if not tuition_confirmed:
+                breakdown.append({
+                    'category': category, 'stream': stream, 'amount': Decimal(0),
+                    'rule': 'Awaiting confirmed tuition (Form B) — nothing awarded yet',
+                })
+                return Decimal(0)
+            granted = min(unfunded_tuition, cap)
+            if granted <= 0:
+                breakdown.append({
+                    'category': category, 'stream': stream, 'amount': Decimal(0),
+                    'rule': 'Tuition already fully funded by another stream',
+                })
+                return Decimal(0)
+            unfunded_tuition -= granted
+            total_tuition += granted
+            add(category, stream, granted, rule)
+            return granted
+
         # ── C-DFN PSSSP ────────────────────────────────────────────────────────
         if has_psssp and not is_sfa:
-            psssp_tuition_limit = CalculationService._get_policy_value('psssp_tuition', 'max_per_semester')
-            psssp_tuition = min(requested_tuition, psssp_tuition_limit) if requested_tuition > 0 else psssp_tuition_limit
+            psssp_cap = CalculationService._get_policy_value('psssp_tuition', 'max_per_semester')
+            award_tuition('Tuition (PSSSP)', 'PSSSP', psssp_cap, f"PSSSP cap ${psssp_cap} per semester")
             psssp_living_rate = CalculationService._get_policy_value('psssp_living', living_field)
             psssp_living = psssp_living_rate * Decimal(months)
-            payment_items.append(('Tuition (PSSSP)', psssp_tuition))
-            payment_items.append(('Living Allowance (PSSSP)', psssp_living))
-            total_tuition += psssp_tuition
+            add('Living Allowance (PSSSP)', 'PSSSP', psssp_living,
+                f"${psssp_living_rate}/month × {months} months")
             total_living += psssp_living
             streams_applied.append('PSSSP')
 
         # ── C-DFN UCEPP ────────────────────────────────────────────────────────
         if has_ucepp and not is_sfa:
-            ucepp_tuition_limit = CalculationService._get_policy_value('ucepp_tuition', 'max_per_semester')
-            ucepp_tuition = min(requested_tuition, ucepp_tuition_limit) if requested_tuition > 0 else ucepp_tuition_limit
+            ucepp_cap = CalculationService._get_policy_value('ucepp_tuition', 'max_per_semester')
+            award_tuition('Tuition (UCEPP)', 'UCEPP', ucepp_cap, f"UCEPP cap ${ucepp_cap} per semester")
             ucepp_living_rate = CalculationService._get_policy_value('ucepp_living', living_field)
             ucepp_living = ucepp_living_rate * Decimal(months)
-            payment_items.append(('Tuition (UCEPP)', ucepp_tuition))
-            payment_items.append(('Living Allowance (UCEPP)', ucepp_living))
-            total_tuition += ucepp_tuition
+            add('Living Allowance (UCEPP)', 'UCEPP', ucepp_living,
+                f"${ucepp_living_rate}/month × {months} months")
             total_living += ucepp_living
             streams_applied.append('UCEPP')
 
         # ── DGGR ────────────────────────────────────────────────────────────────
         if has_dggr:
-            dggr_tuition_limit = CalculationService._get_policy_value('dggr_tuition', f"{load_key}_per_semester")
-            dggr_tuition = dggr_tuition_limit  # fixed rate, not tied to actual tuition
+            dggr_rate = CalculationService._get_policy_value('dggr_tuition', f"{load_key}_per_semester")
+            # DGGR tops up what the C-DFN caps left unpaid, never more than its
+            # own rate and never more than the tuition still owing.
+            dggr_tuition = award_tuition(
+                'Tuition Top-Up (DGGR)', 'DGGR', dggr_rate,
+                f"Tops up unfunded tuition, max ${dggr_rate} ({'full' if is_full_time else 'part'}-time)",
+            )
             dggr_living_rate = CalculationService._get_policy_value('dggr_living', living_field)
             dggr_living = dggr_living_rate * Decimal(months)
-            payment_items.append(('Tuition (DGGR)', dggr_tuition))
-            payment_items.append(('Living Allowance (DGGR)', dggr_living))
-            total_tuition += dggr_tuition
+            add('Living Allowance (DGGR)', 'DGGR', dggr_living,
+                f"${dggr_living_rate}/month × {months} months")
             total_living += dggr_living
             streams_applied.append('DGGR')
 
             # ── DGGR Extra Tuition Bursary ──────────────────────────────────────
-            # §4.3: only when tuition > threshold; inclusive of (not additive to)
-            # the regular DGGR bursary; subject to $36k/year pool cap.
-            if requested_tuition > 0:
+            # §4.3: only when tuition exceeds the threshold; inclusive of (not
+            # additive to) the regular DGGR bursary; subject to the per-student
+            # annual cap and the pool cap shared by all students.
+            if tuition_confirmed and unfunded_tuition > 0:
                 threshold = CalculationService._get_policy_value('dggr_extra_tuition', 'threshold_per_semester')
-                if threshold > 0 and requested_tuition > threshold:
+                if threshold > 0 and actual_tuition > threshold:
                     pct_raw = CalculationService._get_policy_value('dggr_extra_tuition', 'max_percent_covered')
                     percent = pct_raw / Decimal(100) if pct_raw else Decimal(0)
                     cap = CalculationService._get_policy_value('dggr_extra_tuition', 'max_per_semester')
-                    total_inclusive = min(requested_tuition * percent, cap)
+                    total_inclusive = min(actual_tuition * percent, cap)
                     # "Inclusive" means the extra is the DIFFERENCE above regular DGGR
-                    extra_before_pool = max(Decimal(0), total_inclusive - dggr_tuition)
+                    extra_before_caps = max(Decimal(0), total_inclusive - dggr_tuition)
+                    extra_before_caps = min(extra_before_caps, unfunded_tuition)
 
-                    if extra_before_pool > 0:
-                        # §4.3 $36k annual pool cap across ALL students
+                    if extra_before_caps > 0:
+                        extra_amount = CalculationService._apply_extra_tuition_annual_cap(
+                            extra_before_caps, submission
+                        )
                         extra_amount = CalculationService._apply_extra_tuition_pool_cap(
-                            extra_before_pool, submission
+                            extra_amount, submission
                         )
                         if extra_amount > 0:
-                            payment_items.append(('Extra Tuition Cap Relief', extra_amount))
+                            unfunded_tuition -= extra_amount
                             total_tuition += extra_amount
+                            add('Extra Tuition Cap Relief', 'DGGR', extra_amount,
+                                f"{pct_raw}% of ${actual_tuition}, capped at ${cap} and inclusive of the DGGR top-up")
 
         # ── Single-stream fallback for backward compat (no DGGR, no C-DFN chosen) ──
+        # Only when no stream was *identified*. A student whose streams were all
+        # excluded because they receive SFA must not land here: the fallback used
+        # to hand them the full PSSSP award, undoing the exclusion entirely.
+        excluded_by_sfa = is_sfa and (has_psssp or has_ucepp)
+        if not streams_applied and excluded_by_sfa:
+            return {
+                'total': Decimal(0),
+                'stream': 'None — SFA active',
+                'enrollment': 'Full-Time' if is_full_time else 'Part-Time',
+                'has_dependents': has_deps,
+                'months': months,
+                'living_rate': Decimal(0),
+                'tuition_cap': Decimal(0),
+                'requested_tuition': actual_tuition or Decimal(0),
+                'tuition_confirmed': tuition_confirmed,
+                'unfunded_tuition': unfunded_tuition,
+                'total_tuition': Decimal(0),
+                'total_living': Decimal(0),
+                'ineligible_reason': (
+                    'Student receives GNWT Student Financial Assistance, so C-DFN '
+                    'PSSSP/UCEPP funding does not apply and no DGGR stream was found.'
+                ),
+                'breakdown': [],
+                'payment_items': [],
+            }
+
         if not streams_applied:
             # Default to PSSSP
             tuition_limit = CalculationService._get_policy_value('psssp_tuition', 'max_per_semester')
-            final_tuition = min(requested_tuition, tuition_limit) if requested_tuition > 0 else tuition_limit
+            award_tuition('Tuition', 'PSSSP', tuition_limit, f"PSSSP cap ${tuition_limit} per semester")
             living_rate = CalculationService._get_policy_value('psssp_living', living_field)
-            total_living = living_rate * Decimal(months)
-            total_tuition = final_tuition
-            payment_items = [('Tuition', final_tuition), ('Living Allowance', total_living)]
+            fallback_living = living_rate * Decimal(months)
+            add('Living Allowance', 'PSSSP', fallback_living,
+                f"${living_rate}/month × {months} months")
+            total_living += fallback_living
             streams_applied = ['PSSSP (default)']
 
         # ── Books & supplies (per semester, once regardless of streams) ──
         books = CalculationService._get_policy_value('system_config', 'book_allowance')
         if books > 0:
-            payment_items.append(('Books', books))
+            add('Books', None, books, 'Books & supplies allowance per semester')
 
         total = total_tuition + total_living + books
         # Deduplicate living_rate for return (use primary stream)
@@ -495,71 +589,225 @@ class CalculationService:
             'months': months,
             'living_rate': living_rate,
             'tuition_cap': primary_tuition_limit,
-            'requested_tuition': requested_tuition,
+            'requested_tuition': actual_tuition or Decimal(0),
+            'tuition_confirmed': tuition_confirmed,
+            'unfunded_tuition': unfunded_tuition,
+            'total_tuition': total_tuition,
+            'total_living': total_living,
+            'breakdown': breakdown,
             'payment_items': payment_items,
         }
+
+    # Breakdown rows that draw on the per-semester program-cost cap. Tuition is
+    # only part of it: a student whose registrar-confirmed tuition comes in under
+    # the cap can later be funded for a laptop or supplies out of what is left.
+    PROGRAM_COST_KEYWORDS = ('tuition', 'laptop', 'computer', 'supplies',
+                             'equipment', 'materials', 'software', 'program cost')
+
+    @staticmethod
+    def is_program_cost_row(row):
+        """
+        True when a breakdown row draws on the program-cost cap.
+
+        An explicit cost_type set by staff always wins; otherwise the label is
+        matched, so existing rows keep working without being re-tagged.
+        """
+        cost_type = (row.get('cost_type') or '').strip().lower()
+        if cost_type:
+            return cost_type == 'program'
+        label = (row.get('label') or '').strip().lower()
+        if 'living' in label or 'book' in label or 'travel' in label:
+            return False
+        return any(word in label for word in CalculationService.PROGRAM_COST_KEYWORDS)
+
+    @staticmethod
+    def program_cost_cap(submission):
+        """The per-semester program-cost ceiling for this student's stream."""
+        student = submission.student
+        streams = ' '.join(filter(None, [
+            getattr(student, 'primary_stream', '') or '',
+            getattr(student, 'secondary_stream', '') or '',
+        ])).upper()
+
+        if 'PSSSP' in streams:
+            return CalculationService._get_policy_value('psssp_tuition', 'max_per_semester')
+        if 'UCEPP' in streams:
+            return CalculationService._get_policy_value('ucepp_tuition', 'max_per_semester')
+        if 'DGGR' in streams:
+            load = 'fulltime'
+            if 'part' in (getattr(student, 'enrollment_status', '') or '').lower():
+                load = 'parttime'
+            return CalculationService._get_policy_value('dggr_tuition', f'{load}_per_semester')
+        return CalculationService._get_policy_value('psssp_tuition', 'max_per_semester')
+
+    @staticmethod
+    def check_program_cost_cap(submission, breakdown_rows):
+        """
+        Returns an error message when the program-cost rows exceed the cap for
+        the semester, otherwise None.
+
+        Extra Tuition Cap Relief is excluded: it is a separate award that exists
+        precisely to go beyond this ceiling.
+        """
+        cap = CalculationService.program_cost_cap(submission)
+        if cap <= 0:
+            return None
+
+        total = Decimal(0)
+        counted = []
+        for row in breakdown_rows or []:
+            if 'extra tuition' in (row.get('label') or '').lower():
+                continue
+            if not CalculationService.is_program_cost_row(row):
+                continue
+            try:
+                amount = Decimal(str(row.get('amount') or 0))
+            except Exception:
+                continue
+            total += amount
+            counted.append(f"{row.get('label') or 'Item'} ${amount:,.2f}")
+
+        if total > cap:
+            return (
+                f"Program-cost items total ${total:,.2f}, which exceeds the "
+                f"${cap:,.2f} per-semester cap for this student "
+                f"({'; '.join(counted)}). Reduce a line or record the excess as a "
+                "separate award."
+            )
+        return None
+
+    @staticmethod
+    def _fiscal_year_start():
+        """DGG fiscal year runs April 1 → March 31."""
+        from django.utils import timezone as _tz
+        from datetime import date as _date
+
+        as_of = CalculationService._get_as_of_date()
+        today = _tz.now().date() if as_of is None else as_of
+        return _date(today.year if today.month >= 4 else today.year - 1, 4, 1)
+
+    @staticmethod
+    def _extra_tuition_used(submission, student=None):
+        """Extra Tuition already paid this fiscal year, ignoring this submission's own."""
+        from django.db.models import Sum
+
+        qs = Payment.objects.filter(
+            payment_type__icontains='Extra Tuition',
+            date_issued__date__gte=CalculationService._fiscal_year_start(),
+        )
+        if student is not None:
+            qs = qs.filter(user=student)
+        used = qs.aggregate(total=Sum('amount'))['total'] or Decimal(0)
+
+        # Exclude this submission's own prior calculation (recalculation scenario)
+        own = qs.filter(submission=submission).aggregate(total=Sum('amount'))['total'] or Decimal(0)
+        return max(Decimal(0), used - own)
+
+    @staticmethod
+    def _apply_extra_tuition_annual_cap(extra_requested, submission):
+        """§4.3: one student may receive at most `max_per_year` of Extra Tuition.
+
+        Only the per-semester cap was enforced before, so a student could clear
+        the yearly limit over two or three semesters.
+        """
+        annual_cap = CalculationService._get_policy_value('dggr_extra_tuition', 'max_per_year')
+        if annual_cap <= 0 or not submission.student:
+            return extra_requested
+
+        remaining = annual_cap - CalculationService._extra_tuition_used(submission, submission.student)
+        if remaining <= 0:
+            return Decimal(0)
+        return min(extra_requested, remaining)
 
     @staticmethod
     def _apply_extra_tuition_pool_cap(extra_requested, submission):
         """§4.3: Total annual pool for DGGR Extra Tuition across ALL students is $36k.
         Returns the amount this submission can receive without busting the cap."""
-        from django.db.models import Sum
-        from django.utils import timezone as _tz
-        from datetime import date as _date
-
-        pool_cap = CalculationService._get_policy_value('dggr_extra_tuition', 'annual_pool_cap')
+        # Seeded as 'annual_cap_all_students'; 'annual_pool_cap' is accepted too so
+        # an installation that renamed the key keeps working. Reading only the
+        # latter meant every admin edit to the pool was ignored in favour of the
+        # hard-coded default below.
+        pool_cap = CalculationService._get_policy_value('dggr_extra_tuition', 'annual_cap_all_students')
+        if pool_cap <= 0:
+            pool_cap = CalculationService._get_policy_value('dggr_extra_tuition', 'annual_pool_cap')
         if pool_cap <= 0:
             pool_cap = Decimal('36000')  # §4.3 hard default
 
-        # Fiscal year: April 1 to March 31
-        today = (_tz.now().date() if CalculationService._as_of_date is None
-                 else CalculationService._as_of_date)
-        if today.month >= 4:
-            fy_start = _date(today.year, 4, 1)
-        else:
-            fy_start = _date(today.year - 1, 4, 1)
-
-        # Sum of all Extra Tuition payments issued so far this fiscal year
-        already_used = Payment.objects.filter(
-            payment_type__icontains='Extra Tuition',
-            date_issued__date__gte=fy_start,
-        ).aggregate(total=Sum('amount'))['total'] or Decimal(0)
-
-        # Exclude this submission's own prior calculation (recalculation scenario)
-        own_used = Payment.objects.filter(
-            submission=submission,
-            payment_type__icontains='Extra Tuition',
-        ).aggregate(total=Sum('amount'))['total'] or Decimal(0)
-        already_used = max(Decimal(0), already_used - own_used)
-
-        remaining = pool_cap - already_used
+        remaining = pool_cap - CalculationService._extra_tuition_used(submission)
         if remaining <= 0:
             return Decimal(0)
         return min(extra_requested, remaining)
 
-    _policy_cache = {}
-    # as_of_date set at the top of calculate_and_pay for the current submission
-    _as_of_date = None
+    # Per-calculation state. This MUST NOT be class-level: the effective date and
+    # the policy cache belong to one submission, and Gunicorn (gthread) and Vercel
+    # Fluid Compute both run concurrent requests inside a single process. As class
+    # attributes, two overlapping calculations raced — the second submission's
+    # as_of_date overwrote the first's, so an application submitted in 2024 was
+    # priced with 2026 policy rates. Thread-local storage scopes it correctly, and
+    # calculate_and_pay clears it in a finally block so nothing leaks into the next
+    # calculation on the same worker thread.
+    _state = threading.local()
+
+    @staticmethod
+    def _get_as_of_date():
+        return getattr(CalculationService._state, 'as_of_date', None)
+
+    @staticmethod
+    def _begin_calculation(as_of_date):
+        CalculationService._state.as_of_date = as_of_date
+        CalculationService._state.policy_cache = {}
+        CalculationService._state.missing_policies = []
+
+    @staticmethod
+    def _end_calculation():
+        CalculationService._state.as_of_date = None
+        CalculationService._state.policy_cache = {}
+        CalculationService._state.missing_policies = []
+
+    @staticmethod
+    def _record_missing_policy(section, field_key):
+        missing = CalculationService.get_missing_policies()
+        entry = f"{section}:{field_key}"
+        if entry not in missing:
+            missing.append(entry)
+
+    @staticmethod
+    def get_missing_policies():
+        """Policy settings this calculation needed but could not find."""
+        missing = getattr(CalculationService._state, 'missing_policies', None)
+        if missing is None:
+            missing = []
+            CalculationService._state.missing_policies = missing
+        return missing
+
+    @staticmethod
+    def _get_policy_cache():
+        cache = getattr(CalculationService._state, 'policy_cache', None)
+        if cache is None:
+            cache = {}
+            CalculationService._state.policy_cache = cache
+        return cache
 
     @staticmethod
     def _get_policy_value(section, field_key):
-        """Return the policy value that was in effect on _as_of_date.
+        """Return the policy value that was in effect on the current as_of date.
 
         §4.3/§7.5: if the admin scheduled a future effective_date on a
         PolicyHistory entry, submissions from before that date use the old_value.
         Also returns 0 if the setting is deactivated (is_active=False).
         """
-        as_of = CalculationService._as_of_date  # may be None → use current value
+        as_of = CalculationService._get_as_of_date()  # may be None → use current value
+        policy_cache = CalculationService._get_policy_cache()
         cache_key = f"{section}:{field_key}:{as_of}"
-        if cache_key in CalculationService._policy_cache:
-            return CalculationService._policy_cache[cache_key]
+        if cache_key in policy_cache:
+            return policy_cache[cache_key]
 
         try:
             setting = PolicySetting.objects.get(section=section, field_key=field_key)
 
             # §3.1.G: deactivated settings return 0 — award is suspended
             if not setting.is_active:
-                CalculationService._policy_cache[cache_key] = Decimal(0)
+                policy_cache[cache_key] = Decimal(0)
                 return Decimal(0)
 
             val = setting.value
@@ -581,11 +829,19 @@ class CalculationService:
                     except Exception:
                         pass  # fall back to current value
 
-            CalculationService._policy_cache[cache_key] = val
+            policy_cache[cache_key] = val
             return val
         except PolicySetting.DoesNotExist:
+            # A missing setting is a misconfiguration, not a zero rate. Returning 0
+            # silently produced awards of $0.00 that were indistinguishable from a
+            # legitimate calculation. Record it so calculate_and_pay can refuse to
+            # write payments, and so the staff preview can show why.
+            CalculationService._record_missing_policy(section, field_key)
             import logging
-            logging.getLogger(__name__).warning("Missing policy setting: %s:%s. Falling back to 0.", section, field_key)
+            logging.getLogger(__name__).error(
+                "Missing policy setting: %s:%s. Award cannot be computed from it.",
+                section, field_key,
+            )
             return Decimal(0)
         except Exception as e:
             import logging

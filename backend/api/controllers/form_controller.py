@@ -10,7 +10,7 @@ from api.services.duplicate_detection_service import DuplicateDetectionService
 from api.utils.responses import api_response
 from api.utils.pdf_generator import FormPDFGenerator
 from api.models import ShareableLink
-from users.permissions import IsAdminUser, IsOwnerOrAdmin
+from users.permissions import IsAdminUser, IsOwnerOrAdmin, IsSSWOrAdmin
 from django.utils import timezone
 import uuid
 
@@ -21,7 +21,16 @@ class FormController(viewsets.ModelViewSet):
     queryset = Form.objects.all()
     serializer_class = FormSerializer
     parser_classes = (parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser)
-    
+
+    def get_queryset(self):
+        # Public list shows only active forms — deduped/retired templates stay
+        # retrievable by id so existing submissions keep rendering.
+        qs = super().get_queryset()
+        if self.action == 'list':
+            qs = qs.filter(is_active=True)
+        return qs
+
+
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
             return [IsAdminUser()]
@@ -189,6 +198,12 @@ class FormController(viewsets.ModelViewSet):
 
         logger.info("Submission %s created for user %s", submission.id, getattr(user, 'email', '?'))
 
+        # Dual-write the schema-keyed copy of the answers. SubmissionAnswer stays
+        # authoritative until a form is cut over, so this never blocks a
+        # submission — it logs and moves on if the schema cannot yet clean the data.
+        from forms.answer_ingest import capture_answers_data
+        capture_answers_data(submission)
+
         # Send notifications — synchronous in tests to avoid SQLite locking, async in production
         from django.conf import settings as _django_settings
         submission_id = submission.id
@@ -200,11 +215,12 @@ class FormController(viewsets.ModelViewSet):
                 FormService.send_submission_notifications(sub)
             except Exception as exc:
                 logger.error("Background notification failed for submission %s: %s", submission_id, exc, exc_info=True)
-        if getattr(_django_settings, 'TESTING', False):
-            _notify()
-        else:
-            import threading
-            threading.Thread(target=_notify, daemon=True).start()
+        # Run inline, not in a daemon thread. On serverless the process is frozen
+        # or reclaimed as soon as the response is returned, so a background thread
+        # frequently never executed and the submission notifications were lost
+        # silently. _notify already swallows and logs its own failures, so a mail
+        # problem still cannot fail the submission itself.
+        _notify()
 
         # Reload with prefetch to avoid N+1 in response serialization
         try:
@@ -232,6 +248,11 @@ class SubmissionController(viewsets.ModelViewSet):
         # Directors can only approve/reject (update_status) — not SSW-only actions
         director_allowed = ['update_status']
         admin_only = ['add_note', 'share', 'check_eligibility', 'check_duplicates', 'mark_legitimate', 'mark_duplicate']
+
+        # Correcting submitted details belongs to the SSW/admin who processes the
+        # file, never to the director who rules on it.
+        if self.action == 'edit_answers':
+            return [IsSSWOrAdmin()]
 
         if self.action in admin_only:
             return [IsAdminUser()]  # admin + ssw + director can add notes/share/check eligibility
@@ -289,6 +310,19 @@ class SubmissionController(viewsets.ModelViewSet):
         new_status = request.data.get('status')
         if not new_status:
             return api_response(False, None, "Status field is required", status.HTTP_400_BAD_REQUEST)
+
+        # The funding breakdown is saved through this endpoint, so the
+        # program-cost ceiling is enforced here — being eligible for the cap
+        # does not mean the cap is awarded, and later purchases (laptop,
+        # supplies) have to fit inside whatever the confirmed tuition left.
+        office_use = request.data.get('office_use_data') or {}
+        if isinstance(office_use, dict) and office_use.get('funding_breakdown') is not None:
+            from api.services.calculation_service import CalculationService
+            error = CalculationService.check_program_cost_cap(
+                submission, office_use.get('funding_breakdown')
+            )
+            if error:
+                return api_response(False, None, error, status.HTTP_400_BAD_REQUEST)
         try:
             FormService.update_submission_status(submission, new_status, request.user, request.data)
         except Exception as e:
@@ -327,6 +361,217 @@ class SubmissionController(viewsets.ModelViewSet):
             note = SubmissionNote.objects.create(submission=submission, author=request.user, text=text)
             return api_response(True, SubmissionNoteSerializer(note).data, "Internal note added")
         return api_response(False, None, "Note text is required", status.HTTP_400_BAD_REQUEST)
+
+    @decorators.action(detail=True, methods=['get'], url_path='funding-breakdown')
+    def funding_breakdown(self, request, pk=None):
+        """
+        Amount eligible by category, computed by the same code that creates the
+        payments. The staff dashboard used to recalculate this in the browser
+        with its own set of rules, so the figures staff reviewed did not always
+        match the payments that were generated.
+        """
+        from api.services.calculation_service import CalculationService
+
+        submission = self.get_object()
+
+        # Once staff have approved a breakdown, that is the answer — for the
+        # student as well as for staff. Recalculating here would show the
+        # applicant different numbers from the ones on their approval email.
+        approved_rows = (submission.office_use_data or {}).get('funding_breakdown') or []
+        if approved_rows:
+            categories = [
+                {
+                    'category': row.get('label') or 'Funding',
+                    'stream': row.get('stream') or None,
+                    'amount': str(row.get('amount') or 0),
+                    'rule': row.get('note') or '',
+                }
+                for row in approved_rows
+            ]
+            total = sum(float(row.get('amount') or 0) for row in approved_rows)
+            return api_response(True, {
+                'categories': categories,
+                'total': str(total),
+                'source': 'approved',
+            }, "Approved funding breakdown")
+
+        results = CalculationService.calculate_and_pay(submission, create_payments=False, commit=False)
+        if not results:
+            return api_response(True, {'categories': [], 'total': 0},
+                                "No funding rules apply to this form")
+
+        rows = results.get('breakdown')
+        if rows is None:
+            # The one-off awards (graduation, scholarship, practicum, hardship)
+            # return payment items only — present them in the same shape.
+            rows = [
+                {'category': label, 'stream': None, 'amount': amount,
+                 'rule': results.get('award_type', '')}
+                for label, amount in results.get('payment_items', [])
+            ]
+
+        categories = [
+            {
+                'category': row['category'],
+                'stream': row['stream'],
+                'amount': str(row['amount']),
+                'rule': row['rule'],
+            }
+            for row in rows
+        ]
+        return api_response(True, {
+            'categories': categories,
+            'total': str(results.get('total', 0)),
+            'source': 'estimate',
+            'ineligible_reason': results.get('ineligible_reason'),
+            'stream': results.get('stream'),
+            'enrollment': results.get('enrollment'),
+            'months': results.get('months'),
+            'has_dependents': results.get('has_dependents'),
+            'tuition_confirmed': results.get('tuition_confirmed', False),
+            'requested_tuition': str(results.get('requested_tuition', 0)),
+            'unfunded_tuition': str(results.get('unfunded_tuition', 0)),
+        }, "Funding breakdown calculated")
+
+    @decorators.action(detail=True, methods=['patch'], url_path='answers')
+    def edit_answers(self, request, pk=None):
+        """
+        SSW/admin correction of the details a student submitted on a form.
+
+        Students routinely mistype a bank transit number, a postal code or an
+        institution name, and until now the only fix was to reject the whole
+        application and make them start again. Staff can now correct the values
+        in place; every change is written to the audit log, summarised in an
+        internal note, and reported to the student.
+
+        Body:
+            {
+              "answers": [
+                 {"id": 12, "answer_text": "corrected value"},
+                 {"field_label": "Postal Code", "answer_text": "X0E 0G0"}
+              ],
+              "reason": "Transit number corrected from void cheque"
+            }
+
+        File answers are not editable here — a replacement document has to be
+        uploaded so the original stays on the record.
+        """
+        from forms.models import FormField, SubmissionAnswer
+        from api.models import AuditLog
+        from notifications.utils import create_notification
+
+        submission = self.get_object()
+
+        if submission.finance_sent_at:
+            return api_response(
+                False, None,
+                "This application has already been dispatched to Finance and can no "
+                "longer be edited. Record a correction as an internal note instead.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        edits = request.data.get('answers')
+        if not isinstance(edits, list) or not edits:
+            return api_response(False, None, "A non-empty 'answers' list is required",
+                                status.HTTP_400_BAD_REQUEST)
+
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return api_response(False, None, "A reason for the correction is required",
+                                status.HTTP_400_BAD_REQUEST)
+
+        existing = list(submission.answers.select_related('field').all())
+        by_id = {a.id: a for a in existing}
+        by_label = {(a.field.label or '').strip().lower(): a for a in existing if a.field}
+
+        changes = []
+        for edit in edits:
+            if not isinstance(edit, dict):
+                continue
+            label = (edit.get('field_label') or '').strip()
+            answer = by_id.get(edit.get('id')) or by_label.get(label.lower())
+
+            if answer is None:
+                if not label:
+                    return api_response(False, None,
+                                        "Each edit needs an 'id' or a 'field_label'",
+                                        status.HTTP_400_BAD_REQUEST)
+                # A field the student left off entirely — add it to the record.
+                field, _ = FormField.objects.get_or_create(
+                    form=submission.form, label=label, defaults={'field_type': 'text'},
+                )
+                answer = SubmissionAnswer.objects.create(submission=submission, field=field)
+                by_label[label.lower()] = answer
+
+            if answer.answer_file:
+                return api_response(
+                    False, None,
+                    f"'{answer.field.label}' holds an uploaded file. Upload a replacement "
+                    "document instead of editing the value.",
+                    status.HTTP_400_BAD_REQUEST,
+                )
+
+            new_value = edit.get('answer_text')
+            new_value = '' if new_value is None else str(new_value)
+            old_value = answer.answer_text or ''
+            if new_value == old_value:
+                continue
+
+            answer.answer_text = new_value
+            answer.save(update_fields=['answer_text'])
+            changes.append((answer.field.label, old_value, new_value))
+
+        if not changes:
+            return api_response(False, None, "No values were changed",
+                                status.HTTP_400_BAD_REQUEST)
+
+        summary = '; '.join(f"{label}: '{old or '—'}' → '{new or '—'}'" for label, old, new in changes)
+        editor = request.user
+
+        SubmissionNote.objects.create(
+            submission=submission,
+            author=editor,
+            text=f"Submitted details corrected by {editor.full_name} ({editor.role}). "
+                 f"Reason: {reason}. Changes — {summary}",
+        )
+        AuditLog.objects.create(
+            action=f"Edited submitted answers on submission {submission.id}",
+            performed_by=editor,
+            role=editor.role,
+            details=f"Reason: {reason}. Changes — {summary}",
+        )
+
+        # The student's own record must reflect what staff corrected, and the
+        # correction can resolve or create a residency mismatch.
+        try:
+            from api.services.residency_service import apply_to_submission
+            submission.refresh_from_db()
+            apply_to_submission(submission)
+        except Exception:
+            logger.exception("Residency re-check failed after editing submission %s", submission.id)
+
+        if submission.student:
+            try:
+                create_notification(
+                    submission.student,
+                    "Your application details were corrected",
+                    f"{editor.full_name} updated information on your "
+                    f"'{submission.form.title if submission.form else 'application'}': {summary}. "
+                    f"Reason: {reason}. Contact the Education Department if this is not correct.",
+                    link=f"/applications/{submission.id}",
+                )
+            except Exception:
+                logger.exception("Could not notify student of correction on submission %s", submission.id)
+
+        submission = FormSubmission.objects.select_related(
+            'form', 'student', 'reviewed_by', 'forwarded_by', 'decided_by'
+        ).prefetch_related('answers__field', 'notes__author').get(pk=submission.pk)
+
+        return api_response(
+            True,
+            FormSubmissionSerializer(submission, context={'request': request}).data,
+            f"{len(changes)} field{'s' if len(changes) != 1 else ''} updated",
+        )
 
     @decorators.action(detail=True, methods=['post'], url_path='share')
     def share(self, request, pk=None):
@@ -556,7 +801,7 @@ class SubmissionController(viewsets.ModelViewSet):
                 user=s,
                 title="Student Responded — Info Provided",
                 message=f"{submission.student.full_name} has submitted the requested information for '{submission.form.title}' (#{submission.id}).",
-                link=None
+                link=f"/staff/applications?id={submission.id}"
             )
 
         AuditLog.objects.create(

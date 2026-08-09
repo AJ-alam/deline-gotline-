@@ -18,7 +18,7 @@ from datetime import date
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
 from programs.models import Program
@@ -84,6 +84,27 @@ def make_full_submission(form, student, field_answers=None):
         answer = (field_answers or {}).get(field.label, 'test answer')
         SubmissionAnswer.objects.create(submission=submission, field=field, answer_text=answer)
     return submission
+
+
+# Minimum policy configuration required to price a generic submission. Accepting
+# a submission now refuses to write an award when a setting it depends on is
+# absent, so any test that walks the acceptance path has to seed these — the
+# same way a real deployment must before it can approve anything.
+BASE_POLICY_SETTINGS = [
+    ('system_config', 'book_allowance', Decimal('500.00')),
+    ('psssp_tuition', 'max_per_semester', Decimal('7000.00')),
+    ('psssp_living', 'fulltime_no_dependents', Decimal('1800.00')),
+    ('eligibility_rules', 'fulltime_min_load_percent', Decimal('60')),
+]
+
+
+def seed_base_policies():
+    from api.models import PolicySetting
+    for section, field_key, value in BASE_POLICY_SETTINGS:
+        PolicySetting.objects.get_or_create(
+            section=section, field_key=field_key,
+            defaults=dict(field_label=field_key, value=value, unit='$'),
+        )
 
 
 # ===========================================================================
@@ -224,6 +245,7 @@ class FormSubmissionTests(APITestCase):
 class SubmissionStatusTests(APITestCase):
 
     def setUp(self):
+        seed_base_policies()
         self.admin = make_admin()
         self.director = make_director()
         self.student = make_user('lifecycle@test.com')
@@ -631,3 +653,538 @@ class FormSubmissionSerializerTests(TestCase):
         submission = FormSubmission.objects.create(form=self.form, student=self.user)
         serializer = FormSubmissionSerializer(submission)
         self.assertEqual(serializer.data['student_name'], 'Sub Ser')
+
+
+# ===========================================================================
+# Residency Declaration Mismatch
+# ===========================================================================
+
+class ResidencyMismatchServiceTests(TestCase):
+    """Unit-level checks on the declared-residency vs address comparison."""
+
+    def _check(self, declared, **address):
+        from api.services.residency_service import check_residency_mismatch
+        return check_residency_mismatch(declared, **address)
+
+    def test_non_nwt_declaration_with_nwt_address_is_flagged(self):
+        result = self._check('outside', province='NT', town_city='Deline', postal_code='X0E 0G0')
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result['signals']), 3)
+
+    def test_non_nwt_declaration_with_nwt_postal_code_only_is_flagged(self):
+        result = self._check('outside', province='Alberta', town_city='Edmonton', postal_code='X1A2B3')
+        self.assertIsNotNone(result)
+
+    def test_nwt_community_in_free_text_address_is_flagged(self):
+        result = self._check('other', mailing_address='12 Main St, Yellowknife, NT')
+        self.assertIsNotNone(result)
+
+    def test_matching_declaration_and_address_is_not_flagged(self):
+        self.assertIsNone(self._check('outside', province='ON', town_city='Toronto', postal_code='M5V 1A1'))
+
+    def test_nwt_resident_with_nwt_address_is_not_flagged(self):
+        self.assertIsNone(self._check('nwt', province='NT', town_city='Deline', postal_code='X0E 0G0'))
+
+    def test_nunavut_postal_code_is_not_treated_as_nwt(self):
+        self.assertIsNone(self._check('outside', postal_code='X0A 0H0'))
+
+    def test_declared_resident_with_southern_address_is_flagged_for_review(self):
+        result = self._check('nwt', province='AB', town_city='Edmonton', postal_code='T5J 0N3')
+        self.assertIsNotNone(result)
+        self.assertEqual(result['kind'], 'declared_resident')
+
+    def test_declared_resident_living_where_they_study_is_not_flagged(self):
+        self.assertIsNone(self._check(
+            'nwt', province='AB', town_city='Edmonton', postal_code='T5J 0N3',
+            institution_location='Edmonton, Alberta',
+        ))
+
+    def test_declared_resident_with_nwt_address_is_not_flagged(self):
+        self.assertIsNone(self._check('nwt', province='NT', town_city='Deline', postal_code='X0E 0G0'))
+
+    def test_yukon_is_not_the_nwt(self):
+        result = self._check('nwt', province='YT', postal_code='Y1A 1A1')
+        self.assertIsNotNone(result)
+
+
+class EditSubmittedAnswersTests(APITestCase):
+    """SSW/admin correction of details a student submitted on a form."""
+
+    URL = '/api/forms/submissions/{}/answers/'
+
+    def setUp(self):
+        self.admin = make_admin('editadmin@test.com')
+        self.ssw = make_user('ssw@test.com', role='ssw', full_name='Support Worker')
+        self.director = make_director('editdir@test.com')
+        self.student = make_user('editstu@test.com')
+        self.form = make_form(self.admin, title='Form A: Admission Application')
+        FormField.objects.create(form=self.form, label='Transit Number', field_type='text')
+        FormField.objects.create(form=self.form, label='City', field_type='text')
+        self.submission = make_full_submission(self.form, self.student, {
+            'Transit Number': '00123', 'City': 'Deline',
+        })
+        self.answer = self.submission.answers.get(field__label='Transit Number')
+
+    def _patch(self, user, payload):
+        self.client.force_authenticate(user=user)
+        return self.client.patch(self.URL.format(self.submission.id), payload, format='json')
+
+    def test_ssw_can_correct_an_answer(self):
+        resp = self._patch(self.ssw, {
+            'answers': [{'id': self.answer.id, 'answer_text': '00456'}],
+            'reason': 'Corrected against the void cheque',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.answer_text, '00456')
+
+    def test_admin_can_correct_an_answer(self):
+        resp = self._patch(self.admin, {
+            'answers': [{'field_label': 'City', 'answer_text': 'Tulita'}],
+            'reason': 'Student moved communities',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.submission.answers.get(field__label='City').answer_text, 'Tulita'
+        )
+
+    def test_director_cannot_edit_submitted_details(self):
+        resp = self._patch(self.director, {
+            'answers': [{'id': self.answer.id, 'answer_text': '99999'}],
+            'reason': 'Trying to edit',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.answer_text, '00123')
+
+    def test_student_cannot_edit_their_own_submitted_details(self):
+        resp = self._patch(self.student, {
+            'answers': [{'id': self.answer.id, 'answer_text': '99999'}],
+            'reason': 'Fixing my typo',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_reason_is_required(self):
+        resp = self._patch(self.ssw, {
+            'answers': [{'id': self.answer.id, 'answer_text': '00456'}],
+        })
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.answer_text, '00123')
+
+    def test_missing_field_is_added_to_the_record(self):
+        resp = self._patch(self.ssw, {
+            'answers': [{'field_label': 'Postal Code', 'answer_text': 'X0E 0G0'}],
+            'reason': 'Student left the postal code blank',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            self.submission.answers.get(field__label='Postal Code').answer_text, 'X0E 0G0'
+        )
+
+    def test_change_is_audited_and_noted(self):
+        from api.models import AuditLog
+        self._patch(self.ssw, {
+            'answers': [{'id': self.answer.id, 'answer_text': '00456'}],
+            'reason': 'Corrected against the void cheque',
+        })
+        note = self.submission.notes.first()
+        self.assertIsNotNone(note)
+        self.assertIn('00123', note.text)
+        self.assertIn('00456', note.text)
+        self.assertTrue(AuditLog.objects.filter(performed_by=self.ssw).exists())
+
+    def test_student_is_notified_of_the_correction(self):
+        self._patch(self.ssw, {
+            'answers': [{'id': self.answer.id, 'answer_text': '00456'}],
+            'reason': 'Corrected against the void cheque',
+        })
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.student, title='Your application details were corrected'
+            ).exists()
+        )
+
+    def test_no_op_edit_is_rejected(self):
+        resp = self._patch(self.ssw, {
+            'answers': [{'id': self.answer.id, 'answer_text': '00123'}],
+            'reason': 'No actual change',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_editing_is_blocked_after_finance_dispatch(self):
+        self.submission.finance_sent_at = timezone.now()
+        self.submission.save(update_fields=['finance_sent_at'])
+        resp = self._patch(self.ssw, {
+            'answers': [{'id': self.answer.id, 'answer_text': '00456'}],
+            'reason': 'Too late',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.answer.refresh_from_db()
+        self.assertEqual(self.answer.answer_text, '00123')
+
+    def test_correction_reruns_the_residency_check(self):
+        self.student.province_of_residence = 'outside'
+        self.student.save(update_fields=['province_of_residence'])
+        self._patch(self.ssw, {
+            'answers': [{'field_label': 'Postal Code', 'answer_text': 'X0E 0G0'}],
+            'reason': 'Adding the postal code from the void cheque',
+        })
+        self.submission.refresh_from_db()
+        self.assertIn('Residency mismatch', self.submission.residency_flag or '')
+
+
+class ApprovedBreakdownTests(TestCase):
+    """
+    An approved total must always be explainable. The student used to receive
+    only "APPROVED for $X" with no indication of what made up the figure.
+    """
+
+    def setUp(self):
+        self.admin = make_admin('breakdownadmin@test.com')
+        self.student = make_user('breakdownstu@test.com', full_name='Break Down')
+        self.form = make_form(self.admin, title='Form A: Admission Application')
+        self.submission = make_submission(self.form, self.student)
+
+    def test_uses_the_breakdown_staff_approved(self):
+        from api.services.form_service import FormService
+        self.submission.office_use_data = {'funding_breakdown': [
+            {'label': 'Tuition (PSSSP)', 'amount': 4200},
+            {'label': 'Living Allowance (PSSSP)', 'amount': 4800},
+            {'label': 'Empty row', 'amount': 0},
+        ]}
+        self.submission.amount = Decimal('9000')
+        self.submission.save()
+
+        rows = FormService.approved_breakdown(self.submission)
+        self.assertEqual([r['name'] for r in rows],
+                         ['Tuition (PSSSP)', 'Living Allowance (PSSSP)'])
+        self.assertEqual(sum(r['amount'] for r in rows), 9000)
+
+    def test_falls_back_to_a_single_line_rather_than_nothing(self):
+        from api.services.form_service import FormService
+        self.submission.amount = Decimal('1500')
+        self.submission.save()
+        rows = FormService.approved_breakdown(self.submission)
+        self.assertTrue(rows)
+        self.assertEqual(sum(r['amount'] for r in rows), 1500)
+
+    def test_approval_notification_lists_the_categories(self):
+        from api.services.form_service import FormService
+        self.submission.office_use_data = {'funding_breakdown': [
+            {'label': 'Tuition (PSSSP)', 'amount': 4200},
+            {'label': 'Living Allowance (PSSSP)', 'amount': 4800},
+        ]}
+        self.submission.amount = Decimal('9000')
+        self.submission.save()
+
+        FormService._send_status_notification(self.submission, 'accepted')
+
+        note = Notification.objects.filter(user=self.student).order_by('-id').first()
+        self.assertIsNotNone(note)
+        self.assertIn('Tuition (PSSSP)', note.message)
+        self.assertIn('4,200.00', note.message)
+        self.assertIn('Living Allowance (PSSSP)', note.message)
+
+    def test_student_can_see_the_approved_breakdown(self):
+        self.submission.office_use_data = {'funding_breakdown': [
+            {'label': 'Tuition (PSSSP)', 'amount': 4200, 'note': 'Registrar-confirmed program cost'},
+        ]}
+        self.submission.save()
+
+        client = APIClient()
+        client.force_authenticate(user=self.student)
+        resp = client.get(f'/api/forms/submissions/{self.submission.id}/funding-breakdown/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        data = resp.data['data']
+        self.assertEqual(data['source'], 'approved')
+        self.assertEqual(data['categories'][0]['category'], 'Tuition (PSSSP)')
+        self.assertEqual(data['categories'][0]['rule'], 'Registrar-confirmed program cost')
+
+
+class ResidencyScanCommandTests(TestCase):
+    """The backfill command must be a no-op until --apply is passed."""
+
+    def setUp(self):
+        self.admin = make_admin('scanadmin@test.com')
+        self.form = make_form(self.admin, title='Form A: Admission Application')
+        for label in ('City', 'Province', 'Postal Code'):
+            FormField.objects.create(form=self.form, label=label, field_type='text')
+        self.student = make_user('scanstu@test.com', province_of_residence='outside')
+        self.submission = make_full_submission(self.form, self.student, {
+            'City': 'Deline', 'Province': 'NT', 'Postal Code': 'X0E 0G0',
+        })
+
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('scan_residency_flags', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_reports_but_does_not_write(self):
+        output = self._run()
+        self.assertIn('Flagged:   1', output)
+        self.assertIn('Dry run', output)
+        self.submission.refresh_from_db()
+        self.assertIsNone(self.submission.residency_flag)
+
+    def test_apply_writes_the_flag(self):
+        self._run('--apply')
+        self.submission.refresh_from_db()
+        self.assertIn('Residency mismatch', self.submission.residency_flag)
+
+    def test_backfill_does_not_notify_unless_asked(self):
+        self._run('--apply')
+        self.assertFalse(
+            Notification.objects.filter(title='Residency Declaration Mismatch').exists()
+        )
+
+    def test_notify_flag_sends_to_staff(self):
+        self._run('--apply', '--notify')
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.admin, title='Residency Declaration Mismatch'
+            ).exists()
+        )
+
+    def test_clear_resolved_removes_a_stale_flag(self):
+        self.submission.residency_flag = 'Residency mismatch: stale'
+        self.submission.save(update_fields=['residency_flag'])
+        self.student.province_of_residence = 'nwt'
+        self.student.save(update_fields=['province_of_residence'])
+
+        self._run('--apply', '--clear-resolved')
+        self.submission.refresh_from_db()
+        self.assertIsNone(self.submission.residency_flag)
+
+
+class ResidencyMismatchSubmissionTests(APITestCase):
+    """The flag must be raised when the contradicting address arrives on a form."""
+
+    def setUp(self):
+        self.admin = make_admin('resadmin@test.com')
+        self.form = make_form(self.admin, title='Form A: Admission Application')
+        for label in ('Address', 'City', 'Province', 'Postal Code'):
+            FormField.objects.create(form=self.form, label=label, field_type='text')
+
+    def _submit(self, student, city, province, postal_code):
+        self.client.force_authenticate(user=student)
+        return self.client.post(f'/api/forms/forms/{self.form.id}/submit/', {
+            'answers': [
+                {'field_label': 'Address', 'answer_text': '1 Main St'},
+                {'field_label': 'City', 'answer_text': city},
+                {'field_label': 'Province', 'answer_text': province},
+                {'field_label': 'Postal Code', 'answer_text': postal_code},
+            ],
+        }, format='json')
+
+    def test_declared_non_resident_with_nwt_address_sets_flag(self):
+        student = make_user('outsider@test.com', province_of_residence='outside')
+        resp = self._submit(student, 'Deline', 'NT', 'X0E 0G0')
+        self.assertIn(resp.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED))
+
+        submission = FormSubmission.objects.filter(student=student).first()
+        self.assertIsNotNone(submission.residency_flag)
+        self.assertIn('Residency mismatch', submission.residency_flag)
+
+    def test_declared_non_resident_with_southern_address_has_no_flag(self):
+        student = make_user('southerner@test.com', province_of_residence='outside')
+        self._submit(student, 'Calgary', 'AB', 'T2P 1J9')
+
+        submission = FormSubmission.objects.filter(student=student).first()
+        self.assertIsNone(submission.residency_flag)
+
+    def test_declared_nwt_resident_with_nwt_address_has_no_flag(self):
+        student = make_user('resident@test.com', province_of_residence='nwt')
+        self._submit(student, 'Deline', 'NT', 'X0E 0G0')
+
+        submission = FormSubmission.objects.filter(student=student).first()
+        self.assertIsNone(submission.residency_flag)
+
+    def test_staff_are_notified_of_the_mismatch(self):
+        student = make_user('notify-outsider@test.com', province_of_residence='outside')
+        self._submit(student, 'Deline', 'NT', 'X0E 0G0')
+
+        self.assertTrue(
+            Notification.objects.filter(
+                user=self.admin, title='Residency Declaration Mismatch'
+            ).exists()
+        )
+
+
+class AnswersBackfillTests(TestCase):
+    """The EAV → schema-key backfill must be lossless and must refuse to guess."""
+
+    def setUp(self):
+        from io import StringIO
+        self.StringIO = StringIO
+        self.admin = make_admin(email='backfilladmin@test.com')
+        self.student = make_user('backfill@test.com')
+        self.form = make_form(self.admin, title='Form A — Admission Application')
+        self.submission = FormSubmission.objects.create(
+            form=self.form, student=self.student,
+        )
+
+    def _answer(self, label, text):
+        field = FormField.objects.create(form=self.form, label=label, field_type='text')
+        SubmissionAnswer.objects.create(
+            submission=self.submission, field=field, answer_text=text,
+        )
+
+    def _run(self, *args):
+        from django.core.management import call_command
+        out = self.StringIO()
+        call_command('backfill_answers_data', '--slug', 'form-a', *args, stdout=out)
+        return out.getvalue()
+
+    def _seed_valid_submission(self):
+        # Deliberately uses the display labels really stored in production,
+        # including the two different spellings of the course-load field.
+        self._answer('First Name', 'Jane')
+        self._answer('Last Name', 'Doe')
+        self._answer('Date of Birth', '2001-05-04')
+        self._answer('Email', 'jane@example.com')
+        self._answer('Institution Name', 'Aurora College')
+        self._answer('Program', 'Nursing')
+        self._answer('Enrollment Status', 'Full-time')
+        self._answer('Tuition Amount Requested', '$5,200.00')
+        self._answer('Signature', 'Jane Doe')
+
+    def test_dry_run_writes_nothing(self):
+        self._seed_valid_submission()
+        output = self._run()
+        self.submission.refresh_from_db()
+        self.assertIn('DRY RUN', output)
+        self.assertIn('would map', output)
+        self.assertFalse(self.submission.answers_data)
+
+    def test_apply_maps_display_labels_onto_stable_keys(self):
+        self._seed_valid_submission()
+        self._run('--apply')
+        self.submission.refresh_from_db()
+        data = self.submission.answers_data
+
+        self.assertEqual(self.submission.schema_slug, 'form-a')
+        # 'Enrollment Status' is the label; course_load is the identity.
+        self.assertEqual(data['course_load'], 'full_time')
+        self.assertEqual(data['first_name'], 'Jane')
+        self.assertEqual(data['institution_name'], 'Aurora College')
+        self.assertEqual(str(data['tuition_requested']), '5200.00')
+
+    def test_legacy_course_load_spelling_maps_to_the_same_key(self):
+        self._seed_valid_submission()
+        # Older submissions stored this field as 'Course Load' instead.
+        SubmissionAnswer.objects.filter(
+            field__label='Enrollment Status', submission=self.submission,
+        ).delete()
+        self._answer('Course Load', 'Part-time')
+        self._run('--apply')
+        self.submission.refresh_from_db()
+        self.assertEqual(self.submission.answers_data['course_load'], 'part_time')
+
+    def test_unmapped_labels_are_reported_not_dropped_silently(self):
+        self._seed_valid_submission()
+        self._answer('Some Field Nobody Modelled', 'value')
+        output = self._run()
+        self.assertIn('no schema field', output)
+        self.assertIn('Some Field Nobody Modelled', output)
+
+    def test_rows_failing_validation_are_flagged_and_left_untouched(self):
+        # Missing every required field except one.
+        self._answer('First Name', 'Jane')
+        self._run('--apply')
+        self.submission.refresh_from_db()
+        self.assertFalse(
+            self.submission.answers_data,
+            'a row that fails validation must not be half-written',
+        )
+
+    def test_backfill_is_idempotent(self):
+        self._seed_valid_submission()
+        self._run('--apply')
+        self.submission.refresh_from_db()
+        first = dict(self.submission.answers_data)
+        self._run('--apply')
+        self.submission.refresh_from_db()
+        self.assertEqual(first, self.submission.answers_data)
+
+
+class DualWriteOnSubmitTests(APITestCase):
+    """Submitting a form must also record schema-keyed answers.
+
+    SubmissionAnswer stays authoritative during the migration, so a conversion
+    problem must never cost a student their submission.
+    """
+
+    def setUp(self):
+        self.admin = make_admin(email='dualadmin@test.com')
+        self.student = make_user('dualwrite@test.com')
+        self.form = make_form(self.admin, title='Form A — Admission Application')
+        self.client.force_authenticate(user=self.student)
+
+    def _submit(self, answers):
+        return self.client.post(
+            f'/api/forms/forms/{self.form.id}/submit/',
+            {'answers': answers}, format='json',
+        )
+
+    def _valid_answers(self):
+        return [
+            {'field_label': 'First Name', 'answer_text': 'Jane'},
+            {'field_label': 'Last Name', 'answer_text': 'Doe'},
+            {'field_label': 'Date of Birth', 'answer_text': '2001-05-04'},
+            {'field_label': 'Email', 'answer_text': 'jane@example.com'},
+            {'field_label': 'Institution Name', 'answer_text': 'Aurora College'},
+            {'field_label': 'Program', 'answer_text': 'Nursing'},
+            {'field_label': 'Enrollment Status', 'answer_text': 'Full-time'},
+            {'field_label': 'Tuition Amount Requested', 'answer_text': '$5,200.00'},
+            {'field_label': 'Signature', 'answer_text': 'Jane Doe'},
+        ]
+
+    def test_submission_records_schema_keyed_answers(self):
+        resp = self._submit(self._valid_answers())
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+        submission = FormSubmission.objects.get(student=self.student)
+        self.assertEqual(submission.schema_slug, 'form-a')
+        self.assertEqual(submission.answers_data['course_load'], 'full_time')
+        self.assertEqual(submission.answers_data['first_name'], 'Jane')
+        self.assertEqual(str(submission.answers_data['tuition_requested']), '5200.00')
+
+    def test_legacy_answers_remain_authoritative(self):
+        self._submit(self._valid_answers())
+        submission = FormSubmission.objects.get(student=self.student)
+        # Both representations exist during migration.
+        self.assertTrue(submission.answers.exists())
+        self.assertTrue(submission.answers_data)
+
+    def test_answers_data_is_json_serialisable(self):
+        """Decimals and dates must not leave the column unreadable."""
+        import json
+
+        self._submit(self._valid_answers())
+        submission = FormSubmission.objects.get(student=self.student)
+        json.dumps(submission.answers_data)   # must not raise
+
+    def test_submission_still_succeeds_when_the_schema_cannot_clean_it(self):
+        # Missing required fields — conversion fails, submission must not.
+        resp = self._submit([
+            {'field_label': 'First Name', 'answer_text': 'Jane'},
+        ])
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        submission = FormSubmission.objects.get(student=self.student)
+        self.assertFalse(submission.answers_data)
+        self.assertTrue(submission.answers.exists())
+
+    def test_form_without_a_schema_is_unaffected(self):
+        other = make_form(self.admin, title='Feedback Survey')
+        resp = self.client.post(
+            f'/api/forms/forms/{other.id}/submit/',
+            {'answers': [{'field_label': 'Comments', 'answer_text': 'ok'}]},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        submission = FormSubmission.objects.get(form=other)
+        self.assertEqual(submission.schema_slug, '')
+        self.assertFalse(submission.answers_data)

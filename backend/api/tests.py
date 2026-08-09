@@ -925,6 +925,355 @@ class CalculationServiceTests(TestCase):
 
 
 # ===========================================================================
+# 11b. Amount eligible by category — allocation rules
+# ===========================================================================
+
+class FundingAllocationTests(TestCase):
+    """
+    Category-by-category funding rules:
+      · DGGR tuition tops up what the C-DFN caps left unpaid — it is not a flat add-on
+      · no confirmed tuition figure means no tuition award
+      · living allowance stacks across streams
+      · every month of study is paid, including the final partial one
+    """
+
+    _POLICIES = [
+        ('psssp_tuition', 'max_per_semester', Decimal('5000')),
+        ('psssp_living', 'fulltime_no_dependents', Decimal('1200')),
+        ('psssp_living', 'fulltime_with_dependents', Decimal('1700')),
+        ('psssp_living', 'parttime_no_dependents', Decimal('720')),
+        ('dggr_tuition', 'fulltime_per_semester', Decimal('1500')),
+        ('dggr_tuition', 'parttime_per_semester', Decimal('900')),
+        ('dggr_living', 'fulltime_no_dependents', Decimal('700')),
+        ('dggr_living', 'fulltime_with_dependents', Decimal('950')),
+        ('dggr_living', 'parttime_no_dependents', Decimal('420')),
+        ('dggr_extra_tuition', 'threshold_per_semester', Decimal('5000')),
+        ('dggr_extra_tuition', 'max_percent_covered', Decimal('25')),
+        ('dggr_extra_tuition', 'max_per_semester', Decimal('4000')),
+        ('dggr_extra_tuition', 'max_per_year', Decimal('12000')),
+        ('dggr_extra_tuition', 'annual_cap_all_students', Decimal('36000')),
+        ('eligibility_rules', 'fulltime_min_load_percent', Decimal('60')),
+        ('system_config', 'book_allowance', Decimal('0')),
+    ]
+
+    def setUp(self):
+        for section, key, value in self._POLICIES:
+            PolicySetting.objects.get_or_create(
+                section=section, field_key=key,
+                defaults=dict(field_label=key, value=value, unit='$'),
+            )
+        # calculate_and_pay resets this per submission; tests calling
+        # _calculate_funding directly must not inherit another test's cache.
+        CalculationService._end_calculation()
+        self._counter = 0
+
+    def _submission(self, answers, student=None):
+        from programs.models import Program
+        from forms.models import Form, FormField, FormSubmission, SubmissionAnswer
+
+        self._counter += 1
+        user = student or make_user(email=f'alloc{self._counter}@test.com')
+        prog = Program.objects.create(title='P', description='D', created_by=user)
+        form = Form.objects.create(title='Alloc Form', program=prog, created_by=user)
+        submission = FormSubmission.objects.create(form=form, student=user)
+        for label, value in answers.items():
+            field = FormField.objects.create(form=form, label=label, field_type='text')
+            SubmissionAnswer.objects.create(submission=submission, field=field, answer_text=value)
+        return submission
+
+    def _amounts(self, results):
+        return {name: amount for name, amount in results['payment_items']}
+
+    # ── DGGR top-up ────────────────────────────────────────────────────────
+
+    def test_dggr_tops_up_only_the_unfunded_tuition(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '5200', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertEqual(amounts['Tuition (PSSSP)'], Decimal('5000'))
+        self.assertEqual(amounts['Tuition Top-Up (DGGR)'], Decimal('200'))
+
+    def test_total_tuition_never_exceeds_the_actual_bill(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '5200', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertEqual(results['total_tuition'], Decimal('5200'))
+
+    def test_dggr_top_up_is_limited_to_its_own_rate(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '20000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertEqual(amounts['Tuition Top-Up (DGGR)'], Decimal('1500'))
+
+    def test_dggr_alone_pays_no_more_than_the_tuition_owed(self):
+        submission = self._submission({
+            'bursaryStream': 'DGGR', 'enrollmentType': 'full-time',
+            'tuition': '400', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertEqual(amounts['Tuition Top-Up (DGGR)'], Decimal('400'))
+
+    # ── Unconfirmed tuition ────────────────────────────────────────────────
+
+    def test_no_tuition_figure_awards_no_tuition(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertFalse(results['tuition_confirmed'])
+        self.assertEqual(results['total_tuition'], Decimal('0'))
+        self.assertNotIn('Tuition (PSSSP)', self._amounts(results))
+
+    def test_living_allowance_is_still_paid_without_a_tuition_figure(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertEqual(amounts['Living Allowance (PSSSP)'], Decimal('4800'))
+
+    def test_unconfirmed_tuition_is_reported_in_the_breakdown(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        row = next(r for r in results['breakdown'] if r['category'] == 'Tuition (PSSSP)')
+        self.assertEqual(row['amount'], Decimal('0'))
+        self.assertIn('Awaiting confirmed tuition', row['rule'])
+
+    # ── Living allowance ───────────────────────────────────────────────────
+
+    def test_living_allowance_stacks_across_streams(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '5200', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertEqual(amounts['Living Allowance (PSSSP)'], Decimal('4800'))
+        self.assertEqual(amounts['Living Allowance (DGGR)'], Decimal('2800'))
+
+    # ── Months ─────────────────────────────────────────────────────────────
+
+    def test_final_partial_month_is_paid(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'tuition': '5000', 'semStart': '2025-09-03', 'semEnd': '2025-12-20',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertEqual(results['months'], 4)
+        self.assertEqual(self._amounts(results)['Living Allowance (PSSSP)'], Decimal('4800'))
+
+    def test_missing_dates_fall_back_to_four_months(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time', 'tuition': '5000',
+        })
+        self.assertEqual(CalculationService._calculate_funding(submission)['months'], 4)
+
+    # ── Dependents and course load ─────────────────────────────────────────
+
+    def test_dependent_count_selects_the_with_dependents_rate(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'Number of Dependents': '2', 'tuition': '5000',
+            'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertTrue(results['has_dependents'])
+        self.assertEqual(self._amounts(results)['Living Allowance (PSSSP)'], Decimal('6800'))
+
+    def test_zero_dependents_uses_the_no_dependents_rate(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'Number of Dependents': '0', 'tuition': '5000',
+            'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertFalse(results['has_dependents'])
+
+    def test_course_load_percentage_is_read_as_full_time(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'Course Load': '100', 'tuition': '5000',
+            'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertEqual(results['enrollment'], 'Full-Time')
+
+    def test_course_load_below_the_threshold_is_part_time(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'Course Load': '40', 'tuition': '5000',
+            'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertEqual(results['enrollment'], 'Part-Time')
+
+    # ── Extra tuition caps ─────────────────────────────────────────────────
+
+    def test_extra_relief_is_inclusive_of_the_dggr_top_up(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '20000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        # 25% of 20,000 = 5,000, capped at 4,000, less the 1,500 DGGR top-up
+        self.assertEqual(amounts['Extra Tuition Cap Relief'], Decimal('2500'))
+
+    def test_extra_relief_respects_the_per_student_annual_cap(self):
+        PolicySetting.objects.filter(
+            section='dggr_extra_tuition', field_key='max_per_year'
+        ).update(value=Decimal('2000'))
+        student = make_user(email='annualcap@test.com')
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '20000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        }, student=student)
+        Payment.objects.create(
+            user=student, submission=None, amount=Decimal('1500'),
+            payment_type='Extra Tuition Cap Relief', status=Payment.Status.PENDING,
+        )
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertEqual(amounts['Extra Tuition Cap Relief'], Decimal('500'))
+
+    def test_extra_relief_respects_the_shared_pool_cap(self):
+        PolicySetting.objects.filter(
+            section='dggr_extra_tuition', field_key='annual_cap_all_students'
+        ).update(value=Decimal('1000'))
+        other = make_user(email='poolother@test.com')
+        Payment.objects.create(
+            user=other, submission=None, amount=Decimal('600'),
+            payment_type='Extra Tuition Cap Relief', status=Payment.Status.PENDING,
+        )
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '20000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertEqual(amounts['Extra Tuition Cap Relief'], Decimal('400'))
+
+    # ── SFA exclusion ──────────────────────────────────────────────────────
+
+    def _sfa_student(self, email):
+        student = make_user(email=email)
+        profile, _ = Profile.objects.get_or_create(user=student)
+        profile.is_sfa_active = True
+        profile.save()
+        return student
+
+    def test_sfa_student_with_only_psssp_receives_nothing(self):
+        # The fallback branch used to hand these students the full PSSSP award,
+        # cancelling out the exclusion the SFA question exists to enforce.
+        student = self._sfa_student('sfa-psssp@test.com')
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'tuition': '5000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        }, student=student)
+        results = CalculationService._calculate_funding(submission)
+        self.assertEqual(results['total'], Decimal('0'))
+        self.assertEqual(results['payment_items'], [])
+        self.assertIn('Student Financial Assistance', results['ineligible_reason'])
+
+    def test_sfa_student_still_receives_dggr(self):
+        # DGGR is not blocked by SFA — only the C-DFN streams are.
+        student = self._sfa_student('sfa-dggr@test.com')
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP, DGGR', 'enrollmentType': 'full-time',
+            'tuition': '5000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        }, student=student)
+        amounts = self._amounts(CalculationService._calculate_funding(submission))
+        self.assertNotIn('Tuition (PSSSP)', amounts)
+        self.assertNotIn('Living Allowance (PSSSP)', amounts)
+        self.assertEqual(amounts['Living Allowance (DGGR)'], Decimal('2800'))
+        self.assertEqual(amounts['Tuition Top-Up (DGGR)'], Decimal('1500'))
+
+    def test_non_sfa_student_still_gets_the_default_stream(self):
+        # Guard the fallback itself: an unrecognised stream must still calculate.
+        submission = self._submission({
+            'bursaryStream': 'Something Unrecognised', 'enrollmentType': 'full-time',
+            'tuition': '5000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        results = CalculationService._calculate_funding(submission)
+        self.assertGreater(results['total'], Decimal('0'))
+
+    # ── Program-cost envelope ──────────────────────────────────────────────
+
+    def test_tuition_and_a_laptop_may_share_the_cap(self):
+        # Registrar-confirmed tuition of 3,200 leaves 1,800 of the 5,000 cap, so
+        # a 900 laptop approved later still fits.
+        submission = self._submission({'bursaryStream': 'C-DFN PSSSP'})
+        submission.student.primary_stream = 'PSSSP'
+        submission.student.save()
+        rows = [
+            {'label': 'Tuition (PSSSP)', 'amount': 3200},
+            {'label': 'Laptop', 'amount': 900},
+            {'label': 'Living Allowance (PSSSP)', 'amount': 4800},
+        ]
+        self.assertIsNone(CalculationService.check_program_cost_cap(submission, rows))
+
+    def test_program_cost_above_the_cap_is_refused(self):
+        submission = self._submission({'bursaryStream': 'C-DFN PSSSP'})
+        submission.student.primary_stream = 'PSSSP'
+        submission.student.save()
+        rows = [
+            {'label': 'Tuition (PSSSP)', 'amount': 4800},
+            {'label': 'Laptop', 'amount': 900},
+        ]
+        error = CalculationService.check_program_cost_cap(submission, rows)
+        self.assertIsNotNone(error)
+        self.assertIn('exceeds', error)
+
+    def test_living_allowance_does_not_consume_the_program_cap(self):
+        submission = self._submission({'bursaryStream': 'C-DFN PSSSP'})
+        submission.student.primary_stream = 'PSSSP'
+        submission.student.save()
+        rows = [
+            {'label': 'Tuition (PSSSP)', 'amount': 5000},
+            {'label': 'Living Allowance (PSSSP)', 'amount': 9600},
+            {'label': 'Books', 'amount': 500},
+        ]
+        self.assertIsNone(CalculationService.check_program_cost_cap(submission, rows))
+
+    def test_extra_tuition_relief_sits_outside_the_cap(self):
+        submission = self._submission({'bursaryStream': 'C-DFN PSSSP, DGGR'})
+        submission.student.primary_stream = 'PSSSP'
+        submission.student.save()
+        rows = [
+            {'label': 'Tuition (PSSSP)', 'amount': 5000},
+            {'label': 'Extra Tuition Cap Relief', 'amount': 2500},
+        ]
+        self.assertIsNone(CalculationService.check_program_cost_cap(submission, rows))
+
+    def test_explicit_cost_type_overrides_the_label(self):
+        submission = self._submission({'bursaryStream': 'C-DFN PSSSP'})
+        submission.student.primary_stream = 'PSSSP'
+        submission.student.save()
+        rows = [
+            {'label': 'Tuition (PSSSP)', 'amount': 4000},
+            {'label': 'Field trip fee', 'amount': 2000, 'cost_type': 'program'},
+        ]
+        self.assertIsNotNone(CalculationService.check_program_cost_cap(submission, rows))
+
+    # ── Preview endpoint ───────────────────────────────────────────────────
+
+    def test_breakdown_preview_does_not_write_anything(self):
+        submission = self._submission({
+            'bursaryStream': 'C-DFN PSSSP', 'enrollmentType': 'full-time',
+            'tuition': '5000', 'semStart': '2025-09-01', 'semEnd': '2025-12-31',
+        })
+        payments_before = Payment.objects.count()
+        CalculationService.calculate_and_pay(submission, create_payments=False, commit=False)
+        submission.refresh_from_db()
+        self.assertEqual(submission.amount, Decimal('0.00'))
+        self.assertEqual(Payment.objects.count(), payments_before)
+
+
+# ===========================================================================
 # 12. DuplicateDetectionService Unit Tests
 # ===========================================================================
 
@@ -1285,4 +1634,283 @@ class EdgeCaseTests(APITestCase):
         self.client.post(f'/api/applications/{app.id}/deny/')
         self.assertTrue(
             AuditLog.objects.filter(action__icontains='Denied', application=app).exists()
+        )
+
+
+class CalculationServiceConcurrencyTests(TestCase):
+    """§4.3/§7.5: the effective-date used to price a submission must belong to
+    that submission alone.
+
+    _as_of_date and the policy cache were class attributes, so two calculations
+    running concurrently in one process — normal under Gunicorn gthread workers
+    and Vercel Fluid Compute — shared them. The later submission's date
+    overwrote the earlier one's, silently pricing a 2024 application with
+    today's policy rates. These tests pin the per-thread isolation and the
+    teardown that prevents leakage between calculations.
+    """
+
+    def test_as_of_date_is_isolated_between_threads(self):
+        import threading
+        from datetime import date
+
+        early, late = date(2024, 1, 15), date(2026, 8, 9)
+        observed = {}
+        both_set = threading.Barrier(2)
+
+        def run(name, as_of):
+            CalculationService._begin_calculation(as_of)
+            try:
+                both_set.wait(timeout=5)   # force the interleaving that broke it
+                observed[name] = CalculationService._get_as_of_date()
+            finally:
+                CalculationService._end_calculation()
+
+        threads = [
+            threading.Thread(target=run, args=('early', early)),
+            threading.Thread(target=run, args=('late', late)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        self.assertEqual(observed['early'], early)
+        self.assertEqual(observed['late'], late)
+
+    def test_policy_cache_is_isolated_between_threads(self):
+        import threading
+
+        observed = {}
+        both_seeded = threading.Barrier(2)
+
+        def run(name, value):
+            CalculationService._begin_calculation(None)
+            try:
+                CalculationService._get_policy_cache()['shared_key'] = value
+                both_seeded.wait(timeout=5)
+                observed[name] = CalculationService._get_policy_cache()['shared_key']
+            finally:
+                CalculationService._end_calculation()
+
+        threads = [
+            threading.Thread(target=run, args=('a', Decimal('100'))),
+            threading.Thread(target=run, args=('b', Decimal('999'))),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        self.assertEqual(observed['a'], Decimal('100'))
+        self.assertEqual(observed['b'], Decimal('999'))
+
+    def test_state_is_cleared_after_calculation(self):
+        CalculationService._begin_calculation(timezone.now().date())
+        CalculationService._end_calculation()
+        self.assertIsNone(CalculationService._get_as_of_date())
+        self.assertEqual(CalculationService._get_policy_cache(), {})
+
+    def test_state_is_cleared_even_when_calculation_raises(self):
+        submission = MagicMock()
+        submission.submitted_at = timezone.now()
+        submission.form.title = 'Form A'
+
+        with patch.object(
+            CalculationService, '_calculate_and_pay', side_effect=RuntimeError('boom')
+        ):
+            with self.assertRaises(RuntimeError):
+                CalculationService.calculate_and_pay(submission)
+
+        # A leaked date here would silently mis-price the next submission
+        # handled by this worker thread.
+        self.assertIsNone(CalculationService._get_as_of_date())
+
+
+class MissingPolicySettingTests(TestCase):
+    """A policy setting that does not exist must never be treated as a rate of 0.
+
+    Previously _get_policy_value logged a warning and returned Decimal(0), so an
+    unseeded or mistyped setting produced a $0.00 award that was indistinguishable
+    from a real decision — and the payment rows were written anyway.
+    """
+
+    def setUp(self):
+        from programs.models import Program
+        from forms.models import Form, FormSubmission
+
+        self.student = User.objects.create_user(
+            email='missingpolicy@test.com', password='pw123456', full_name='MP',
+        )
+        program = Program.objects.create(title='P', description='d')
+        form = Form.objects.create(title='Form A', description='d', program=program)
+        self.submission = FormSubmission.objects.create(form=form, student=self.student)
+
+    def test_commit_refuses_when_a_policy_setting_is_missing(self):
+        from api.services.calculation_service import MissingPolicySettingError
+
+        with self.assertRaises(MissingPolicySettingError) as ctx:
+            CalculationService.calculate_and_pay(self.submission)
+
+        self.assertTrue(ctx.exception.missing, "the error must name the missing settings")
+
+    def test_no_payment_is_written_when_a_policy_setting_is_missing(self):
+        from api.services.calculation_service import MissingPolicySettingError
+
+        with self.assertRaises(MissingPolicySettingError):
+            CalculationService.calculate_and_pay(self.submission)
+
+        self.assertFalse(
+            Payment.objects.filter(submission=self.submission).exists(),
+            "a misconfigured award must not produce payment rows",
+        )
+        self.submission.refresh_from_db()
+        self.assertEqual(self.submission.amount, Decimal('0.00'))
+
+    def test_preview_still_renders_and_reports_what_is_missing(self):
+        # Staff need to see *why* a breakdown is empty, so commit=False must not raise.
+        results = CalculationService.calculate_and_pay(
+            self.submission, create_payments=False, commit=False
+        )
+        self.assertIsNotNone(results)
+        self.assertTrue(results.get('missing_policy_settings'))
+
+    def test_missing_list_does_not_leak_between_calculations(self):
+        with self.assertRaises(Exception):
+            CalculationService.calculate_and_pay(self.submission)
+        self.assertEqual(CalculationService.get_missing_policies(), [])
+
+
+class EmailDeliveryReportingTests(TestCase):
+    """send_email_notification must report what actually happened.
+
+    It previously started a daemon thread and returned True unconditionally. On
+    serverless the process is frozen once the response is returned, so the thread
+    often never ran — approval and denial notices were dropped while every caller
+    recorded a success.
+    """
+
+    def test_returns_true_when_the_transport_succeeds(self):
+        from notifications import utils as notif_utils
+
+        with patch('email_sender.send_email', return_value=True) as sender:
+            result = notif_utils.send_email_notification(
+                'student@test.com', 'Subject', '<p>body</p>',
+            )
+
+        self.assertTrue(result)
+        sender.assert_called_once()
+
+    def test_returns_false_when_the_transport_fails(self):
+        from notifications import utils as notif_utils
+
+        with patch('email_sender.send_email', return_value=False):
+            result = notif_utils.send_email_notification(
+                'student@test.com', 'Subject', '<p>body</p>',
+            )
+
+        # The old implementation returned True here — that is the whole bug.
+        self.assertFalse(result)
+
+    def test_returns_false_when_the_transport_raises(self):
+        from notifications import utils as notif_utils
+
+        with patch('email_sender.send_email', side_effect=OSError('smtp down')):
+            result = notif_utils.send_email_notification(
+                'student@test.com', 'Subject', '<p>body</p>',
+            )
+
+        self.assertFalse(result)
+
+    def test_send_completes_before_returning(self):
+        """The send must finish inline — nothing may be left pending after return."""
+        from notifications import utils as notif_utils
+
+        completed = []
+
+        def _record(*args, **kwargs):
+            completed.append(True)
+            return True
+
+        with patch('email_sender.send_email', side_effect=_record):
+            notif_utils.send_email_notification('s@test.com', 'S', '<p>b</p>')
+
+        # No sleep, no join: if this were still threaded the list would be empty.
+        self.assertEqual(len(completed), 1)
+
+
+class NoShadowApplicationTests(TestCase):
+    """Generating payments must not mint a second record of the same application.
+
+    calculate_and_pay used to call _resolve_or_create_application, creating an
+    Application row already marked approved so Payment.application had an FK
+    target. The staff dashboard concatenates /api/applications/ with
+    /api/forms/submissions/ and has no dedup key, so every paid submission showed
+    up twice — and the Application copy could be approved through a path that
+    calculates nothing, pays nobody and notifies nobody.
+    """
+
+    _POLICIES = [
+        ('system_config', 'book_allowance', Decimal('500')),
+        ('psssp_tuition', 'max_per_semester', Decimal('7000')),
+        ('psssp_living', 'fulltime_no_dependents', Decimal('1800')),
+        ('eligibility_rules', 'fulltime_min_load_percent', Decimal('60')),
+    ]
+
+    def setUp(self):
+        from programs.models import Program
+        from forms.models import Form, FormField, FormSubmission, SubmissionAnswer
+
+        for section, key, value in self._POLICIES:
+            PolicySetting.objects.get_or_create(
+                section=section, field_key=key,
+                defaults=dict(field_label=key, value=value, unit='$'),
+            )
+        self.student = User.objects.create_user(
+            email='shadow@test.com', password='pw123456', full_name='Shadow Student',
+        )
+        program = Program.objects.create(title='PSSSP', description='d')
+        form = Form.objects.create(
+            title='Form A - PSSSP Application', description='d', program=program,
+        )
+        self.submission = FormSubmission.objects.create(
+            form=form, student=self.student, status='accepted',
+        )
+        for label, answer in [
+            ('Institution', 'Aurora College'),
+            ('Program', 'Nursing'),
+            ('Course Load', 'Full-time'),
+        ]:
+            field = FormField.objects.create(form=form, label=label, field_type='text')
+            SubmissionAnswer.objects.create(
+                submission=self.submission, field=field, answer_text=answer,
+            )
+
+    def test_calculating_payments_creates_no_application_row(self):
+        self.assertEqual(Application.objects.count(), 0)
+        CalculationService.calculate_and_pay(self.submission)
+        self.assertEqual(
+            Application.objects.count(), 0,
+            "payment generation must not synthesize a shadow Application",
+        )
+
+    def test_payments_are_linked_to_the_submission(self):
+        CalculationService.calculate_and_pay(self.submission)
+        payments = Payment.objects.filter(submission=self.submission)
+        self.assertTrue(payments.exists(), "payments should still be created")
+        for payment in payments:
+            self.assertEqual(payment.submission_id, self.submission.id)
+            self.assertIsNone(
+                payment.application_id,
+                "payments belong to the submission, not to a shadow copy",
+            )
+
+    def test_one_application_yields_one_staff_dashboard_row(self):
+        # The dashboard renders applications + submissions concatenated.
+        from forms.models import FormSubmission
+
+        CalculationService.calculate_and_pay(self.submission)
+        rendered = Application.objects.count() + FormSubmission.objects.count()
+        self.assertEqual(
+            rendered, 1,
+            "one real application must not render as two staff dashboard rows",
         )

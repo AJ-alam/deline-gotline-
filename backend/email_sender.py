@@ -16,7 +16,6 @@ send_password_reset()          — 5. Student: forgot-password reset link
 
 import os
 import smtplib
-import threading
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -130,16 +129,6 @@ def send_email(
     except Exception as exc:
         print(f"[email_sender] Unexpected error sending to {to}: {exc}")
         return False
-
-
-def _async(to, subject, html, plain="", att_bytes=None, att_name=None, att_mime="application/octet-stream"):
-    """Fire-and-forget wrapper — sends in a background daemon thread."""
-    t = threading.Thread(
-        target=send_email,
-        args=(to, subject, html, plain, att_bytes, att_name, att_mime),
-        daemon=True,
-    )
-    t.start()
 
 
 # ---------------------------------------------------------------------------

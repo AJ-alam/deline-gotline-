@@ -1,5 +1,4 @@
 import logging
-import threading
 from .models import Notification
 
 logger = logging.getLogger(__name__)
@@ -15,27 +14,41 @@ def create_notification(user, title, message, link=None):
 
 
 def send_email_notification(recipient_email: str, subject: str, html_body: str, plain_body: str = '') -> bool:
-    """Send email notification via email_sender (smtplib/Gmail) in a background thread."""
+    """Send an email notification. Returns whether it was actually delivered.
+
+    This used to hand the send to a daemon thread and return True immediately.
+    That is unsafe on serverless: the platform freezes or reclaims the process
+    once the response is returned, so the thread often never ran and the mail was
+    silently dropped — while every caller had already been told it succeeded.
+    Approval and denial notices were being lost this way with no error anywhere.
+
+    Sending inline costs request latency (bounded by the SMTP timeout in
+    email_sender), which is the correct trade against losing the mail outright.
+    The durable fix is an outbox table drained by a cron worker; until that
+    exists, callers get the truth.
+    """
     try:
         from email_sender import send_email as _send
     except ImportError:
         logger.error("email_sender module not found — email not sent to %s", recipient_email)
         return False
 
-    def _bg():
+    try:
         ok = _send(
             to=recipient_email,
             subject=subject,
             html_body=html_body,
             plain_body=plain_body or '',
         )
-        if ok:
-            logger.info("Email sent to %s: %s", recipient_email, subject)
-        else:
-            logger.error("Email failed to %s: %s", recipient_email, subject)
+    except Exception:
+        logger.exception("Email raised while sending to %s: %s", recipient_email, subject)
+        return False
 
-    threading.Thread(target=_bg, daemon=True).start()
-    return True
+    if ok:
+        logger.info("Email sent to %s: %s", recipient_email, subject)
+    else:
+        logger.error("Email failed to %s: %s", recipient_email, subject)
+    return bool(ok)
 
 
 # ── EMAIL TEMPLATES (Task 9.2) ──
