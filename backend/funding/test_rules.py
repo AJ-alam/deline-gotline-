@@ -321,3 +321,95 @@ class RuleSetVersioningTests(TestCase):
         superseded = RuleSet.objects.get(version=1)
         self.assertEqual(superseded.status, RuleSet.Status.SUPERSEDED)
         self.assertIsNotNone(superseded.effective_to)
+
+
+class EveryAwardingTypeHasRulesTests(TestCase):
+    """No application type may be silently unpriceable."""
+
+    NO_AWARD = {'enrollment_verification', 'appeal'}
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_rules', '--publish', verbosity=0)
+
+    def test_every_type_that_pays_has_at_least_one_rule(self):
+        rule_set = RuleSet.objects.get(status=RuleSet.Status.PUBLISHED)
+        covered = set()
+        for rule in rule_set.rules.all():
+            covered |= set(rule.applies_to_types or ApplicationType.values)
+
+        for value in ApplicationType.values:
+            if value in self.NO_AWARD:
+                continue
+            self.assertIn(value, covered, f'{value} can never be awarded anything')
+
+    def test_types_that_pay_nothing_have_no_rules(self):
+        """An appeal asks for reconsideration; it does not disburse."""
+        rule_set = RuleSet.objects.get(status=RuleSet.Status.PUBLISHED)
+        for rule in rule_set.rules.all():
+            for value in rule.applies_to_types:
+                self.assertNotIn(value, self.NO_AWARD, rule.code)
+
+    def test_every_rule_declares_a_valid_effect(self):
+        rule_set = RuleSet.objects.get(status=RuleSet.Status.PUBLISHED)
+        for rule in rule_set.rules.all():
+            validate_effect(rule.effect)          # raises if malformed
+
+    def test_every_rule_declares_a_valid_condition(self):
+        rule_set = RuleSet.objects.get(status=RuleSet.Status.PUBLISHED)
+        for rule in rule_set.rules.all():
+            conditions.validate(rule.condition)   # raises if malformed
+
+
+class RequestCappedAwardTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_rules', '--publish', verbosity=0)
+
+    def setUp(self):
+        seed_rates()
+        for section, key, value in [
+            ('travel', 'max_graduation', '1200'),
+            ('practicum', 'max_allowance', '2500'),
+            ('emergency_relief', 'max_per_student', '1500'),
+        ]:
+            PolicySetting.objects.update_or_create(
+                section=section, key=key,
+                defaults=dict(label=key, value=Decimal(value), unit='$'),
+            )
+        self.rule_set = RuleSet.objects.get(status=RuleSet.Status.PUBLISHED)
+
+    def _price(self, app):
+        return price(app, self.rule_set, PolicyBook.for_application(app))
+
+    def test_travel_cap_varies_with_the_purpose_of_travel(self):
+        app = make_application(
+            type=ApplicationType.TRAVEL, stream=FundingStream.DGGR,
+            answers={'amount_requested': '2000', 'travel_purpose': 'graduation'},
+        )
+        amounts = {o.code: o.amount for o in self._price(app).applied}
+        self.assertEqual(amounts['travel_assistance'], Decimal('1200'))
+
+    def test_a_claim_below_the_cap_is_paid_in_full(self):
+        app = make_application(
+            type=ApplicationType.TRAVEL, stream=FundingStream.DGGR,
+            answers={'amount_requested': '400', 'travel_purpose': 'graduation'},
+        )
+        amounts = {o.code: o.amount for o in self._price(app).applied}
+        self.assertEqual(amounts['travel_assistance'], Decimal('400'))
+
+    def test_practicum_and_emergency_relief_are_capped(self):
+        for app_type, code, requested, expected in (
+            (ApplicationType.PRACTICUM, 'practicum_allowance', '9000', '2500'),
+            (ApplicationType.EMERGENCY_RELIEF, 'emergency_relief', '9000', '1500'),
+        ):
+            app = make_application(type=app_type, stream=FundingStream.DGGR,
+                                   answers={'amount_requested': requested})
+            amounts = {o.code: o.amount for o in self._price(app).applied}
+            self.assertEqual(amounts[code], Decimal(expected), app_type)
+
+    def test_an_appeal_is_awarded_nothing(self):
+        app = make_application(type=ApplicationType.APPEAL, stream=FundingStream.DGGR,
+                               answers={'appeal_reason': 'Circumstances changed'})
+        self.assertEqual(self._price(app).total, Decimal('0.00'))

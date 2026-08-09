@@ -31,7 +31,10 @@ class ApplicationType(models.TextChoices):
     TRAVEL = 'travel', 'Travel & Emergency Assistance'                  # was Form E
     PRACTICUM = 'practicum', 'Practicum Placement Allowance'            # was Form F
     GRADUATION_BURSARY = 'graduation_bursary', 'Graduation Bursary'     # was Form G
-    SUMMER_STUDENT = 'summer_student', 'Summer Student Employment'      # was Form H
+    EMERGENCY_RELIEF = 'emergency_relief', 'Emergency Relief'            # was Form H
+    # 'Form H' meant three different things: the calculator read it as summer
+    # student employment, seed_forms created it as Emergency Relief, and the
+    # frontend mapped it to Form D (Appeal). The seeded form is authoritative.
     HARDSHIP_BURSARY = 'hardship_bursary', 'Hardship Bursary'
     ACADEMIC_SCHOLARSHIP = 'academic_scholarship', 'Academic Scholarship'
 

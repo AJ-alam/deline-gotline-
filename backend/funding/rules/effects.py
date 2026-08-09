@@ -216,7 +216,10 @@ class CappedRequest(Effect):
         requested = _decimal(context.answers.get(params['request_field']))
         if requested <= 0:
             return Outcome(ZERO, 'No amount requested')
-        cap = context.rates.rate(params['section'], params['key'])
+        # Resolves templates like every other effect, so a cap can vary by an
+        # answer — travel is capped differently depending on its purpose.
+        key = context.resolve(params['key'])
+        cap = context.rates.rate(params['section'], key)
         granted = min(requested, cap)
         return Outcome(granted, f'Requested ${requested}, capped at ${cap}')
 

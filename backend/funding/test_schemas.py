@@ -96,3 +96,76 @@ class GraduationBursarySchemaTests(SimpleTestCase):
         # 'BSc' used to fall through to the certificate rate.
         with self.assertRaises(ValueError):
             credential.clean('BSc')
+
+
+class CoverageTests(SimpleTestCase):
+    """Every application type must be answerable."""
+
+    def test_every_application_type_has_a_schema(self):
+        covered = {s.slug for s in all_schemas()}
+        for value in ApplicationType.values:
+            self.assertIn(value, covered, f'{value} has no schema')
+
+    def test_no_schema_exists_without_an_application_type(self):
+        declared = set(ApplicationType.values)
+        for schema in all_schemas():
+            self.assertIn(schema.slug, declared, schema.slug)
+
+    def test_every_schema_asks_who_is_applying(self):
+        # Enrollment verification is completed by a registrar about a student,
+        # so it identifies the student rather than an applicant.
+        for schema in all_schemas():
+            keys = set(schema.keys)
+            identifies = {'first_name', 'last_name'} <= keys or 'student_name' in keys
+            self.assertTrue(identifies, f'{schema.slug} identifies nobody')
+
+    def test_every_schema_is_signed(self):
+        for schema in all_schemas():
+            self.assertIn('signature', schema.keys, schema.slug)
+
+    def test_every_schema_groups_its_fields_into_sections(self):
+        for schema in all_schemas():
+            self.assertTrue(schema.sections, schema.slug)
+            for field in schema.fields:
+                self.assertTrue(field.section, f'{schema.slug}.{field.key}')
+
+    def test_shared_keys_mean_the_same_thing_everywhere(self):
+        """One renderer and one set of generated types serve every schema."""
+        seen: dict[str, tuple] = {}
+        for schema in all_schemas():
+            for field in schema.fields:
+                signature = (field.type, field.choice_values)
+                if field.key in seen:
+                    self.assertEqual(
+                        seen[field.key], signature,
+                        f'{schema.slug}.{field.key} disagrees with another schema',
+                    )
+                else:
+                    seen[field.key] = signature
+
+
+class AwardInputTests(SimpleTestCase):
+    """Fields the rules engine reads must exist, and be constrained."""
+
+    def test_money_requests_are_typed_as_money(self):
+        for slug in ('travel', 'emergency_relief', 'hardship_bursary', 'practicum'):
+            field = get_schema(slug).field('amount_requested')
+            self.assertEqual(field.type, FieldType.MONEY, slug)
+
+    def test_scholarship_gpa_is_a_bounded_percentage(self):
+        field = get_schema('academic_scholarship').field('gpa_achieved')
+        self.assertEqual(field.type, FieldType.PERCENT)
+        with self.assertRaises(ValueError):
+            field.clean('160')
+
+    def test_course_load_is_the_same_closed_set_wherever_it_appears(self):
+        expected = ('full_time', 'part_time')
+        for slug in ('admission', 'continuing_funding', 'enrollment_verification'):
+            self.assertEqual(get_schema(slug).field('course_load').choice_values,
+                             expected, slug)
+
+    def test_enrollment_verification_captures_the_billed_tuition(self):
+        """Tuition is funded against the registrar's figure, not the student's."""
+        field = get_schema('enrollment_verification').field('confirmed_tuition')
+        self.assertEqual(field.type, FieldType.MONEY)
+        self.assertTrue(field.required)

@@ -225,3 +225,4 @@ def all_schemas() -> tuple[ApplicationSchema, ...]:
 
 from . import admission          # noqa: E402,F401
 from . import graduation_bursary  # noqa: E402,F401
+from . import remaining           # noqa: E402,F401

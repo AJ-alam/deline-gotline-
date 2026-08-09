@@ -142,6 +142,42 @@ RULES = [
         },
     ),
     dict(
+        code='travel_assistance',
+        description='Travel assistance, capped by the purpose of travel',
+        category=Award.Category.TRAVEL,
+        order=130,
+        applies_to_types=[ApplicationType.TRAVEL],
+        effect={
+            'kind': 'capped_request',
+            'request_field': 'amount_requested',
+            'section': 'travel', 'key': 'max_{travel_purpose}',
+        },
+    ),
+    dict(
+        code='practicum_allowance',
+        description='Practicum placement allowance, up to the cap',
+        category=Award.Category.BURSARY,
+        order=140,
+        applies_to_types=[ApplicationType.PRACTICUM],
+        effect={
+            'kind': 'capped_request',
+            'request_field': 'amount_requested',
+            'section': 'practicum', 'key': 'max_allowance',
+        },
+    ),
+    dict(
+        code='emergency_relief',
+        description='Emergency relief, up to the per-student cap',
+        category=Award.Category.BURSARY,
+        order=150,
+        applies_to_types=[ApplicationType.EMERGENCY_RELIEF],
+        effect={
+            'kind': 'capped_request',
+            'request_field': 'amount_requested',
+            'section': 'emergency_relief', 'key': 'max_per_student',
+        },
+    ),
+    dict(
         code='hardship_bursary',
         description='Hardship bursary, up to the per-student cap',
         category=Award.Category.BURSARY,
