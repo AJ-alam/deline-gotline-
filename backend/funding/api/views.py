@@ -6,6 +6,9 @@ to 1,538 lines and held workflow, pricing and CSV export inline, which is why
 the same rule existed in several slightly different versions.
 """
 
+import hashlib
+import json
+
 from django.db.models import Prefetch
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -27,21 +30,45 @@ from funding.services import workflow
 class SchemaView(APIView):
     """What each application type asks.
 
-    Public: an applicant needs the questions before they have an account, and
-    the schema contains no data about anyone.
+    Public: an applicant needs the questions before they have an account, and a
+    schema contains no data about anyone.
+
+    Schemas are defined in code, so they cannot change between deploys. The
+    payload is built once per process and served with a validator, which turns
+    the client's repeat requests into 304s — this is 25KB that every visitor
+    would otherwise download before seeing a single field.
     """
 
     permission_classes = [AllowAny]
 
+    _cache = None
+    _etag = None
+
+    @classmethod
+    def _payload(cls):
+        if cls._cache is None:
+            cls._cache = schema_payload()
+            cls._etag = f'"{hashlib.sha256(json.dumps(cls._cache, sort_keys=True, default=str).encode()).hexdigest()[:32]}"'
+        return cls._cache, cls._etag
+
     def get(self, request, slug=None):
-        payload = schema_payload()
+        payload, etag = self._payload()
+
+        if request.headers.get('If-None-Match') == etag:
+            return Response(status=status.HTTP_304_NOT_MODIFIED)
+
         if slug is None:
-            return Response(payload)
-        for schema in payload:
-            if schema['slug'] == slug:
-                return Response(schema)
-        return Response({'detail': f'No schema named {slug!r}.'},
-                        status=status.HTTP_404_NOT_FOUND)
+            body = payload
+        else:
+            body = next((s for s in payload if s['slug'] == slug), None)
+            if body is None:
+                return Response({'detail': f'No schema named {slug!r}.'},
+                                status=status.HTTP_404_NOT_FOUND)
+
+        response = Response(body)
+        response['ETag'] = etag
+        response['Cache-Control'] = 'public, max-age=300'
+        return response
 
 
 class ApplicationViewSet(viewsets.ModelViewSet):

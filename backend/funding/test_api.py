@@ -4,6 +4,8 @@ import itertools
 from decimal import Decimal
 
 from django.core.management import call_command
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -241,3 +243,84 @@ class PricingEndpointTests(APITestCase):
             f'/api/applications/{self.application.id}/decisions/')
         self.assertEqual(len(response.data), 2)
         self.assertEqual(sum(1 for d in response.data if d['is_current']), 1)
+
+
+class QueryCostTests(APITestCase):
+    """Endpoint cost must not grow with the amount of data.
+
+    The previous dashboard fired seven requests every thirty seconds, two of
+    them for the same records under two models, and returned every answer with
+    every row.
+    """
+
+    def setUp(self):
+        self.worker = make_user(Role.SUPPORT_WORKER)
+        self.client.force_authenticate(self.worker)
+        for _ in range(25):
+            Application.objects.create(
+                student=make_user(), type=ApplicationType.ADMISSION,
+                stream=FundingStream.PSSSP, schema_slug='admission',
+                answers=dict(VALID_ADMISSION), status=ApplicationStatus.SUBMITTED,
+            )
+
+    def test_the_queue_costs_the_same_however_many_rows(self):
+        with self.assertNumQueries(2):
+            self.client.get('/api/applications/?page_size=5')
+        with self.assertNumQueries(2):
+            self.client.get('/api/applications/?page_size=25')
+
+    def test_detail_reads_the_prefetched_decision_rather_than_refetching(self):
+        """Repricing must not make reading the application more expensive.
+
+        A queryset call inside the serializer would issue a fresh query per
+        decision, defeating the prefetch.
+        """
+        seed_rates()
+        call_command('seed_rules', '--publish', '--effective-from', '2020-01-01',
+                     verbosity=0)
+        application = Application.objects.first()
+        application.answers = {**VALID_ADMISSION, 'confirmed_tuition': '6000'}
+        application.save(update_fields=['answers'])
+
+        from funding.services.decisions import record_decision
+        record_decision(application)
+        with CaptureQueriesContext(connection) as first:
+            self.client.get(f'/api/applications/{application.id}/')
+
+        for _ in range(3):
+            record_decision(application)
+        with CaptureQueriesContext(connection) as after:
+            self.client.get(f'/api/applications/{application.id}/')
+
+        self.assertEqual(
+            len(after), len(first),
+            f'reading cost grew from {len(first)} to {len(after)} queries '
+            'as decisions accumulated',
+        )
+
+
+class SchemaCachingTests(APITestCase):
+    """Schemas are defined in code and cannot change between deploys.
+
+    25KB that every visitor would otherwise download before seeing a field.
+    """
+
+    def test_the_response_carries_a_validator(self):
+        response = self.client.get('/api/schemas/')
+        self.assertTrue(response['ETag'])
+        self.assertIn('max-age', response['Cache-Control'])
+
+    def test_a_repeat_request_is_not_sent_again(self):
+        first = self.client.get('/api/schemas/')
+        second = self.client.get('/api/schemas/', HTTP_IF_NONE_MATCH=first['ETag'])
+        self.assertEqual(second.status_code, status.HTTP_304_NOT_MODIFIED)
+        self.assertFalse(second.content)
+
+    def test_serving_a_schema_costs_no_database_queries(self):
+        with self.assertNumQueries(0):
+            self.client.get('/api/schemas/admission/')
+
+    def test_a_changed_validator_still_serves_the_body(self):
+        response = self.client.get('/api/schemas/', HTTP_IF_NONE_MATCH='"stale"')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data)

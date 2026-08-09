@@ -117,8 +117,13 @@ class ApplicationDetailSerializer(serializers.ModelSerializer):
         return application.student.full_name if application.student else None
 
     def get_decision(self, application):
-        current = application.decisions.filter(is_current=True).first()
-        return AwardDecisionSerializer(current).data if current else None
+        # Read from the prefetched set rather than issuing a fresh filter: a
+        # queryset method here would defeat the prefetch and add a query per
+        # application whenever this serializer is used for more than one.
+        for decision in application.decisions.all():
+            if decision.is_current:
+                return AwardDecisionSerializer(decision).data
+        return None
 
 
 class ApplicationCreateSerializer(serializers.Serializer):
