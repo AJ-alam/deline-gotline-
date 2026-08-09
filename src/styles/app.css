@@ -1,0 +1,20 @@
+/* Page-level layout. Everything else lives in tokens.css or ui.css. */
+
+.page {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: var(--s-6) var(--s-4) var(--s-8);
+}
+
+.auth-page {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: var(--s-8) var(--s-4);
+}
+
+a {
+  color: var(--gold);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+a:hover { color: #8f6425; }

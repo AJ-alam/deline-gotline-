@@ -1,0 +1,158 @@
+/**
+ * Design tokens.
+ *
+ * Previously auth.css, dashboard.css, forms.css, profile.css and staff.css each
+ * hardcoded their own colours and spacing, and the only shared scale was a set
+ * of --admin-* variables scoped inside staff.css. 1,112 inline style objects
+ * filled the gaps. Everything below is defined once.
+ *
+ * The palette is the government's own: gold on a deep neutral, with warm greys
+ * biased toward the gold rather than a flat machine grey.
+ */
+
+:root {
+  /* ── Brand ── */
+  --gold: #b8823c;
+  --gold-bright: #e5a662;
+  --gold-soft: #f5e7d0;
+  --ink: #1a1814;
+  --ink-2: #2e2a24;
+
+  /* ── Surfaces ── */
+  --bg: #faf8f4;
+  --surface: #ffffff;
+  --surface-2: #f4f0e8;
+  --border: #e2dbcd;
+  --border-strong: #cbc0aa;
+
+  /* ── Text ── */
+  --text: #1a1814;
+  --text-2: #4a453c;
+  --text-3: #7a7264;
+  --text-inverse: #faf8f4;
+
+  /* ── Status. Separate from the brand accent: meaning, not decoration. ── */
+  --ok: #2f6b4f;
+  --ok-bg: #e3efe7;
+  --warn: #a8621a;
+  --warn-bg: #f8e8d6;
+  --danger: #a33a32;
+  --danger-bg: #f7e2df;
+  --info: #2c5d7c;
+  --info-bg: #e0ecf3;
+  --neutral: #6e6759;
+  --neutral-bg: #ece7dd;
+
+  /* ── Spacing: a 4px scale, so margins cannot drift by a pixel each time ── */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* ── Type ── */
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 36px;
+  --leading: 1.55;
+  --leading-tight: 1.2;
+
+  /* ── Shape ── */
+  --radius: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  --shadow-1: 0 1px 2px rgba(26, 24, 20, 0.06);
+  --shadow-2: 0 2px 8px rgba(26, 24, 20, 0.08);
+  --shadow-3: 0 8px 24px rgba(26, 24, 20, 0.12);
+
+  --focus-ring: 0 0 0 3px rgba(184, 130, 60, 0.35);
+
+  --container: 1100px;
+  --container-narrow: 720px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  line-height: var(--leading-tight);
+  text-wrap: balance;
+  font-weight: 600;
+}
+
+h1 {
+  font-size: var(--text-2xl);
+  letter-spacing: -0.02em;
+}
+h2 {
+  font-size: var(--text-xl);
+  letter-spacing: -0.01em;
+}
+h3 {
+  font-size: var(--text-lg);
+}
+
+p {
+  margin: 0;
+}
+
+/* Keyboard focus must always be visible; a government service has to be
+   operable without a mouse. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Visible to screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

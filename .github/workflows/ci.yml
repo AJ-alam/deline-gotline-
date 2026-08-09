@@ -32,12 +32,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Lint is reported but not yet blocking: the tree currently carries ~397
-      # pre-existing errors (mostly no-explicit-any). Flip this to a hard gate
-      # once the typing pass lands, so it never regresses past that point.
-      - name: Lint (non-blocking)
+      # Blocking as of the frontend rebuild: the tree went from 397 errors to
+      # zero, so anything that reappears is new and belongs to whoever added it.
+      - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
@@ -69,3 +67,8 @@ jobs:
 
       - name: Test
         run: python manage.py test --verbosity 2
+
+      # The frontend's types are derived from the backend schemas. If they drift,
+      # a renamed field stops being a build error and becomes a runtime bug.
+      - name: Generated types are current
+        run: python manage.py generate_types --check
