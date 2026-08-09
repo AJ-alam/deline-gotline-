@@ -78,9 +78,11 @@ class Application(models.Model):
 
     type = models.CharField(max_length=32, choices=ApplicationType.choices)
     stream = models.CharField(max_length=16, choices=FundingStream.choices)
+    # Starts as a draft. Submission is an event, so the status only ever moves
+    # through funding.services.workflow — nothing else assigns to this column.
     status = models.CharField(
         max_length=24, choices=ApplicationStatus.choices,
-        default=ApplicationStatus.SUBMITTED,
+        default=ApplicationStatus.DRAFT,
     )
 
     student = models.ForeignKey(

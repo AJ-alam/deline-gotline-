@@ -56,7 +56,7 @@ def seed_rates():
 def make_application(**kwargs):
     student = User.objects.create_user(
         email=f'r{next(_counter)}@test.com', password='pw123456',
-        full_name='Student', role='student',
+        first_name='Test', last_name='Student', role='student',
     )
     answers = {
         'course_load': 'full_time',

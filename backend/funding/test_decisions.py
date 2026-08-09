@@ -27,7 +27,7 @@ _counter = itertools.count(1)
 def make_application(**kwargs):
     student = User.objects.create_user(
         email=f'd{next(_counter)}@test.com', password='pw123456',
-        full_name='Student', role='student',
+        first_name='Test', last_name='Student', role='student',
     )
     answers = {
         'course_load': 'full_time',

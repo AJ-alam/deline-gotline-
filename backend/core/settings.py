@@ -61,15 +61,9 @@ INSTALLED_APPS = [
     'django_filters',
     'drf_spectacular',
     # Local apps
-    'users.apps.UsersConfig',
-    'programs.apps.ProgramsConfig',
-    'forms.apps.FormsConfig',
-    'dashboard.apps.DashboardConfig',
-    'notifications.apps.NotificationsConfig',
-    'api',
-    # New consolidated apps — replace api/ forms/ programs/ models at cutover.
     'accounts.apps.AccountsConfig',
     'funding.apps.FundingConfig',
+    'notifications.apps.NotificationsConfig',
 ]
 
 MIDDLEWARE = [
@@ -129,7 +123,7 @@ if not _db_url.startswith('sqlite'):
     DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = True
 
 # Custom User Model
-AUTH_USER_MODEL = 'users.CustomUser'
+AUTH_USER_MODEL = 'accounts.User'
 
 # REST Framework configurations
 REST_FRAMEWORK = {
@@ -161,7 +155,7 @@ REST_FRAMEWORK = {
         'password_reset': '5/hour',
     },
     # Never expose internal error details to API consumers
-    'EXCEPTION_HANDLER': 'api.utils.responses.custom_exception_handler',
+    'EXCEPTION_HANDLER': 'core.responses.custom_exception_handler',
 }
 
 # JWT configurations

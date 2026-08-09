@@ -110,15 +110,6 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     date_joined = models.DateTimeField(default=timezone.now)
 
-    # PermissionsMixin's reverse accessors need distinct names while the legacy
-    # user model still exists. Removed at cutover along with that model.
-    groups = models.ManyToManyField(
-        'auth.Group', related_name='accounts_users', blank=True,
-    )
-    user_permissions = models.ManyToManyField(
-        'auth.Permission', related_name='accounts_users', blank=True,
-    )
-
     objects = UserManager()
 
     USERNAME_FIELD = 'email'

@@ -23,7 +23,7 @@ _counter = itertools.count(1)
 def make_student(email=None):
     email = email or f'student{next(_counter)}@test.com'
     return User.objects.create_user(
-        email=email, password='pw123456', full_name='Test Student', role='student',
+        email=email, password='pw123456', first_name='Test', last_name='Student', role='student',
     )
 
 
@@ -81,7 +81,7 @@ class ApplicationEventTests(TestCase):
     def test_workflow_history_is_queryable_in_order(self):
         app = make_application()
         staff = User.objects.create_user(
-            email='ssw@test.com', password='pw123456', full_name='SSW', role='ssw',
+            email='ssw@test.com', password='pw123456', first_name='Sam', last_name='Worker', role='support_worker',
         )
         for action in (
             ApplicationEvent.Action.SUBMITTED,
@@ -99,7 +99,7 @@ class ApplicationEventTests(TestCase):
     def test_events_survive_actor_deletion(self):
         app = make_application()
         staff = User.objects.create_user(
-            email='gone@test.com', password='pw123456', full_name='Gone', role='ssw',
+            email='gone@test.com', password='pw123456', first_name='Gone', last_name='Person', role='support_worker',
         )
         ApplicationEvent.objects.create(
             application=app, action=ApplicationEvent.Action.APPROVED, actor=staff,

@@ -21,20 +21,21 @@ _counter = itertools.count(1)
 def make_application(**kwargs):
     student = User.objects.create_user(
         email=f'w{next(_counter)}@test.com', password='pw123456',
-        full_name='Student', role='student',
+        first_name='Test', last_name='Student', role='student',
     )
     defaults = dict(
         type=ApplicationType.ADMISSION, stream=FundingStream.PSSSP,
         schema_slug='admission', answers={},
+        status=ApplicationStatus.SUBMITTED,
     )
     defaults.update(kwargs)
     return Application.objects.create(student=student, **defaults)
 
 
-def make_staff(role='ssw'):
+def make_staff(role='support_worker'):
     return User.objects.create_user(
         email=f'staff{next(_counter)}@test.com', password='pw123456',
-        full_name='Staff', role=role,
+        first_name='Test', last_name='Staff', role=role,
     )
 
 
