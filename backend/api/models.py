@@ -46,7 +46,7 @@ class Application(models.Model):
         SPRING = 'spring', _('Spring')
         SUMMER = 'summer', _('Summer')
 
-    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='applications')
+    student = models.ForeignKey(User, on_delete=models.CASCADE, related_name='legacy_applications')
     form_type = models.CharField(max_length=50) # 'FormA', 'FormC', etc.
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)

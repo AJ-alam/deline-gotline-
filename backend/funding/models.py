@@ -1,0 +1,358 @@
+"""Funding domain.
+
+Replaces 23 models spread across api/ forms/ programs/ with the eight things this
+system actually has. The nine Form* variants were never nine kinds of object —
+they were one application carrying different fields, and fields now live in
+forms.schema. So `Application.type` distinguishes them and `answers` holds them.
+
+Naming is what the office calls things. 'Form A' is an Admission Application;
+'Form G' is a Graduation Bursary. The letters were an internal filing habit that
+leaked into class names, URLs, database columns and award logic.
+"""
+
+from decimal import Decimal
+
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+
+
+class ApplicationType(models.TextChoices):
+    """What the applicant is asking for.
+
+    Replaces `form_type` CharChoices matched with `title__icontains`, which made
+    the funding stream a property of an editable display title.
+    """
+
+    ADMISSION = 'admission', 'Admission Application'                    # was Form A
+    ENROLLMENT_VERIFICATION = 'enrollment_verification', 'Enrollment Verification'  # was Form B
+    CONTINUING_FUNDING = 'continuing_funding', 'Continuing Funding'     # was Form C
+    APPEAL = 'appeal', 'Appeal / Reconsideration'                       # was Form D
+    TRAVEL = 'travel', 'Travel & Emergency Assistance'                  # was Form E
+    PRACTICUM = 'practicum', 'Practicum Placement Allowance'            # was Form F
+    GRADUATION_BURSARY = 'graduation_bursary', 'Graduation Bursary'     # was Form G
+    SUMMER_STUDENT = 'summer_student', 'Summer Student Employment'      # was Form H
+    HARDSHIP_BURSARY = 'hardship_bursary', 'Hardship Bursary'
+    ACADEMIC_SCHOLARSHIP = 'academic_scholarship', 'Academic Scholarship'
+
+
+class FundingStream(models.TextChoices):
+    """Which pot the money comes from. Was derived by substring-matching titles."""
+
+    PSSSP = 'psssp', 'C-DFN PSSSP'
+    UCEPP = 'ucepp', 'C-DFN UCEPP'
+    DGGR = 'dggr', 'DGGR Bursaries'
+
+
+class ApplicationStatus(models.TextChoices):
+    """One workflow. Application and FormSubmission previously had two, with
+    different member sets, and a record could sit in both at once."""
+
+    DRAFT = 'draft', 'Draft'
+    SUBMITTED = 'submitted', 'Submitted'
+    UNDER_REVIEW = 'under_review', 'Under Review'
+    INFO_REQUESTED = 'info_requested', 'More Information Requested'
+    AWAITING_DECISION = 'awaiting_decision', 'Awaiting Director Decision'
+    APPROVED = 'approved', 'Approved'
+    DECLINED = 'declined', 'Declined'
+    SENT_TO_FINANCE = 'sent_to_finance', 'Sent to Finance'
+
+    @classmethod
+    def open_states(cls):
+        return (cls.SUBMITTED, cls.UNDER_REVIEW, cls.INFO_REQUESTED, cls.AWAITING_DECISION)
+
+
+class Application(models.Model):
+    """A student's request for funding.
+
+    Was FormSubmission plus a shadow Application row synthesized by the payment
+    path, which meant one request could appear twice with two mutable statuses.
+
+    `answers` is keyed by the stable field keys in forms.schema. It replaces the
+    FormField / SubmissionAnswer tables, where a field's identity was its display
+    string and award amounts were resolved by substring matching.
+    """
+
+    type = models.CharField(max_length=32, choices=ApplicationType.choices)
+    stream = models.CharField(max_length=16, choices=FundingStream.choices)
+    status = models.CharField(
+        max_length=24, choices=ApplicationStatus.choices,
+        default=ApplicationStatus.SUBMITTED,
+    )
+
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+        related_name='applications', null=True, blank=True,
+    )
+
+    # Schema-validated answers, keyed by stable field key.
+    schema_slug = models.CharField(max_length=64)
+    answers = models.JSONField(default=dict)
+
+    # What staff record on top of the applicant's answers.
+    office_notes = models.JSONField(default=dict, blank=True)
+
+    awarded_total = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+
+    submitted_at = models.DateTimeField(default=timezone.now)
+    academic_year = models.CharField(max_length=16, blank=True)
+    semester = models.CharField(max_length=16, blank=True)
+
+    # Deadline handling (§4.4/§4.5)
+    submitted_after_deadline = models.BooleanField(default=False)
+    late_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    late_approved_at = models.DateTimeField(null=True, blank=True)
+
+    # Residency consistency check
+    residency_flag = models.CharField(max_length=255, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'application'
+        ordering = ('-submitted_at',)
+        indexes = [
+            # The staff dashboard filters on these. The old query was
+            # title__icontains — a LIKE '%…%' scan that no index could serve.
+            models.Index(fields=('status', '-submitted_at')),
+            models.Index(fields=('type', 'status')),
+            models.Index(fields=('stream', 'status')),
+            models.Index(fields=('student', '-submitted_at')),
+        ]
+
+    def __str__(self):
+        return f"{self.get_type_display()} #{self.pk}"
+
+    @property
+    def is_open(self):
+        return self.status in ApplicationStatus.open_states()
+
+
+class ApplicationEvent(models.Model):
+    """Every status transition, with who and why.
+
+    Replaces the scattered reviewed_at/forwarded_at/decided_at/more_info_* column
+    pairs on FormSubmission — sixteen columns encoding a history that was never
+    queryable and could contradict `status`.
+    """
+
+    class Action(models.TextChoices):
+        SUBMITTED = 'submitted', 'Submitted'
+        REVIEWED = 'reviewed', 'Reviewed'
+        INFO_REQUESTED = 'info_requested', 'Information Requested'
+        INFO_PROVIDED = 'info_provided', 'Information Provided'
+        FORWARDED = 'forwarded', 'Forwarded to Director'
+        APPROVED = 'approved', 'Approved'
+        DECLINED = 'declined', 'Declined'
+        SENT_TO_FINANCE = 'sent_to_finance', 'Sent to Finance'
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='events',
+    )
+    action = models.CharField(max_length=24, choices=Action.choices)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    note = models.TextField(blank=True)
+    occurred_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'application_event'
+        ordering = ('occurred_at',)
+        indexes = [models.Index(fields=('application', 'occurred_at'))]
+
+    def __str__(self):
+        return f"{self.application_id}: {self.action}"
+
+
+class Award(models.Model):
+    """One disbursable line of an approved application.
+
+    Was Payment, which carried FKs to both Application and FormSubmission because
+    the two models overlapped. One parent now.
+    """
+
+    class Category(models.TextChoices):
+        TUITION = 'tuition', 'Tuition'
+        LIVING = 'living', 'Living Allowance'
+        BOOKS = 'books', 'Books & Supplies'
+        TRAVEL = 'travel', 'Travel'
+        BURSARY = 'bursary', 'Bursary'
+        SCHOLARSHIP = 'scholarship', 'Scholarship'
+        BACK_PAY = 'back_pay', 'Back Pay'
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        SENT_TO_FINANCE = 'sent_to_finance', 'Sent to Finance'
+        PAID = 'paid', 'Paid'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='awards',
+    )
+    category = models.CharField(max_length=24, choices=Category.choices)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+
+    reference = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    sent_to_finance_at = models.DateTimeField(null=True, blank=True)
+    sent_to_finance_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'award'
+        ordering = ('-created_at',)
+        indexes = [
+            models.Index(fields=('application', 'category')),
+            models.Index(fields=('status', '-created_at')),
+        ]
+
+    def __str__(self):
+        return f"{self.get_category_display()} ${self.amount}"
+
+
+class PolicySetting(models.Model):
+    """A configurable rate or rule that award calculation reads.
+
+    A missing setting must never be read as a rate of zero — that produced $0.00
+    awards indistinguishable from real decisions.
+    """
+
+    section = models.CharField(max_length=64)
+    key = models.CharField(max_length=64)
+    label = models.CharField(max_length=255)
+    value = models.DecimalField(max_digits=12, decimal_places=2)
+    unit = models.CharField(max_length=32, blank=True)
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'policy_setting'
+        # The old table had no uniqueness guard, so duplicate rows for one
+        # setting were possible and .get() would raise on them.
+        constraints = [
+            models.UniqueConstraint(fields=('section', 'key'), name='uniq_policy_setting'),
+        ]
+        ordering = ('section', 'key')
+
+    def __str__(self):
+        return f"{self.section}:{self.key} = {self.value}"
+
+
+class PolicyChange(models.Model):
+    """Audit trail of policy edits, with the date a change takes effect.
+
+    §7.5: an application is priced with the rates in force when it was submitted,
+    so history has to be queryable by date.
+    """
+
+    setting = models.ForeignKey(
+        PolicySetting, on_delete=models.CASCADE, related_name='changes',
+    )
+    previous_value = models.DecimalField(max_digits=12, decimal_places=2)
+    new_value = models.DecimalField(max_digits=12, decimal_places=2)
+    effective_date = models.DateField()
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'policy_change'
+        ordering = ('-effective_date',)
+        indexes = [models.Index(fields=('setting', 'effective_date'))]
+
+    def __str__(self):
+        return f"{self.setting_id}: {self.previous_value} → {self.new_value}"
+
+
+class ApplicationDeadline(models.Model):
+    """Submission cut-off per stream and semester."""
+
+    stream = models.CharField(max_length=16, choices=FundingStream.choices)
+    academic_year = models.CharField(max_length=16)
+    semester = models.CharField(max_length=16)
+    closes_at = models.DateTimeField()
+    late_allowed = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'application_deadline'
+        constraints = [
+            models.UniqueConstraint(
+                fields=('stream', 'academic_year', 'semester'), name='uniq_deadline',
+            ),
+        ]
+        ordering = ('-closes_at',)
+
+    def __str__(self):
+        return f"{self.stream} {self.semester} {self.academic_year}"
+
+
+class SupportingDocument(models.Model):
+    """A file attached to an application.
+
+    Was two models — Document and UserDocument — differing only in what they
+    hung off.
+    """
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE,
+        related_name='documents', null=True, blank=True,
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='documents',
+    )
+    # Matches the schema field key it satisfies (e.g. 'doc_transcripts').
+    field_key = models.CharField(max_length=64, blank=True)
+    file = models.FileField(upload_to='documents/%Y/%m/')
+    original_name = models.CharField(max_length=255)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'supporting_document'
+        ordering = ('-uploaded_at',)
+        indexes = [models.Index(fields=('application', 'field_key'))]
+
+    def __str__(self):
+        return self.original_name
+
+
+class EnrollmentVerification(models.Model):
+    """A registrar's confirmation that a student is enrolled — the old Form B.
+
+    Sent to the institution by link; the registrar completes it without an account.
+    """
+
+    class Status(models.TextChoices):
+        REQUESTED = 'requested', 'Requested'
+        COMPLETED = 'completed', 'Completed'
+        EXPIRED = 'expired', 'Expired'
+
+    application = models.OneToOneField(
+        Application, on_delete=models.CASCADE, related_name='enrollment_verification',
+    )
+    registrar_email = models.EmailField()
+    token = models.CharField(max_length=64, unique=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.REQUESTED)
+
+    confirmed_enrolled = models.BooleanField(null=True, blank=True)
+    confirmed_course_load = models.CharField(max_length=32, blank=True)
+    registrar_name = models.CharField(max_length=255, blank=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    requested_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'enrollment_verification'
+        indexes = [models.Index(fields=('token',))]
+
+    def __str__(self):
+        return f"Enrollment verification for application {self.application_id}"
