@@ -194,6 +194,16 @@ class Award(models.Model):
     application = models.ForeignKey(
         Application, on_delete=models.CASCADE, related_name='awards',
     )
+    # Which pricing produced this line. Lines belong to a decision, so replacing
+    # a decision replaces its lines as a set rather than editing them in place.
+    decision = models.ForeignKey(
+        'AwardDecision', on_delete=models.CASCADE,
+        related_name='lines', null=True, blank=True,
+    )
+    rule_code = models.CharField(
+        max_length=64, blank=True,
+        help_text='The rule that produced this line, for the audit trail.',
+    )
     category = models.CharField(max_length=24, choices=Category.choices)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
@@ -507,9 +517,18 @@ class RuleSet(models.Model):
 
     @classmethod
     def in_force_on(cls, when):
-        """The published rule set that applied on a given date."""
+        """The rule set that governed a given date.
+
+        Superseded sets are included: 'superseded' means no longer current, not
+        never applied. Excluding them made applications from before the latest
+        policy change unpriceable, which defeats the point of versioning — a
+        decision must be reproducible under the rules that actually governed it.
+
+        Drafts are excluded because they have never governed anything.
+        """
         return (cls.objects
-                .filter(status=cls.Status.PUBLISHED, effective_from__lte=when)
+                .exclude(status=cls.Status.DRAFT)
+                .filter(effective_from__lte=when)
                 .filter(models.Q(effective_to__isnull=True) | models.Q(effective_to__gte=when))
                 .order_by('-effective_from', '-version')
                 .first())
@@ -572,3 +591,75 @@ class Rule(models.Model):
 
     def __str__(self):
         return f'{self.code} ({self.rule_set})'
+
+
+class AwardDecision(models.Model):
+    """An immutable record of one pricing of one application.
+
+    Amounts used to be recalculated in place: re-running a calculation
+    overwrote the previous result, so the reasoning behind a decision that had
+    already been communicated to a student simply disappeared. There was no way
+    to answer 'why was I awarded this?' after the fact.
+
+    Repricing creates a new decision and supersedes the old one. Nothing is ever
+    edited. Together with the RuleSet version and the snapshot of the answers
+    used, any decision can be reconstructed exactly as it was made.
+    """
+
+    application = models.ForeignKey(
+        Application, on_delete=models.CASCADE, related_name='decisions',
+    )
+
+    # PROTECT: a rule set that has priced something is part of the record and
+    # must not be deletable out from under it.
+    rule_set = models.ForeignKey(
+        'RuleSet', on_delete=models.PROTECT, related_name='decisions',
+    )
+    rule_set_version = models.PositiveIntegerField(
+        help_text='Copied so the version survives independently of the rule set.',
+    )
+
+    total = models.DecimalField(max_digits=12, decimal_places=2)
+
+    # The answers as they stood when priced. Editing an application later must
+    # not silently change what an earlier decision was based on.
+    inputs = models.JSONField(default=dict)
+    trace = models.JSONField(
+        default=dict,
+        help_text='Every rule considered, whether it fired, and why.',
+    )
+    is_complete = models.BooleanField(
+        default=True,
+        help_text='False when a rate a rule needed was not configured.',
+    )
+
+    is_current = models.BooleanField(default=True)
+    superseded_by = models.OneToOneField(
+        'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='supersedes',
+    )
+
+    priced_on = models.DateField(
+        null=True, blank=True,
+        help_text='The date whose rates applied — the submission date, not today.',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'award_decision'
+        ordering = ('-created_at',)
+        constraints = [
+            # At most one current decision per application, enforced by the
+            # database rather than by whichever code path happens to write next.
+            models.UniqueConstraint(
+                fields=('application',),
+                condition=models.Q(is_current=True),
+                name='one_current_decision_per_application',
+            ),
+        ]
+        indexes = [models.Index(fields=('application', '-created_at'))]
+
+    def __str__(self):
+        return f'Decision for application {self.application_id}: ${self.total}'

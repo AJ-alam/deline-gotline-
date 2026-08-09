@@ -289,6 +289,22 @@ class RuleSetVersioningTests(TestCase):
         self.assertEqual(RuleSet.in_force_on(date(2024, 6, 1)), old)
         self.assertEqual(RuleSet.in_force_on(date(2026, 6, 1)), new)
 
+    def test_a_superseded_set_still_governs_the_period_it_covered(self):
+        """'Superseded' means no longer current, not never applied.
+
+        Excluding superseded sets made every application submitted before the
+        latest policy change unpriceable, which defeats the point of versioning.
+        """
+        old = RuleSet.objects.create(
+            name='P', version=1, status=RuleSet.Status.SUPERSEDED,
+            effective_from=date(2020, 1, 1), effective_to=date(2026, 1, 1),
+        )
+        RuleSet.objects.create(
+            name='P', version=2, status=RuleSet.Status.PUBLISHED,
+            effective_from=date(2026, 1, 1),
+        )
+        self.assertEqual(RuleSet.in_force_on(date(2024, 6, 1)), old)
+
     def test_draft_rule_sets_never_price_anything(self):
         RuleSet.objects.create(
             name='P', version=1, status=RuleSet.Status.DRAFT,
