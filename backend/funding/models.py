@@ -458,3 +458,117 @@ class AuditEntry(models.Model):
 
     def __str__(self):
         return f'{self.action} by {self.actor_id or "system"}'
+
+
+class RuleSet(models.Model):
+    """A dated, versioned collection of funding rules.
+
+    Award amounts used to live in an 847-line service branching on form titles.
+    Changing a rate meant a deploy, nobody could see why an amount was produced,
+    and re-running an old calculation silently applied today's logic to a
+    decision made years ago.
+
+    An award records the RuleSet that priced it, so any decision can be replayed
+    exactly as it was made — which is what an appeal requires.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        PUBLISHED = 'published', 'Published'
+        SUPERSEDED = 'superseded', 'Superseded'
+
+    name = models.CharField(max_length=128)
+    version = models.PositiveIntegerField()
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+
+    effective_from = models.DateField()
+    effective_to = models.DateField(
+        null=True, blank=True,
+        help_text='Null means still in force.',
+    )
+
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'rule_set'
+        ordering = ('-effective_from', '-version')
+        constraints = [
+            models.UniqueConstraint(fields=('name', 'version'), name='uniq_ruleset_version'),
+        ]
+        indexes = [models.Index(fields=('status', '-effective_from'))]
+
+    def __str__(self):
+        return f'{self.name} v{self.version}'
+
+    @classmethod
+    def in_force_on(cls, when):
+        """The published rule set that applied on a given date."""
+        return (cls.objects
+                .filter(status=cls.Status.PUBLISHED, effective_from__lte=when)
+                .filter(models.Q(effective_to__isnull=True) | models.Q(effective_to__gte=when))
+                .order_by('-effective_from', '-version')
+                .first())
+
+
+class Rule(models.Model):
+    """One funding rule: when it applies, and what it awards.
+
+    `condition` and `effect` are data, not code. `effect.kind` names one of a
+    closed set of calculators in funding.rules.effects — a general expression
+    language stored in the database would be a programming language nobody can
+    audit, which is the opposite of the point.
+    """
+
+    rule_set = models.ForeignKey(RuleSet, on_delete=models.CASCADE, related_name='rules')
+
+    code = models.CharField(
+        max_length=64,
+        help_text='Stable identifier, cited in the decision trace.',
+    )
+    description = models.CharField(
+        max_length=255,
+        help_text='Shown to staff and applicants as the reason for an amount.',
+    )
+
+    applies_to_types = models.JSONField(
+        default=list, blank=True,
+        help_text='ApplicationType values. Empty means every type.',
+    )
+    applies_to_streams = models.JSONField(
+        default=list, blank=True,
+        help_text='FundingStream values. Empty means every stream.',
+    )
+
+    condition = models.JSONField(
+        default=dict, blank=True,
+        help_text='Predicate over the application. Empty means always.',
+    )
+    effect = models.JSONField(
+        help_text='{"kind": ..., ...} naming a calculator and its parameters.',
+    )
+
+    category = models.CharField(
+        max_length=24, choices=Award.Category.choices,
+        help_text='Which kind of award this produces.',
+    )
+    order = models.PositiveSmallIntegerField(
+        default=100,
+        help_text='Evaluation order. Tuition rules allocate against a shared '
+                  'remaining balance, so their order decides which stream pays first.',
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'rule'
+        ordering = ('order', 'id')
+        constraints = [
+            models.UniqueConstraint(fields=('rule_set', 'code'), name='uniq_rule_code'),
+        ]
+
+    def __str__(self):
+        return f'{self.code} ({self.rule_set})'
