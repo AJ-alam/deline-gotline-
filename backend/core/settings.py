@@ -67,7 +67,8 @@ INSTALLED_APPS = [
     'dashboard.apps.DashboardConfig',
     'notifications.apps.NotificationsConfig',
     'api',
-    # New consolidated domain app — replaces api/ forms/ programs/ models.
+    # New consolidated apps — replace api/ forms/ programs/ models at cutover.
+    'accounts.apps.AccountsConfig',
     'funding.apps.FundingConfig',
 ]
 
