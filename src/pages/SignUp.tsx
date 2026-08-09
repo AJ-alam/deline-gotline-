@@ -111,20 +111,15 @@ const SignUp: React.FC = () => {
           sfaNote = true;
         }
 
-        if (pssspEligible && dggrEligible) {
-          title = 'Eligible: CDFN PSSSP / UCEPP + DGGR Bursary';
-          desc = 'You are registered under the Indian Act with Délı̨nę First Nation affiliation and are a Délı̨nę Beneficiary not currently receiving SFA. You qualify for **CDFN PSSSP / UCEPP** and the **DGGR Bursary**. You will be required to upload proof that you are not receiving or were denied SFA.';
-        } else if (pssspEligible) {
-          // Q1=yes, Q2=no, Q3=no
-          title = 'Eligible: CDFN PSSSP / UCEPP Funding';
-          desc = 'You are registered under the Indian Act with Délı̨nę First Nation affiliation and are not currently receiving SFA. You qualify for **CDFN PSSSP / UCEPP**. You will be required to upload proof that you are not receiving or were denied SFA (e.g. denial letter, or proof of permanent residency outside NWT).';
-        } else {
-          // dggrEligible only (q2=yes, either q3=yes blocks PSSSP or q1=no)
-          const sfaBlockMsg = q3 === 'yes' ? ' You are currently receiving SFA, which means CDFN PSSSP and UCEPP are not available to you.' : '';
-          const q1BlockMsg  = q1 === 'no'  ? ' You are not registered under the Indian Act with Délı̨nę First Nation affiliation, so CDFN PSSSP and UCEPP are not available.' : '';
-          title = 'Eligible: DGGR Bursary';
-          desc = `As a Délı̨nę Beneficiary, you qualify for the **DGGR Bursary**.${sfaBlockMsg}${q1BlockMsg}`;
-        }
+        // Phase-2 feedback: do NOT announce specific award qualification on the
+        // account-creation page — it confused testers. Streams are still derived
+        // and stored on the profile at submit; the Education Department confirms
+        // actual entitlement during application review.
+        title = 'Eligibility Check Complete';
+        desc = 'You may continue creating your portal account. The specific funding streams that apply to you will be confirmed by the Education Department when you submit an application.'
+          + (pssspEligible && q3 === 'no'
+            ? ' Note: since you are not receiving SFA, you will be asked to upload proof of SFA denial or ineligibility with your application.'
+            : '');
       }
     }
 
@@ -231,7 +226,9 @@ const SignUp: React.FC = () => {
         province_of_residence: provinceMap[q4] || q4,
         eligibility
       });
-      navigate('/signin');
+      navigate('/signin', {
+        state: { successMessage: 'Account created successfully — sign in with your new credentials.' },
+      });
     } catch (err: any) {
       if (err.data && typeof err.data === 'object' && !Array.isArray(err.data)) {
         const firstField = Object.keys(err.data)[0];
@@ -407,7 +404,7 @@ const SignUp: React.FC = () => {
                     <input id="su-email" className="field-input" type="email" placeholder="e.g. marie@email.com" value={formData.email} onChange={e => updateFormData('email', e.target.value)} />
                   </div>
                   <div className="field-group">
-                    <label className="field-label" htmlFor="su-phone">Phone Number <span className="required">*</span></label>
+                    <label className="field-label" htmlFor="su-phone">Phone Number <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: '9px', color: '#999' }}>(Optional)</span></label>
                     <input
                       id="su-phone"
                       className="field-input"

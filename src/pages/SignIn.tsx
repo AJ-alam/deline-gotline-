@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import API from '../api/client';
 import '../styles/auth.css';
 
@@ -11,6 +11,9 @@ const SignIn: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  // Set by SignUp after successful registration
+  const successMessage = (location.state as any)?.successMessage as string | undefined;
 
   const handleSignIn = async () => {
     setError(null);
@@ -121,6 +124,11 @@ const SignIn: React.FC = () => {
                 {showPassword ? 'Hide' : 'Show'}
               </button>
             </div>
+            {successMessage && !error && (
+              <div style={{ color: '#166534', background: '#dcfce7', border: '1px solid #86efac', borderRadius: '6px', padding: '8px 12px', fontSize: '12px', marginTop: '8px', fontWeight: '600' }}>
+                {successMessage}
+              </div>
+            )}
             {error && <div style={{ color: '#ef4444', fontSize: '12px', marginTop: '8px', fontWeight: '600' }}>{error}</div>}
             <div style={{ textAlign: 'right', marginTop: '8px' }}>
               <Link to="/forgot-password" style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', fontWeight: '600' }}>Forgot password? →</Link>

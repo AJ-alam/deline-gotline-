@@ -8,6 +8,16 @@ class IsAdminUser(permissions.BasePermission):
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.role in ['admin', 'director', 'ssw'])
 
+class IsSSWOrAdmin(permissions.BasePermission):
+    """
+    Allows access to Student Support Workers and admins only.
+
+    Directors are excluded on purpose: they approve or reject applications, so
+    they must not also be able to edit the details those decisions rest on.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.role in ['admin', 'ssw'])
+
 class IsDirectorUser(permissions.BasePermission):
     """
     Allows access only to Director users.

@@ -71,6 +71,14 @@ class FormSubmission(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     office_use_data = models.JSONField(blank=True, null=True, default=dict)
+
+    # Answers keyed by the stable field keys in forms.schema — the replacement for
+    # SubmissionAnswer/FormField, where a field's identity was its display string
+    # and the calculation resolved it by substring matching. Populated by
+    # dual-write during the migration; SubmissionAnswer remains authoritative
+    # until a form's slice is cut over.
+    schema_slug = models.CharField(max_length=64, blank=True, default='')
+    answers_data = models.JSONField(blank=True, null=True, default=dict)
     
     # Finance dispatch tracking — prevents duplicate sends
     finance_sent_at = models.DateTimeField(null=True, blank=True)
@@ -103,6 +111,11 @@ class FormSubmission(models.Model):
     more_info_requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='info_requests_made')
     more_info_request_notes = models.TextField(blank=True, null=True)
     more_info_responded_at = models.DateTimeField(null=True, blank=True)
+
+    # Residency Consistency Flag
+    # Set when the student declared they do not live in the NWT but the address
+    # on the submission looks like an NWT address. Staff must resolve it manually.
+    residency_flag = models.TextField(blank=True, null=True)
 
     class Meta:
         ordering = ['-submitted_at']

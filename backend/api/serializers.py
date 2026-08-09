@@ -17,7 +17,14 @@ class UserSerializer(serializers.ModelSerializer):
             'id', 'email', 'full_name', 'role', 'profile',
             'num_dependents', 'financial_assistance_status', 'enrollment_status',
             'institution_name', 'program_credential', 'current_semester',
-            'course_load', 'institution_location', 'dob'
+            'course_load', 'institution_location', 'dob',
+            # Staff edit panel: identifiers, contact, streams, banking
+            'phone', 'alternate_phone', 'mailing_address',
+            'beneficiary_number', 'treaty_number', 'dependent_ages',
+            'primary_stream', 'secondary_stream', 'province_of_residence',
+            'program_type', 'years_in_program',
+            'account_holder_name', 'account_type', 'bank_name',
+            'transit_number', 'inst_number', 'account_number',
         )
 
 class DocumentSerializer(serializers.ModelSerializer):

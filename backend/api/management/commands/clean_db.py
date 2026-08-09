@@ -26,7 +26,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 '\n'
                 '  WARNING: PRODUCTION DATABASE WIPE\n'
-                '  ──────────────────────────────────────────────────────\n'
+                # ASCII only: the Windows console runs cp1252 and box-drawing
+                # characters raise UnicodeEncodeError, which killed this warning
+                # before it could be read.
+                '  ------------------------------------------------------\n'
                 '  Deletes ALL users, applications, submissions, payments,\n'
                 '  appeals, audit logs, notifications, and documents.\n\n'
                 '  PRESERVED: Form, FormField, Program, PolicySetting,\n'
@@ -38,8 +41,9 @@ class Command(BaseCommand):
         from api.models import (
             AuditLog, PolicyHistory, Application, Document,
             UserDocument, Payment, Appeal, ShareableLink,
-            DuplicateDetectionLog, Profile,
+            DuplicateDetectionLog, Profile, DirectorActionToken,
         )
+        from django.contrib.sessions.models import Session
         from forms.models import (
             FormSubmission, SubmissionAnswer, SubmissionNote,
             MidSemesterChange, FormBResponse,
@@ -55,6 +59,9 @@ class Command(BaseCommand):
         self._delete('PolicyHistory',          PolicyHistory.objects.all())
         self._delete('AuditLog',               AuditLog.objects.all())
         self._delete('DuplicateDetectionLog',  DuplicateDetectionLog.objects.all())
+        # Cascades from FormSubmission anyway — deleted explicitly so the run
+        # reports the count instead of silently dropping approve/deny links.
+        self._delete('DirectorActionToken',    DirectorActionToken.objects.all())
         self._delete('FormBResponse',          FormBResponse.objects.all())
         self._delete('MidSemesterChange',      MidSemesterChange.objects.all())
         self._delete('SubmissionNote',         SubmissionNote.objects.all())
@@ -69,6 +76,8 @@ class Command(BaseCommand):
         self._delete('Notification',           Notification.objects.all())
         self._delete('Profile',                Profile.objects.all())
         self._delete('CustomUser (all roles)', User.objects.all())
+        # Not FK-linked to users, so live admin sessions would survive the wipe.
+        self._delete('Session',                Session.objects.all())
 
         self.stdout.write(self.style.SUCCESS(
             '\nDone. Static data (Forms, Programs, Policies, Deadlines) intact.\n'

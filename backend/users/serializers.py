@@ -100,6 +100,21 @@ class UserSerializer(serializers.ModelSerializer):
                 setattr(profile_obj, attr, value)  # allow empty string to clear fields
             profile_obj.save()
 
+        # Residency consistency: declared "not an NWT resident" + NWT address → flag staff
+        try:
+            from api.services.residency_service import check_residency_mismatch, notify_staff_of_mismatch
+            profile_obj = getattr(instance, 'profile', None)
+            mismatch = check_residency_mismatch(
+                instance.province_of_residence,
+                town_city=getattr(profile_obj, 'town_city', None),
+                postal_code=getattr(profile_obj, 'postal_code', None),
+                mailing_address=instance.mailing_address,
+                institution_location=instance.institution_location,
+            )
+            notify_staff_of_mismatch(instance, mismatch)
+        except Exception:
+            pass
+
         return instance
 
 class RegisterSerializer(serializers.ModelSerializer):

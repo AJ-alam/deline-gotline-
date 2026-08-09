@@ -16,7 +16,7 @@ User = get_user_model()
 FORMS = [
     {
         'key': 'FormA',
-        'title': 'FormA — C-DFN PSSSP Application',
+        'title': 'Form A — Admission Application',
         'description': 'Post-Secondary Student Support Program — initial funding application.',
         'program_title': 'C-DFN PSSSP',
         'fields': [
@@ -34,7 +34,7 @@ FORMS = [
     },
     {
         'key': 'FormC',
-        'title': 'FormC — Continuing Funding Application',
+        'title': 'Form C — Continuing Funding Application',
         'description': 'Renewal / continuing student funding application.',
         'program_title': 'C-DFN PSSSP',
         'fields': [
@@ -47,7 +47,7 @@ FORMS = [
     },
     {
         'key': 'FormD',
-        'title': 'FormD — Appeal / Reconsideration',
+        'title': 'Form D — Appeal / Reconsideration',
         'description': 'Appeal or reconsideration of a funding decision.',
         'program_title': 'DGGR Bursaries',
         'fields': [
@@ -58,7 +58,7 @@ FORMS = [
     },
     {
         'key': 'FormE',
-        'title': 'FormE — Travel Claim',
+        'title': 'Form E — Travel Claim',
         'description': 'Travel reimbursement claim for academic travel.',
         'program_title': 'DGGR Bursaries',
         'fields': [
@@ -70,7 +70,7 @@ FORMS = [
     },
     {
         'key': 'FormF',
-        'title': 'FormF — Practicum / Placement Allowance',
+        'title': 'Form F — Practicum / Placement Allowance',
         'description': 'Allowance claim for practicum or work placement.',
         'program_title': 'DGGR Bursaries',
         'fields': [
@@ -83,7 +83,7 @@ FORMS = [
     },
     {
         'key': 'FormG',
-        'title': 'FormG — Graduation Bursary',
+        'title': 'Form G — Graduation Bursary',
         'description': 'One-time bursary awarded upon program completion.',
         'program_title': 'DGGR Bursaries',
         'fields': [
@@ -95,7 +95,7 @@ FORMS = [
     },
     {
         'key': 'FormH',
-        'title': 'FormH — Emergency Relief',
+        'title': 'Form H — Emergency Relief',
         'description': 'Emergency financial relief for unexpected hardship.',
         'program_title': 'DGGR Bursaries',
         'fields': [
@@ -107,7 +107,7 @@ FORMS = [
     },
     {
         'key': 'AcademicScholarship',
-        'title': 'AcademicScholarship — Merit Award',
+        'title': 'Academic Scholarship — Merit Award',
         'description': 'Academic merit scholarship based on GPA.',
         'program_title': 'DGGR Bursaries',
         'fields': [
@@ -119,7 +119,7 @@ FORMS = [
     },
     {
         'key': 'HardshipBursary',
-        'title': 'HardshipBursary — Financial Hardship',
+        'title': 'Hardship Bursary — Financial Hardship',
         'description': 'Bursary for students experiencing financial hardship.',
         'program_title': 'DGGR Bursaries',
         'fields': [

@@ -5,12 +5,27 @@ from api.models import PolicySetting
 class Command(BaseCommand):
     help = 'Seeds all default policy settings from the official DGG Funding Policy'
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--reset', action='store_true',
+            help='Delete every existing policy setting first, restoring defaults. '
+                 'Destroys award rates configured by the Director — never use on deploy.',
+        )
+
     def handle(self, *args, **options):
         self.stdout.write("Seeding DGG Policy Settings...")
         
-        # Clear existing to ensure fresh start as requested
-        # "Existing JSON policy data will be lost"
-        PolicySetting.objects.all().delete()
+        # NOTE: this used to run `PolicySetting.objects.all().delete()` first.
+        # backend/build.sh calls this command on every deploy, so each deploy
+        # silently discarded the award rates the Director had configured and
+        # restored these defaults. The get_or_create below already fills in any
+        # missing key without touching values that exist, so the wipe is gone.
+        # To deliberately restore defaults, use --reset.
+        if options.get('reset'):
+            self.stdout.write(self.style.WARNING(
+                'Resetting ALL policy settings to defaults — configured rates will be lost.'
+            ))
+            PolicySetting.objects.all().delete()
 
         policies = [
             # SECTION: application_deadlines — value=month (1-12), unit=day (1-31)

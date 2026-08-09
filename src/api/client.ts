@@ -38,6 +38,36 @@ apiClient.interceptors.request.use(
     }
 );
 
+// Single-flight token refresh: concurrent 401s share one refresh call.
+// Critical because the backend rotates + blacklists refresh tokens — a second
+// refresh attempt with the same (now blacklisted) token fails and logs the user out.
+let refreshPromise: Promise<string> | null = null;
+
+function refreshAccessToken(): Promise<string> {
+    if (!refreshPromise) {
+        const refreshToken = localStorage.getItem('dgg_refresh');
+        refreshPromise = axios.post(`${BASE_URL}/auth/refresh/`, { refresh: refreshToken })
+            .then((response) => {
+                // Backend wraps payload: { success, data: { access, refresh }, message }.
+                // Fall back to the bare shape for safety.
+                const payload = response.data?.data ?? response.data;
+                const newAccess = payload?.access;
+                if (!newAccess) throw new Error('Refresh response missing access token');
+                localStorage.setItem('dgg_token', newAccess);
+                // Rotation is enabled server-side — persist the new refresh token
+                // or the next refresh will use a blacklisted one.
+                if (payload?.refresh) {
+                    localStorage.setItem('dgg_refresh', payload.refresh);
+                }
+                return newAccess as string;
+            })
+            .finally(() => {
+                refreshPromise = null;
+            });
+    }
+    return refreshPromise;
+}
+
 // RESPONSE INTERCEPTOR: Handle global errors like 401 Unauthorized
 apiClient.interceptors.response.use(
     (response) => {
@@ -76,14 +106,9 @@ apiClient.interceptors.response.use(
             if (refreshToken) {
                 originalRequest._retry = true;
                 try {
-                    // Attempt to refresh the access token
-                    const response = await axios.post(`${BASE_URL}/auth/refresh/`, {
-                        refresh: refreshToken
-                    });
-                    
-                    const newToken = response.data.access;
-                    localStorage.setItem('dgg_token', newToken);
-                    
+                    // Attempt to refresh the access token (single-flight across concurrent 401s)
+                    const newToken = await refreshAccessToken();
+
                     // Update header and retry original request
                     originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
                     return apiClient(originalRequest);
@@ -349,6 +374,14 @@ class API {
         return apiClient.post('/payments/', data);
     }
 
+    static updatePayment(id: number, data: { amount?: number; payment_type?: string; status?: string }) {
+        return apiClient.patch(`/payments/${id}/`, data);
+    }
+
+    static createPayment(data: { user: number; amount: number; payment_type: string; application?: number | null; submission?: number | null }) {
+        return apiClient.post('/payments/', data);
+    }
+
     static getAppeals() {
         return apiClient.get('/appeals/');
     }
@@ -466,6 +499,21 @@ class API {
     // Eligibility check
     static checkEligibility(submissionId: number): Promise<any> {
         return apiClient.post(`/forms/submissions/${submissionId}/check-eligibility/`, {});
+    }
+
+    // Amount eligible by category, computed server-side by the same code that
+    // generates the payments — never recompute these figures in the browser.
+    static getFundingBreakdown(submissionId: number): Promise<any> {
+        return apiClient.get(`/forms/submissions/${submissionId}/funding-breakdown/`);
+    }
+
+    // SSW/admin correction of submitted answers — reason is mandatory and audited
+    static editSubmissionAnswers(
+        submissionId: number,
+        answers: { id?: number; field_label?: string; answer_text: string }[],
+        reason: string,
+    ): Promise<any> {
+        return apiClient.patch(`/forms/submissions/${submissionId}/answers/`, { answers, reason });
     }
 
     // Duplicate detection

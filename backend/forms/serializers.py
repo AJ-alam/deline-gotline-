@@ -67,9 +67,10 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             'more_info_requested_by_name', 'more_info_request_notes',
             'more_info_responded_at',
             'finance_sent_at', 'finance_sent_by',
-            'form_b_status', 'form_b',
+            'form_b_status', 'form_b', 'residency_flag',
         )
-        read_only_fields = ('student', 'submitted_at', 'finance_sent_at', 'finance_sent_by')
+        read_only_fields = ('student', 'submitted_at', 'finance_sent_at', 'finance_sent_by',
+                            'residency_flag')
 
     def get_form_b_status(self, obj):
         """Returns 'waiting', 'received', 'not_applicable', or None."""
@@ -216,6 +217,11 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             print(f"Calculation Error: {str(e)}")
 
         try:
+            self._check_residency(submission)
+        except Exception as e:
+            print(f"Residency Check Error: {str(e)}")
+
+        try:
             from api.models import DuplicateDetectionLog
             import hashlib
             id_source = submission.student.email if submission.student else "guest"
@@ -228,6 +234,17 @@ class FormSubmissionSerializer(serializers.ModelSerializer):
             print(f"Duplicate Detection Error: {str(e)}")
 
         return submission
+
+    @staticmethod
+    def _check_residency(submission):
+        """
+        Compare the declared residency (eligibility Q4, stored on the user) with the
+        address given on this submission and on the profile. Contradictions are
+        stored on the submission and pushed to staff — they are never auto-resolved.
+        """
+        from api.services.residency_service import apply_to_submission
+        apply_to_submission(submission)
+
 
 class SubmissionNoteSerializer(serializers.ModelSerializer):
     author_name = serializers.CharField(source='author.full_name', read_only=True)
@@ -264,7 +281,7 @@ class FormSubmissionListSerializer(serializers.ModelSerializer):
             'more_info_requested_at', 'more_info_requested_by',
             'more_info_request_notes', 'more_info_responded_at',
             'finance_sent_at',
-            'form_b_status',
+            'form_b_status', 'residency_flag',
         )
         read_only_fields = fields
 

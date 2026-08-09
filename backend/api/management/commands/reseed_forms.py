@@ -14,7 +14,7 @@ User = get_user_model()
 
 FORMS = [
     {
-        'title': 'C-DFN PSSSP — New Student Application',
+        'title': 'Form A — Admission Application',
         'description': 'New student application for C-DFN Post-Secondary Student Support Program.',
         'purpose': 'application',
         'fields': [
@@ -48,7 +48,7 @@ FORMS = [
         ]
     },
     {
-        'title': 'Continuing Funding Application',
+        'title': 'Form C — Continuing Funding Application',
         'description': 'Continuing student funding application for returning students.',
         'purpose': 'application',
         'fields': [
@@ -69,7 +69,7 @@ FORMS = [
         ]
     },
     {
-        'title': 'Appeal & Reconsideration',
+        'title': 'Form D — Appeal / Reconsideration',
         'description': 'Appeal form for reconsidering a funding decision.',
         'purpose': 'application',
         'fields': [
@@ -82,7 +82,7 @@ FORMS = [
         ]
     },
     {
-        'title': 'Travel & Relocation Claim',
+        'title': 'Form E — Travel Claim',
         'description': 'Travel assistance and relocation claim for eligible students.',
         'purpose': 'application',
         'fields': [
@@ -100,7 +100,7 @@ FORMS = [
         ]
     },
     {
-        'title': 'Practicum & Placement Allowance',
+        'title': 'Form F — Practicum / Placement Allowance',
         'description': 'Supervisor report for practicum or summer student placement award.',
         'purpose': 'application',
         'fields': [
@@ -117,7 +117,7 @@ FORMS = [
         ]
     },
     {
-        'title': 'Graduation Bursary',
+        'title': 'Form G — Graduation Bursary',
         'description': 'One-time graduation bursary for successful program completion.',
         'purpose': 'application',
         'fields': [
@@ -146,7 +146,7 @@ FORMS = [
         ]
     },
     {
-        'title': 'Emergency Relief Fund',
+        'title': 'Form H — Emergency Relief',
         'description': 'Emergency financial relief for students facing unexpected hardship.',
         'purpose': 'application',
         'fields': [
@@ -174,7 +174,7 @@ FORMS = [
         ]
     },
     {
-        'title': 'Hardship Bursary',
+        'title': 'Hardship Bursary — Financial Hardship',
         'description': 'Financial hardship bursary for students in need.',
         'purpose': 'application',
         'fields': [

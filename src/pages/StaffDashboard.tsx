@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import API from '../api/client';
 import { jsPDF } from 'jspdf';
-import * as XLSX from 'xlsx';
 import '../styles/staff.css';
 import * as Ic from '../components/Icons';
 
@@ -161,9 +160,91 @@ const StaffDashboard: React.FC = () => {
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
+
+  const reloadPayments = async () => {
+    const res: any = await API.getPayments();
+    setPayments(Array.isArray(res) ? res : []);
+  };
+
+  // Phase-2 feedback: living allowance was auto-calculated for the whole
+  // semester with no way to adjust or issue by month. Pending payments are
+  // now editable and splittable into monthly instalments.
+  const handleEditPaymentAmount = async (p: any) => {
+    const input = window.prompt(`New amount for ${p.payment_type || 'payment'} (current $${p.amount}):`, String(p.amount));
+    if (input === null) return;
+    const amt = parseFloat(input.replace(/[^\d.]/g, ''));
+    if (isNaN(amt) || amt < 0) { alert('Invalid amount'); return; }
+    try {
+      await API.updatePayment(p.id, { amount: amt });
+      await reloadPayments();
+    } catch (e: any) { alert(e?.message || 'Failed to update payment'); }
+  };
+
+  const handleSplitPaymentMonthly = async (p: any) => {
+    const input = window.prompt(`Split $${p.amount} "${p.payment_type}" into how many monthly payments? (2–12)`, '4');
+    if (input === null) return;
+    const n = parseInt(input, 10);
+    if (isNaN(n) || n < 2 || n > 12) { alert('Enter a number between 2 and 12'); return; }
+    const total = parseFloat(p.amount) || 0;
+    const monthly = Math.floor((total / n) * 100) / 100;
+    const first = Math.round((total - monthly * (n - 1)) * 100) / 100; // rounding remainder lands on month 1
+    const base = (p.payment_type || 'Living Allowance').replace(/\s*\(Month \d+ of \d+\)$/, '');
+    try {
+      await API.updatePayment(p.id, { amount: first, payment_type: `${base} (Month 1 of ${n})` });
+      for (let m = 2; m <= n; m++) {
+        await API.createPayment({
+          user: p.user,
+          amount: monthly,
+          payment_type: `${base} (Month ${m} of ${n})`,
+          application: p.application || null,
+          submission: p.submission || null,
+        });
+      }
+      await reloadPayments();
+    } catch (e: any) {
+      alert(e?.message || 'Split failed — check the payment list before retrying.');
+      await reloadPayments();
+    }
+  };
   const [appeals, setAppeals] = useState<any[]>([]);
   const [isAppealsLoading, setIsAppealsLoading] = useState(false);
   const [userData, setUserData] = useState<any>(null);
+
+  // ── SSW correction of submitted answers ──
+  const [isEditingAnswers, setIsEditingAnswers] = useState(false);
+  const [answerEdits, setAnswerEdits] = useState<Record<number, string>>({});
+  const [answerEditReason, setAnswerEditReason] = useState('');
+  const [isSavingAnswers, setIsSavingAnswers] = useState(false);
+
+  const cancelAnswerEditing = () => {
+    setIsEditingAnswers(false);
+    setAnswerEdits({});
+    setAnswerEditReason('');
+  };
+
+  const saveAnswerEdits = async () => {
+    const app = detailApp || applications.find(a => String(a.id) === String(selectedAppId));
+    if (!app) return;
+
+    const changed = (app.answers || [])
+      .filter((a: any) => answerEdits[a.id] !== undefined && answerEdits[a.id] !== (a.answer_text || ''))
+      .map((a: any) => ({ id: a.id, answer_text: answerEdits[a.id] }));
+
+    if (changed.length === 0) { cancelAnswerEditing(); return; }
+    if (!answerEditReason.trim()) { alert('Enter a reason for the correction — it is stored on the record.'); return; }
+
+    setIsSavingAnswers(true);
+    try {
+      await API.editSubmissionAnswers(Number(app.id), changed, answerEditReason.trim());
+      const fresh: any = await API.getSubmission(Number(app.id));
+      setDetailApp(fresh);
+      cancelAnswerEditing();
+    } catch (e: any) {
+      alert(e?.message || 'Could not save the corrections');
+    } finally {
+      setIsSavingAnswers(false);
+    }
+  };
 
   const fetchApplications = async (showLoader = false) => {
     if (showLoader) setIsLoading(true);
@@ -484,8 +565,8 @@ const StaffDashboard: React.FC = () => {
 
     // Stream split from form title
     const ft = (a: any) => (a.form_type || a.form?.title || '').toUpperCase();
-    const cdfnCount  = all.filter(a => /FORMA|FORMC|PSSSP/.test(ft(a))).length;
-    const dggrCount  = all.filter(a => /DGGR|SCHOLARSHIP|HARDSHIP|FORMD|FORMF|FORMG/.test(ft(a))).length;
+    const cdfnCount  = all.filter(a => /FORM ?A|FORM ?C|PSSSP|ADMISSION/.test(ft(a))).length;
+    const dggrCount  = all.filter(a => /DGGR|SCHOLARSHIP|HARDSHIP|FORM ?[DFG]/.test(ft(a))).length;
     const uceppCount = all.filter(a => /UCEPP|UPGRADING/.test(ft(a))).length;
 
     return {
@@ -650,6 +731,27 @@ const StaffDashboard: React.FC = () => {
     } catch { }
   };
 
+  // Click on a notification: mark read + jump to the related screen.
+  // Prefers the server-side `link`; falls back to a "#123" reference in the
+  // message so older notifications (created before links) still navigate.
+  const handleNotificationClick = (notif: any) => {
+    handleMarkNotificationRead(notif.id);
+    const link: string = notif.link || '';
+    const idFromLink = /[?&]id=(\d+)/.exec(link)?.[1];
+    const idFromMessage = /#(\d+)/.exec(notif.message || '')?.[1]
+      || /DGG-0*(\d+)/.exec(notif.message || '')?.[1]; // Form B refs: "Ref: DGG-0066"
+    const submissionId = idFromLink || idFromMessage;
+    if (link.includes('/staff/director-queue')) {
+      setCurrentView(role === 'director' ? 'director-queue' : 'applications');
+      return;
+    }
+    if (submissionId) {
+      handleAppClick(Number(submissionId));
+      return;
+    }
+    // No target — stay on the notifications list.
+  };
+
   const handleMarkNotificationRead = async (id: number) => {
     try {
       await API.markNotificationRead(id);
@@ -703,6 +805,11 @@ const StaffDashboard: React.FC = () => {
   type BreakdownRow = { id: string; label: string; stream?: string; note?: string; amount: number };
   const [breakdownRows, setBreakdownRows] = useState<BreakdownRow[]>([]);
   const [isSavingBreakdown, setIsSavingBreakdown] = useState(false);
+
+  // Amount eligible by category as computed by the backend — the same code path
+  // that creates the payments. The in-browser calculator below is kept only as a
+  // fallback for legacy Application rows that have no submission to price.
+  const [serverBreakdown, setServerBreakdown] = useState<any>(null);
 
   // ── POLICY SETTINGS STATE ──
   const [policySettings, setPolicySettings] = useState<Record<string, any[]>>({});
@@ -993,10 +1100,32 @@ const StaffDashboard: React.FC = () => {
         setBreakdownRows([]); // will be seeded from autoSuggested in renderAutoFundingTable when available
       }
     }
-    // Reset note state when switching applications
+  // detailApp included: hydration arrives after this first runs with the lean
+  // list row — without it, saved office_use_data/funding_breakdown never loads.
+  }, [selectedAppId, applications, detailApp]);
+
+  // Reset note state when switching applications (separate effect so detailApp
+  // hydration doesn't wipe a note mid-typing)
+  useEffect(() => {
     setStaffNote('');
     setNoteError(null);
-  }, [selectedAppId, applications]);
+    // Never carry a half-finished correction over to another application
+    setIsEditingAnswers(false);
+    setAnswerEdits({});
+    setAnswerEditReason('');
+  }, [selectedAppId]);
+
+  // Pull the authoritative per-category amounts whenever a detail view opens, and
+  // again after answers change — a corrected tuition figure changes the award.
+  useEffect(() => {
+    setServerBreakdown(null);
+    if (!selectedAppId) return;
+    let cancelled = false;
+    API.getFundingBreakdown(Number(selectedAppId))
+      .then((res: any) => { if (!cancelled) setServerBreakdown(res); })
+      .catch(() => { if (!cancelled) setServerBreakdown(null); });
+    return () => { cancelled = true; };
+  }, [selectedAppId, detailApp?.answers]);
 
   // ── DETAIL HYDRATION SAFETY NET ──
   // Some entry points (director-queue Quick-Approve/Quick-Deny, table row clicks)
@@ -1293,8 +1422,20 @@ const StaffDashboard: React.FC = () => {
       beneficiaryNumber.includes(query) ||
       (app.form_title || '').toLowerCase().includes(query);
     const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
-    const matchesFunding = fundingStreamFilter === 'all' ||
-      (app.form_title || app.form?.title || '').includes(fundingStreamFilter);
+    // Stream filter: form titles ("New Student Application", "Graduation Bursary")
+    // rarely contain the stream name, so match the student's assigned streams
+    // first, then fall back to form-type/title heuristics (same split as stats).
+    const matchesFunding = (() => {
+      if (fundingStreamFilter === 'all') return true;
+      const streams = [app.student_details?.primary_stream, app.student_details?.secondary_stream]
+        .filter(Boolean)
+        .map((s: string) => String(s).toUpperCase());
+      if (streams.includes(fundingStreamFilter)) return true;
+      const t = `${app.form_type || ''} ${app.form_title || app.form?.title || ''}`.toUpperCase();
+      if (fundingStreamFilter === 'PSSSP') return /PSSSP|FORM ?A|FORM ?C/.test(t);
+      if (fundingStreamFilter === 'UCEPP') return /UCEPP|UPGRADING/.test(t);
+      return /DGGR|SCHOLARSHIP|HARDSHIP|GRADUATION|TRAVEL|PRACTICUM|FORM ?[DFG]/.test(t);
+    })();
     return matchesSearch && matchesStatus && matchesFunding;
   });
 
@@ -1590,7 +1731,23 @@ const StaffDashboard: React.FC = () => {
   // table populates as soon as data is available (was previously blank when
   // policy settings loaded after the selection).
   useEffect(() => {
-    if (!selectedAppId || !autoSuggested || autoSuggested.ineligible) return;
+    if (!selectedAppId) return;
+
+    // Backend figures win whenever they are available: they come from the same
+    // calculator that writes the payments, so what staff approve is what pays out.
+    if (serverBreakdown?.categories) {
+      const fromServer: BreakdownRow[] = serverBreakdown.categories.map((c: any, i: number) => ({
+        id: `srv-${i}-${c.category}`,
+        label: c.category,
+        stream: c.stream || '',
+        note: c.rule || '',
+        amount: Number(c.amount) || 0,
+      }));
+      setBreakdownRows(prev => (prev.length > 0 ? prev : fromServer));
+      return;
+    }
+
+    if (!autoSuggested || autoSuggested.ineligible) return;
     // Guard moved to functional update below — do not early-return here as the
     // stale closure may see length=0 even when rows exist.
 
@@ -1627,9 +1784,35 @@ const StaffDashboard: React.FC = () => {
     // closure bug where the guard saw an empty array even after the user added a row.
     setBreakdownRows(prev => prev.length > 0 ? prev : seeded);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAppId, autoSuggested?.total, autoSuggested?.stream, policySettings]);
+  }, [selectedAppId, autoSuggested?.total, autoSuggested?.stream, policySettings, serverBreakdown]);
 
   const breakdownTotal = breakdownRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  // Program-cost envelope: confirmed tuition plus any purchases the SSW adds
+  // (laptop, supplies) share one per-semester cap. Mirrors
+  // CalculationService.is_program_cost_row on the backend, which is what
+  // actually enforces it on save.
+  const PROGRAM_COST_WORDS = ['tuition', 'laptop', 'computer', 'supplies', 'equipment', 'materials', 'software', 'program cost'];
+  const isProgramCostRow = (r: BreakdownRow) => {
+    const label = (r.label || '').toLowerCase();
+    if (label.includes('extra tuition')) return false;
+    if (label.includes('living') || label.includes('book') || label.includes('travel')) return false;
+    return PROGRAM_COST_WORDS.some(w => label.includes(w));
+  };
+  const programCostTotal = breakdownRows.filter(isProgramCostRow)
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  const programCostCap = (() => {
+    const sd = selectedApp?.student_details || {};
+    const streams = `${sd.primary_stream || ''} ${sd.secondary_stream || ''}`.toUpperCase();
+    if (streams.includes('PSSSP')) return getPolicySetting('psssp_tuition', 'max_per_semester');
+    if (streams.includes('UCEPP')) return getPolicySetting('ucepp_tuition', 'max_per_semester');
+    if (streams.includes('DGGR')) {
+      const partTime = (sd.enrollment_status || '').toLowerCase().includes('part');
+      return getPolicySetting('dggr_tuition', partTime ? 'parttime_per_semester' : 'fulltime_per_semester');
+    }
+    return getPolicySetting('psssp_tuition', 'max_per_semester');
+  })();
+  const programCostOver = programCostCap > 0 && programCostTotal > programCostCap;
 
   const updateBreakdownRow = (id: string, patch: Partial<BreakdownRow>) => {
     setBreakdownRows(rows => rows.map(r => (r.id === id ? { ...r, ...patch } : r)));
@@ -1658,6 +1841,12 @@ const StaffDashboard: React.FC = () => {
       if (applyTotal) payload.amount = breakdownTotal;
       await API.updateSubmissionStatus(Number(selectedAppId), app.status, payload);
       refreshApps();
+      // Re-hydrate the open detail view — "Currently applied amount" reads from
+      // detailApp, which refreshApps() does not update.
+      try {
+        const fresh: any = await API.getSubmission(Number(selectedAppId));
+        setDetailApp(fresh);
+      } catch { /* list refresh already queued; detail will catch up on next open */ }
       alert(applyTotal ? `Saved and applied total $${breakdownTotal.toLocaleString()}` : 'Funding breakdown saved');
     } catch (e: any) {
       alert(e?.message || 'Failed to save funding breakdown');
@@ -2395,7 +2584,57 @@ const StaffDashboard: React.FC = () => {
           <span className="admin-badge" style={{ background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', fontSize: '9px' }}>
             {answers.length} FIELD{answers.length !== 1 ? 'S' : ''}
           </span>
+          {/* Directors decide on applications, so they cannot edit the details.
+              Once Finance has been paid out the record is closed to edits. */}
+          {role !== 'director' && !app.finance_sent_at && (
+            isEditingAnswers ? (
+              <div style={{ display: 'flex', gap: '8px', marginLeft: 'auto' }}>
+                <button
+                  className="btn-primary"
+                  style={{ fontSize: '11px', padding: '6px 14px' }}
+                  disabled={isSavingAnswers}
+                  onClick={saveAnswerEdits}
+                >{isSavingAnswers ? 'Saving…' : 'Save corrections'}</button>
+                <button
+                  className="btn-secondary"
+                  style={{ fontSize: '11px', padding: '6px 14px' }}
+                  disabled={isSavingAnswers}
+                  onClick={cancelAnswerEditing}
+                >Cancel</button>
+              </div>
+            ) : (
+              <button
+                className="btn-secondary"
+                style={{ fontSize: '11px', padding: '6px 14px', marginLeft: 'auto' }}
+                onClick={() => {
+                  setAnswerEdits(Object.fromEntries(
+                    answers.filter((a: any) => !a.answer_file).map((a: any) => [a.id, a.answer_text || ''])
+                  ));
+                  setIsEditingAnswers(true);
+                }}
+              >Correct details</button>
+            )
+          )}
         </div>
+
+        {isEditingAnswers && (
+          <div style={{ marginBottom: '20px', padding: '14px 16px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '10px' }}>
+            <label style={{ fontSize: '11px', fontWeight: '700', color: '#92400e', display: 'block', marginBottom: '6px' }}>
+              REASON FOR CORRECTION (REQUIRED)
+            </label>
+            <input
+              className="admin-input"
+              style={{ fontSize: '12px' }}
+              placeholder="e.g. Transit number corrected against the void cheque on file"
+              value={answerEditReason}
+              onChange={e => setAnswerEditReason(e.target.value)}
+            />
+            <div style={{ fontSize: '10px', color: '#78350f', marginTop: '8px' }}>
+              Every change is written to the audit log, added as an internal note, and the student is notified.
+              Uploaded documents cannot be edited — request a replacement file instead.
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {Object.entries(grouped).map(([groupName, groupAnswers]) => (
@@ -2439,6 +2678,14 @@ const StaffDashboard: React.FC = () => {
                             {fileName}
                           </a>
                         </div>
+                      ) : isEditingAnswers ? (
+                        <input
+                          className="admin-input"
+                          style={{ fontSize: '12px' }}
+                          aria-label={displayLabel}
+                          value={answerEdits[answer.id] ?? (textValue || '')}
+                          onChange={e => setAnswerEdits(prev => ({ ...prev, [answer.id]: e.target.value }))}
+                        />
                       ) : (
                         <div className="submitted-info-value">
                           {textValue && textValue.trim() !== '' ? renderAnswerText(textValue) : (
@@ -2519,7 +2766,7 @@ const StaffDashboard: React.FC = () => {
               <div className="staff-nav-group">
                 <div className="staff-nav-title">Main</div>
                 {renderNavItem('dashboard', 'Dashboard', <AdminIcons.Dashboard />)}
-                {renderNavItem('applications', 'All Applications', <AdminIcons.Apps />, applications.filter(a => a.status === 'pending').length)}
+                {renderNavItem('applications', 'All Applications', <AdminIcons.Apps />, applications.filter(a => a.status === 'pending').length || undefined)}
                 {renderNavItem('payments', 'Payments', <AdminIcons.Dashboard />)}
               </div>
 
@@ -3400,6 +3647,100 @@ const StaffDashboard: React.FC = () => {
                         </div>
                       )}
                       {renderDuplicateStatus()}
+
+                      {/* ── RESIDENCY MISMATCH FLAG — declared non-NWT resident but NWT address on file ── */}
+                      {(() => {
+                        const app = detailApp || applications.find(a => String(a.id) === String(selectedAppId));
+                        const flag: string | null = app?.residency_flag || null;
+                        if (!flag) return null;
+                        const reviewed = !!app?.office_use_data?.residency_reviewed;
+                        // "Residency mismatch" = declared non-resident with an NWT address.
+                        // "Residency review"   = declared resident with an address elsewhere.
+                        const isMismatch = flag.startsWith('Residency mismatch');
+                        return (
+                          <div className="admin-chart-card" style={{ marginBottom: '24px', background: reviewed ? '#f0fdf4' : '#fffbeb', border: `1px solid ${reviewed ? '#86efac' : '#fcd34d'}` }}>
+                            <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '8px', color: reviewed ? '#166534' : '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <Ic.AlertTriangle size={14} /> {isMismatch ? 'RESIDENCY DECLARATION MISMATCH' : 'RESIDENCY ADDRESS CHECK'}
+                            </h3>
+                            <p style={{ fontSize: '13px', color: reviewed ? '#166534' : '#78350f', marginBottom: reviewed ? 0 : '14px', lineHeight: '1.5' }}>
+                              {flag}
+                              {reviewed && app?.office_use_data?.residency_reviewed_by
+                                ? ` Reviewed by ${app.office_use_data.residency_reviewed_by}.`
+                                : ''}
+                            </p>
+                            {!reviewed && (
+                              <button
+                                className="btn-primary"
+                                style={{ fontSize: '11px', padding: '6px 14px' }}
+                                onClick={async () => {
+                                  try {
+                                    await API.updateSubmissionStatus(Number(selectedAppId), app.status, {
+                                      office_use_data: {
+                                        residency_reviewed: true,
+                                        residency_reviewed_by: userData?.full_name || 'Staff',
+                                        residency_reviewed_at: new Date().toISOString(),
+                                      },
+                                    });
+                                    const fresh: any = await API.getSubmission(Number(selectedAppId));
+                                    setDetailApp(fresh);
+                                  } catch (e: any) {
+                                    alert(e?.message || 'Failed to record review');
+                                  }
+                                }}
+                              >Confirm residency reviewed ✓</button>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── 80%+ MERIT FLAG — student self-declared high marks; SSW must verify transcript ── */}
+                      {(() => {
+                        const app = detailApp || applications.find(a => String(a.id) === String(selectedAppId));
+                        const answers: any[] = app?.answers || [];
+                        const getAns = (label: string) => answers.find((a: any) =>
+                          (a.label || a.field?.label || a.field_label || '').toLowerCase() === label.toLowerCase())?.answer_text;
+                        const declared = String(getAns('Merit 80%+ Declared') || '').toLowerCase() === 'yes';
+                        const gpaNum = parseFloat(String(getAns('GPA Achieved') || '').replace(/[^\d.]/g, ''));
+                        const gpaHigh = !isNaN(gpaNum) && gpaNum >= 80 && gpaNum <= 100;
+                        if (!declared && !gpaHigh) return null;
+                        const verified = !!app?.office_use_data?.merit_verified;
+                        return (
+                          <div className="admin-chart-card" style={{ marginBottom: '24px', background: verified ? '#f0fdf4' : '#fffbeb', border: `1px solid ${verified ? '#86efac' : '#fcd34d'}` }}>
+                            <h3 style={{ fontSize: '14px', fontWeight: '800', marginBottom: '8px', color: verified ? '#166534' : '#92400e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <Ic.AlertTriangle size={14} /> 80%+ MARKS {declared ? 'DECLARED' : 'DETECTED'}
+                            </h3>
+                            <p style={{ fontSize: '13px', color: verified ? '#166534' : '#78350f', marginBottom: verified ? 0 : '14px' }}>
+                              {declared
+                                ? 'The student declared an average of 80% or higher for the qualifying semester.'
+                                : `Reported GPA of ${gpaNum}% meets the 80% merit threshold.`}
+                              {verified
+                                ? ` Verified against the transcript${app?.office_use_data?.merit_verified_by ? ` by ${app.office_use_data.merit_verified_by}` : ''}.`
+                                : ' Verify this against the uploaded official transcript before approving the award.'}
+                            </p>
+                            {!verified && (
+                              <button
+                                className="btn-primary"
+                                style={{ fontSize: '11px', padding: '6px 14px' }}
+                                onClick={async () => {
+                                  try {
+                                    await API.updateSubmissionStatus(Number(selectedAppId), app.status, {
+                                      office_use_data: {
+                                        merit_verified: true,
+                                        merit_verified_by: userData?.full_name || 'Staff',
+                                        merit_verified_at: new Date().toISOString(),
+                                      },
+                                    });
+                                    const fresh: any = await API.getSubmission(Number(selectedAppId));
+                                    setDetailApp(fresh);
+                                  } catch (e: any) {
+                                    alert(e?.message || 'Failed to record verification');
+                                  }
+                                }}
+                              >Confirm transcript verified ✓</button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Submitted Information Section */}
@@ -3448,31 +3789,64 @@ const StaffDashboard: React.FC = () => {
                       </div>
                       {editingProfile && studentProfile ? (
                         <div style={{ background: '#f8fafc', borderRadius: '10px', padding: '20px', border: '1px solid #e2e8f0' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-                            {[
+                          {/* Phase-2 feedback: staff must be able to change ALL student
+                              information (incl. banking) — not just a fixed subset. */}
+                          {[
+                            { section: 'Identity & Contact', fields: [
+                              { key: 'full_name', label: 'Full Name' },
+                              { key: 'phone', label: 'Phone' },
+                              { key: 'alternate_phone', label: 'Alternate Phone' },
+                              { key: 'mailing_address', label: 'Mailing Address' },
                               { key: 'beneficiary_number', label: 'Beneficiary Number' },
                               { key: 'treaty_number', label: 'Treaty Number' },
-                              { key: 'num_dependents', label: 'Number of Dependents' },
+                            ]},
+                            { section: 'Funding & Household', fields: [
                               { key: 'financial_assistance_status', label: 'Financial Assistance Status' },
+                              { key: 'primary_stream', label: 'Primary Stream' },
+                              { key: 'secondary_stream', label: 'Secondary Stream' },
+                              { key: 'num_dependents', label: 'Number of Dependents' },
+                              { key: 'dependent_ages', label: 'Dependent Ages' },
+                              { key: 'province_of_residence', label: 'Province of Residence' },
+                            ]},
+                            { section: 'Enrollment', fields: [
                               { key: 'institution_name', label: 'Institution Name' },
                               { key: 'enrollment_status', label: 'Enrollment Status' },
-                            ].map(({ key, label }) => {
-                              const app = detailApp || applications.find((a: any) => String(a.id) === String(selectedAppId));
-                              const sd = app?.student_details || {};
-                              const currentVal = profileEdits[key] !== undefined ? profileEdits[key] : (sd[key] ?? '');
-                              return (
-                                <div key={key}>
-                                  <label style={{ fontSize: '10px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>{label}</label>
-                                  <input
-                                    className="admin-input"
-                                    style={{ fontSize: '13px' }}
-                                    value={currentVal}
-                                    onChange={e => setProfileEdits(prev => ({ ...prev, [key]: e.target.value }))}
-                                  />
-                                </div>
-                              );
-                            })}
-                          </div>
+                              { key: 'program_credential', label: 'Program / Credential' },
+                              { key: 'current_semester', label: 'Current Semester' },
+                              { key: 'years_in_program', label: 'Years in Program' },
+                              { key: 'institution_location', label: 'Institution Location' },
+                            ]},
+                            { section: 'Banking Information', fields: [
+                              { key: 'account_holder_name', label: 'Account Holder Name' },
+                              { key: 'bank_name', label: 'Bank Name' },
+                              { key: 'transit_number', label: 'Transit Number' },
+                              { key: 'inst_number', label: 'Institution Number' },
+                              { key: 'account_number', label: 'Account Number' },
+                              { key: 'account_type', label: 'Account Type' },
+                            ]},
+                          ].map(({ section, fields }) => (
+                            <div key={section} style={{ marginBottom: '18px' }}>
+                              <div style={{ fontSize: '11px', fontWeight: '800', color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '10px', borderBottom: '1px solid #e2e8f0', paddingBottom: '4px' }}>{section}</div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                                {fields.map(({ key, label }) => {
+                                  const app = detailApp || applications.find((a: any) => String(a.id) === String(selectedAppId));
+                                  const sd = app?.student_details || {};
+                                  const currentVal = profileEdits[key] !== undefined ? profileEdits[key] : (sd[key] ?? '');
+                                  return (
+                                    <div key={key}>
+                                      <label style={{ fontSize: '10px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>{label}</label>
+                                      <input
+                                        className="admin-input"
+                                        style={{ fontSize: '13px' }}
+                                        value={currentVal}
+                                        onChange={e => setProfileEdits(prev => ({ ...prev, [key]: e.target.value }))}
+                                      />
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
                           <button
                             className="btn-primary"
                             style={{ fontSize: '12px', padding: '8px 20px' }}
@@ -3533,12 +3907,30 @@ const StaffDashboard: React.FC = () => {
                         ) : (
                           <span className="admin-badge breakdown-state-default">POLICY DEFAULT</span>
                         )}
+                        {serverBreakdown && (
+                          <span className="admin-badge" style={{ background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', fontSize: '9px' }}>
+                            SERVER CALCULATED
+                          </span>
+                        )}
                         <button
                           onClick={addBreakdownRow}
                           className="btn-ghost"
                           style={{ marginLeft: 'auto' }}
                         >+ Add Row</button>
                       </div>
+                      {serverBreakdown && !serverBreakdown.tuition_confirmed && (
+                        <div style={{ marginBottom: '16px', padding: '12px 16px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '8px', fontSize: '12px', color: '#78350f' }}>
+                          <strong>Tuition not yet confirmed.</strong> No tuition is awarded until the registrar's
+                          confirmed figure (Form B) is on file — living allowance and other categories are unaffected.
+                        </div>
+                      )}
+                      {serverBreakdown && Number(serverBreakdown.unfunded_tuition) > 0 && (
+                        <div style={{ marginBottom: '16px', padding: '12px 16px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#475569' }}>
+                          Tuition billed ${Number(serverBreakdown.requested_tuition).toLocaleString()} — $
+                          {Number(serverBreakdown.unfunded_tuition).toLocaleString()} remains above the funding caps
+                          and is the student's responsibility.
+                        </div>
+                      )}
                       <div className="admin-table-wrap">
                         <table className="admin-table table-dense">
                           <thead>
@@ -3639,6 +4031,25 @@ const StaffDashboard: React.FC = () => {
                               </td>
                               <td></td>
                             </tr>
+                            {programCostCap > 0 && (
+                              <tr>
+                                <td colSpan={3} style={{ padding: '6px 20px', fontSize: '11px', color: programCostOver ? '#b91c1c' : '#64748b' }}>
+                                  Program cost used (tuition + purchases such as a laptop) against the
+                                  ${programCostCap.toLocaleString()} per-semester cap
+                                  {programCostOver && ' — over the cap, save will be refused'}
+                                </td>
+                                <td style={{ textAlign: 'right', padding: '6px 20px' }}>
+                                  <span className="admin-badge" style={{
+                                    background: programCostOver ? '#fee2e2' : '#f1f5f9',
+                                    color: programCostOver ? '#991b1b' : '#475569',
+                                    fontSize: '11px',
+                                  }}>
+                                    ${programCostTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${programCostCap.toLocaleString()}
+                                  </span>
+                                </td>
+                                <td></td>
+                              </tr>
+                            )}
                             <tr>
                               <td colSpan={3} style={{ padding: '6px 20px 14px', fontSize: '11px', color: '#64748b' }}>
                                 Currently applied amount on this application
@@ -4336,13 +4747,28 @@ const StaffDashboard: React.FC = () => {
                           <li><span className="policy-rule-tick is-no">✕</span> <strong>Other organization blocks C-DFN.</strong> Students already receiving C-DFN-equivalent funding from another organization are not eligible for C-DFN streams through DGG.</li>
                         </ul>
 
+                        <TableHeader title="Beneficiaries residing outside the NWT" />
+                        <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '8px', padding: '12px 16px', fontSize: '12.5px', color: '#78350f', lineHeight: 1.6, marginBottom: '16px' }}>
+                          <strong>⚠ Direction pending from the Education Department.</strong> Current policy does not
+                          define documentation requirements for C-DFN beneficiaries living in other
+                          provinces/territories. In practice, some students residing outside the NWT (e.g. Alberta)
+                          have been asked only for <strong>photo ID proving their current address</strong> rather than a
+                          provincial funding-denial letter, while the application currently requires an SFA denial
+                          letter. Until the policy owner confirms the requirement, SSWs should accept either a
+                          denial/ineligibility letter <em>or</em> photo ID showing residence outside the NWT, and record
+                          which document was provided in the file notes.
+                        </div>
+
                         <TableHeader title="Appeals process" />
                         <table className="policy-table">
                           <thead><tr><th>Step</th><th>Escalation path</th></tr></thead>
                           <tbody>
-                            <tr><td><strong>Step 1</strong></td><td>Appeal to Director of Education.</td></tr>
-                            <tr><td><strong>Step 2 — DGGR</strong></td><td>If unresolved, escalate to senior DGGR official.</td></tr>
-                            <tr><td><strong>Step 2 — C-DFN</strong></td><td>If unresolved, escalate to CEO.</td></tr>
+                            <tr><td><strong>Step 1</strong></td><td>Speak with the Post-Secondary Student Support Worker and the DGG Director of Education about the file.</td></tr>
+                            <tr><td><strong>Step 2</strong></td><td>If not satisfied with the funding received, request an appeal by completing <strong>Form H — Appeal Request</strong>.</td></tr>
+                            <tr><td><strong>Step 3</strong></td><td>The DGG Director of Education reviews and decides all appeals and provides the Applicant a written decision.</td></tr>
+                            <tr><td><strong>Step 4 — DGGR</strong></td><td>If unhappy with the Director's decision on a DGGR Bursary, appeal to the DGGR via the Director of Beneficiary Services. The DGGR decides whether to consider the appeal.</td></tr>
+                            <tr><td><strong>Step 4 — C-DFN</strong></td><td>For C-DFN PSSSP and C-DFN UCEPP Bursaries, appeal the Director's decision to the CEO, who reviews and issues a written decision.</td></tr>
+                            <tr><td><strong>Final</strong></td><td>DGGR / CEO decisions are final and may only be reviewed by the Dene K'ǝ Dats'eredı Kǝ (DKDK) under the DKDK's rules of procedure.</td></tr>
                             <tr><td><strong>Record keeping</strong></td><td>Full appeal history must be recorded in the system for every appeal at every step.</td></tr>
                           </tbody>
                         </table>
@@ -5616,6 +6042,7 @@ const StaffDashboard: React.FC = () => {
                       <th>Amount</th>
                       <th>Status</th>
                       <th>Date</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -5628,6 +6055,7 @@ const StaffDashboard: React.FC = () => {
                           <td><span className="skeleton skeleton-line" style={{ width: '50%' }} aria-hidden>·</span></td>
                           <td><span className="skeleton skeleton-badge" aria-hidden>·</span></td>
                           <td><span className="skeleton skeleton-line-xs" style={{ width: '65%' }} aria-hidden>·</span></td>
+                          <td></td>
                         </tr>
                       ))
                     ) : payments.length > 0 ? (
@@ -5646,6 +6074,21 @@ const StaffDashboard: React.FC = () => {
                           <span className={`admin-badge ${s === 'issued' ? 'badge-approved' : s === 'cancelled' ? 'badge-rejected' : 'badge-pending'}`} style={{ fontSize: '9px' }}>
                             {(s || 'pending').toUpperCase()}
                           </span>
+                        );
+                        const actionBtnStyle: React.CSSProperties = { fontSize: '10px', padding: '3px 8px', border: '1px solid #e2e8f0', background: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 700, color: '#334155', whiteSpace: 'nowrap' };
+                        const actionsCell = (p: any) => (
+                          <td onClick={(e) => e.stopPropagation()}>
+                            {(p.status || 'pending') === 'pending' ? (
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button style={actionBtnStyle} onClick={() => handleEditPaymentAmount(p)} title="Manually change this payment amount">✎ Amount</button>
+                                {/living|allowance/i.test(p.payment_type || '') && !/Month \d+ of/i.test(p.payment_type || '') && (
+                                  <button style={actionBtnStyle} onClick={() => handleSplitPaymentMonthly(p)} title="Split the semester total into monthly payments">Split monthly</button>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: '10px', color: '#cbd5e1' }}>—</span>
+                            )}
+                          </td>
                         );
                         type Group = { key: string; name: string; payments: any[]; total: number; latest: string | null };
                         const groupMap = new Map<string, Group>();
@@ -5680,6 +6123,7 @@ const StaffDashboard: React.FC = () => {
                                 <td style={{ fontSize: '13px', fontWeight: '700' }}>${parseFloat(p.amount || 0).toLocaleString()}</td>
                                 <td>{statusBadge(p.status)}</td>
                                 <td style={{ fontSize: '12px', color: '#64748b' }}>{p.date_issued ? new Date(p.date_issued).toLocaleDateString() : '—'}</td>
+                                {actionsCell(p)}
                               </tr>,
                             ];
                           }
@@ -5709,6 +6153,7 @@ const StaffDashboard: React.FC = () => {
                               <td style={{ fontSize: '13px', fontWeight: '800' }}>${g.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                               <td>{statusBadge(rollupStatus)}</td>
                               <td style={{ fontSize: '12px', color: '#64748b' }}>{g.latest ? new Date(g.latest).toLocaleDateString() : '—'}</td>
+                              <td></td>
                             </tr>
                           );
                           if (!isOpen) return [parent];
@@ -5752,7 +6197,7 @@ const StaffDashboard: React.FC = () => {
                             }
                             childRows.push(
                               <tr key={`grp-${g.key}-${appKey}-hdr`} style={{ background: '#eff6ff' }}>
-                                <td colSpan={6} style={{ fontSize: '11px', fontWeight: 800, color: '#1e3a8a', padding: '6px 12px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                                <td colSpan={7} style={{ fontSize: '11px', fontWeight: 800, color: '#1e3a8a', padding: '6px 12px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                                   {appLabel} · {list.length} payment{list.length === 1 ? '' : 's'}
                                 </td>
                               </tr>
@@ -5766,6 +6211,7 @@ const StaffDashboard: React.FC = () => {
                                   <td style={{ fontSize: '13px', fontWeight: '700' }}>${parseFloat(p.amount || 0).toLocaleString()}</td>
                                   <td>{statusBadge(p.status)}</td>
                                   <td style={{ fontSize: '12px', color: '#64748b' }}>{p.date_issued ? new Date(p.date_issued).toLocaleDateString() : '—'}</td>
+                                  {actionsCell(p)}
                                 </tr>
                               );
                             }
@@ -5774,7 +6220,7 @@ const StaffDashboard: React.FC = () => {
                         });
                       })()
                     ) : (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No payment records found.</td></tr>
+                      <tr><td colSpan={7} style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>No payment records found.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -6173,7 +6619,7 @@ const StaffDashboard: React.FC = () => {
                   {notifications.map((notif: any) => (
                     <div
                       key={notif.id}
-                      onClick={() => handleMarkNotificationRead(notif.id)}
+                      onClick={() => handleNotificationClick(notif)}
                       style={{
                         display: 'flex', gap: '16px', padding: '16px 20px',
                         background: notif.is_read ? '#fff' : '#fffbeb',

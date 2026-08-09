@@ -27,7 +27,8 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
       gpaAchieved: '',
       transcriptSubmitted: 'No',
       signature: '',
-      declarationConfirmed: false
+      declarationConfirmed: false,
+      merit80Declared: false
     };
   });
 
@@ -111,6 +112,7 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
         { field_label: 'Academic Year', answer_text: formData.year },
         { field_label: 'GPA Achieved', answer_text: formData.gpaAchieved },
         { field_label: 'Transcript Status', answer_text: formData.transcriptSubmitted },
+        { field_label: 'Merit 80%+ Declared', answer_text: formData.merit80Declared ? 'Yes' : 'No' },
         { field_label: 'Digital Signature', answer_text: formData.signature }
       ];
 
@@ -242,6 +244,21 @@ const AcademicScholarship: React.FC<AcademicScholarshipProps> = ({ profile, onBa
                    </select>
                 </div>
              </div>
+
+             {/* Merit self-declaration — flags the application for SSW transcript verification */}
+             <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '11.5px', marginTop: '14px', cursor: 'pointer', lineHeight: 1.5 }}>
+                <input
+                  type="checkbox"
+                  checked={!!formData.merit80Declared}
+                  onChange={e => handleInputChange('merit80Declared', e.target.checked)}
+                  style={{ marginTop: '2px' }}
+                />
+                <span>
+                  My transcript shows an average of <strong>80% or higher</strong> for the qualifying
+                  semester. I understand a Student Support Worker will verify this against my official
+                  transcript before the award is confirmed.
+                </span>
+             </label>
           </div>
 
           {formData.transcriptSubmitted === 'No' && (
