@@ -3,6 +3,7 @@
 from rest_framework import serializers
 
 from accounts.models import BankAccount, User
+from accounts.services import eligibility as eligibility_service
 
 
 class BankAccountSerializer(serializers.ModelSerializer):
@@ -41,10 +42,28 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True)
+    eligibility = serializers.DictField(write_only=True)
 
     class Meta:
         model = User
-        fields = ('email', 'password', 'first_name', 'last_name', 'phone')
+        fields = ('email', 'password', 'confirm_password', 'first_name',
+                  'last_name', 'phone', 'eligibility')
+
+    def validate(self, attrs):
+        if attrs.get('password') != attrs.pop('confirm_password', None):
+            raise serializers.ValidationError(
+                {'confirm_password': 'The two passwords do not match.'})
+
+        # Checked on the server, not only in the browser: the previous version
+        # ran this rule inside a React component, where calling the API directly
+        # bypassed it entirely.
+        outcome = eligibility_service.assess(attrs.get('eligibility') or {})
+        if not outcome.eligible:
+            raise serializers.ValidationError(
+                {'eligibility': outcome.message, 'eligibility_title': outcome.title})
+        attrs['_eligibility_outcome'] = outcome
+        return attrs
 
     def validate_email(self, value):
         # Matched case-insensitively so a second account cannot be opened by
@@ -54,4 +73,15 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated):
-        return User.objects.create_user(**validated)
+        answers = validated.pop('eligibility', {})
+        validated.pop('_eligibility_outcome', None)
+        user = User.objects.create_user(**validated)
+
+        # What the answers say about the person is kept; what they say about a
+        # particular course of study belongs to the application, not here.
+        user.is_indian_act_registered = eligibility_service._yes(
+            answers, 'indian_act_registered')
+        user.is_deline_beneficiary = eligibility_service._yes(
+            answers, 'deline_beneficiary')
+        user.save(update_fields=['is_indian_act_registered', 'is_deline_beneficiary'])
+        return user

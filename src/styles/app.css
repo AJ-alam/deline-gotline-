@@ -73,3 +73,10 @@ a:hover { color: #8f6425; }
   border-radius: 0 var(--radius) var(--radius) 0;
 }
 .notice--unread { border-left-color: var(--gold); background: var(--surface); }
+
+/* Screening questions. A fieldset/legend pair, so a screen reader announces the
+   question with each option rather than reading six loose radio groups. */
+.quiz { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin: 0; }
+.quiz__question { font-weight: 600; font-size: var(--text-sm); padding: 0 var(--s-1); }
+.quiz__choice { display: inline-flex; align-items: center; gap: var(--s-2); cursor: pointer; }
+.quiz__choice input { accent-color: var(--gold); width: 16px; height: 16px; }

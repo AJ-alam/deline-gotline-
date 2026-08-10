@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import api, { ApiError } from '../../api/client';
 import { Alert, Button, Card, Field, Input } from '../../components/ui';
@@ -16,8 +16,8 @@ export default function SignIn() {
     setBusy(true);
     setError('');
     try {
-      const user = await api.signIn(email, password);
-      navigate(user.role === 'student' ? '/applications' : '/review');
+      await api.signIn(email, password);
+      navigate('/dashboard');
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 401
@@ -58,7 +58,7 @@ export default function SignIn() {
             Sign in
           </Button>
           <p className="small muted">
-            No account? <a href="/register">Create one</a>
+            No account? <Link to="/register">Create one</Link>
           </p>
         </form>
       </Card>

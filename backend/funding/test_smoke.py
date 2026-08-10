@@ -105,7 +105,14 @@ class ApplicationLifecycleTests(TestCase):
     def test_a_student_can_register_sign_in_and_apply(self):
         response = self.client.post('/api/auth/register/', {
             'email': 'Smoke.Student@Example.COM', 'password': 'pw12345678',
-            'first_name': 'Smoke', 'last_name': 'Student'}, format='json')
+            'confirm_password': 'pw12345678',
+            'first_name': 'Smoke', 'last_name': 'Student',
+            # Registration is gated on eligibility, enforced server-side.
+            'eligibility': {
+                'indian_act_registered': 'yes', 'deline_beneficiary': 'yes',
+                'receives_sfa': 'no', 'lives_in_nwt': 'yes',
+                'accredited_institution': 'yes', 'programme_twelve_weeks': 'yes',
+            }}, format='json')
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['email'], 'smoke.student@example.com')
 

@@ -230,6 +230,21 @@ export interface Directory {
   results: DirectoryPerson[];
 }
 
+export interface EligibilityQuestion {
+  key: string;
+  text: string;
+  help: string;
+  choices: Array<{ value: string; label: string }>;
+}
+
+/** The office's decision on whether someone may apply, and what to tell them. */
+export interface EligibilityOutcome {
+  eligible: boolean;
+  streams: string[];
+  title: string;
+  message: string;
+}
+
 export interface Page<T> {
   count: number;
   next: string | null;
@@ -399,12 +414,29 @@ export const api = {
     return data;
   },
 
+  /** The screening questions. Public: someone checks before they have an account. */
+  async eligibilityQuestions(): Promise<EligibilityQuestion[]> {
+    const { data } = await http.get<{ questions: EligibilityQuestion[] }>(
+      '/auth/eligibility/',
+    );
+    return data.questions;
+  },
+
+  async checkEligibility(answers: Record<string, string>): Promise<EligibilityOutcome> {
+    const { data } = await http.post<EligibilityOutcome>('/auth/eligibility/', {
+      answers,
+    });
+    return data;
+  },
+
   async register(input: {
     email: string;
     password: string;
+    confirm_password: string;
     first_name: string;
     last_name: string;
     phone?: string;
+    eligibility: Record<string, string>;
   }): Promise<CurrentUser> {
     const { data } = await http.post<CurrentUser>('/auth/register/', input);
     return data;
