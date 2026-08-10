@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from funding.api.finance_views import DispatchView, PendingAwardsView
 from funding.api.policy_views import (
     PolicySettingDetailView, PolicySettingsView, RuleSetsView,
 )
@@ -18,6 +19,8 @@ urlpatterns = [
     # Public, token-authenticated: the registrar has no account.
     path('enrolment/<str:token>/', EnrollmentVerificationView.as_view(),
          name='enrollment-verification'),
+    path('finance/pending/', PendingAwardsView.as_view(), name='finance-pending'),
+    path('finance/dispatch/', DispatchView.as_view(), name='finance-dispatch'),
     path('policy/rates/', PolicySettingsView.as_view(), name='policy-rates'),
     path('policy/rates/<int:pk>/', PolicySettingDetailView.as_view(),
          name='policy-rate-detail'),

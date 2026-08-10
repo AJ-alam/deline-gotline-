@@ -19,6 +19,7 @@ const ReviewQueue = lazy(() => import('./pages/ReviewQueue'));
 const ApplicationDetail = lazy(() => import('./pages/ApplicationDetail'));
 const EnrollmentVerification = lazy(() => import('./pages/EnrollmentVerification'));
 const PolicyRates = lazy(() => import('./pages/PolicyRates'));
+const PaymentRun = lazy(() => import('./pages/PaymentRun'));
 
 function Loading() {
   return (
@@ -65,6 +66,10 @@ export default function App() {
           <Route
             path="/policy"
             element={<ProtectedRoute><PolicyRates /></ProtectedRoute>}
+          />
+          <Route
+            path="/payments"
+            element={<ProtectedRoute><PaymentRun /></ProtectedRoute>}
           />
 
           <Route path="*" element={<Navigate to="/signin" replace />} />

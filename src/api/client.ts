@@ -147,6 +147,35 @@ export interface RuleSetSummary {
   rule_count: number;
 }
 
+export interface PayableAward {
+  id: number;
+  student: string;
+  application_id: number;
+  category: string;
+  amount: string;
+}
+
+export interface BlockedAward {
+  award_id: number;
+  application_id: number;
+  reason: string;
+}
+
+export interface PaymentRun {
+  count: number;
+  total: string;
+  awards: PayableAward[];
+  blocked: BlockedAward[];
+}
+
+export interface DispatchResult {
+  filename: string;
+  csv: string;
+  count: number;
+  total: string;
+  blocked: number;
+}
+
 export interface Page<T> {
   count: number;
   next: string | null;
@@ -434,6 +463,31 @@ export const api = {
   async ruleSets(): Promise<RuleSetSummary[]> {
     const { data } = await http.get<RuleSetSummary[]>('/policy/rule-sets/');
     return data;
+  },
+
+  /** What is ready to pay, and what is blocking anything from being paid. */
+  async paymentRun(): Promise<PaymentRun> {
+    const { data } = await http.get<PaymentRun>('/finance/pending/');
+    return data;
+  },
+
+  /**
+   * Send the batch. Returns the file itself, because a payment run that a
+   * finance officer cannot hold in their hand is not much use.
+   */
+  async dispatchPaymentRun(): Promise<DispatchResult> {
+    const response = await http.post('/finance/dispatch/', null, {
+      responseType: 'text',
+      transformResponse: [(body: string) => body],
+    });
+    const disposition = String(response.headers['content-disposition'] ?? '');
+    return {
+      filename: disposition.match(/filename="([^"]+)"/)?.[1] ?? 'awards.csv',
+      csv: response.data as string,
+      count: Number(response.headers['x-award-count'] ?? 0),
+      total: String(response.headers['x-award-total'] ?? '0'),
+      blocked: Number(response.headers['x-blocked-count'] ?? 0),
+    };
   },
 };
 
