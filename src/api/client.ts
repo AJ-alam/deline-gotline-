@@ -111,6 +111,42 @@ export interface Application extends ApplicationSummary {
   decision: AwardDecision | null;
 }
 
+export interface PolicyRate {
+  id: number;
+  section: string;
+  key: string;
+  label: string;
+  value: string;
+  unit: string;
+  is_active: boolean;
+  updated_at: string;
+}
+
+export interface PolicySection {
+  section: string;
+  settings: PolicyRate[];
+}
+
+export interface PolicyChange {
+  previous_value: string;
+  new_value: string;
+  effective_date: string;
+  changed_at: string;
+  changed_by: string | null;
+}
+
+export interface RuleSetSummary {
+  id: number;
+  name: string;
+  version: number;
+  status: 'draft' | 'published' | 'superseded';
+  effective_from: string;
+  effective_to: string | null;
+  notes: string;
+  published_at: string | null;
+  rule_count: number;
+}
+
 export interface Page<T> {
   count: number;
   next: string | null;
@@ -357,6 +393,46 @@ export const api = {
   /** Every pricing this application has had. What an appeal is argued from. */
   async decisionHistory(id: number): Promise<AwardDecision[]> {
     const { data } = await http.get<AwardDecision[]>(`/applications/${id}/decisions/`);
+    return data;
+  },
+
+  /** The rates every award is computed from. */
+  async policyRates(): Promise<PolicySection[]> {
+    const { data } = await http.get<PolicySection[]>('/policy/rates/');
+    return data;
+  },
+
+  async policyRate(id: number): Promise<{ setting: PolicyRate; history: PolicyChange[] }> {
+    const { data } = await http.get(`/policy/rates/${id}/`);
+    return data;
+  },
+
+  /**
+   * Change a rate. Administrators only, and it never alters a decision already
+   * made — an application is priced with the rates in force when it was
+   * submitted.
+   */
+  async changePolicyRate(
+    id: number,
+    value: string,
+    effectiveFrom?: string,
+  ): Promise<PolicyRate> {
+    const { data } = await http.patch<PolicyRate>(`/policy/rates/${id}/`, {
+      value,
+      ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+    });
+    return data;
+  },
+
+  async setPolicyRateActive(id: number, isActive: boolean): Promise<PolicyRate> {
+    const { data } = await http.patch<PolicyRate>(`/policy/rates/${id}/`, {
+      is_active: isActive,
+    });
+    return data;
+  },
+
+  async ruleSets(): Promise<RuleSetSummary[]> {
+    const { data } = await http.get<RuleSetSummary[]>('/policy/rule-sets/');
     return data;
   },
 };
