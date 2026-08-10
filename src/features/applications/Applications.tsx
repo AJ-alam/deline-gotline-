@@ -2,9 +2,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import api, { type ApplicationSchema, type ApplicationSummary } from '../api/client';
-import { Alert, Badge, Card } from '../components/ui';
-import { formatDate, formatMoney, statusTone } from '../components/ui/format';
+import api, { type ApplicationSchema, type ApplicationSummary } from '../../api/client';
+import { Alert, Badge, Card } from '../../components/ui';
+import { formatDate, formatMoney, statusTone } from '../../components/ui/format';
 
 export default function Applications() {
   const [rows, setRows] = useState<ApplicationSummary[] | null>(null);

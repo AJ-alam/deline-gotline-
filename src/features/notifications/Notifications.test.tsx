@@ -10,13 +10,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import '@testing-library/jest-dom';
 
-import type { Notification, NotificationList } from '../api/client';
+import type { Notification, NotificationList } from '../../api/client';
 
 const notifications = vi.fn();
 const markNotificationsRead = vi.fn();
 
-vi.mock('../api/client', async () => {
-  const actual = await vi.importActual<typeof import('../api/client')>('../api/client');
+vi.mock('../../api/client', async () => {
+  const actual = await vi.importActual<typeof import('../../api/client')>('../../api/client');
   return {
     ...actual,
     default: { notifications, markNotificationsRead },

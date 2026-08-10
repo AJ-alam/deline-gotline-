@@ -16,9 +16,9 @@ import api, {
   type PolicyRate,
   type PolicySection,
   type RuleSetSummary,
-} from '../api/client';
-import { Alert, Badge, Button, Card, Field, Input } from '../components/ui';
-import { formatDate, formatMoney } from '../components/ui/format';
+} from '../../api/client';
+import { Alert, Badge, Button, Card, Field, Input } from '../../components/ui';
+import { formatDate, formatMoney } from '../../components/ui/format';
 
 /** Sections are stored as machine keys; this is only how they read on screen. */
 function sectionTitle(section: string): string {

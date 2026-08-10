@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import api, { ApiError } from '../api/client';
-import { Alert, Button, Card, Field, Input } from '../components/ui';
+import api, { ApiError } from '../../api/client';
+import { Alert, Button, Card, Field, Input } from '../../components/ui';
 
 export default function Register() {
   const navigate = useNavigate();

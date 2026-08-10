@@ -16,10 +16,10 @@ import api, {
   type ApplicationStatus,
   type ApplicationSummary,
   type ApplicationType,
-} from '../api/client';
-import { APPLICATION_TYPE_LABELS } from '../api/schema.generated';
-import { Alert, Badge, Button, Card, Field, Select } from '../components/ui';
-import { formatDate, formatMoney, statusTone } from '../components/ui/format';
+} from '../../api/client';
+import { APPLICATION_TYPE_LABELS } from '../../api/schema.generated';
+import { Alert, Badge, Button, Card, Field, Select } from '../../components/ui';
+import { formatDate, formatMoney, statusTone } from '../../components/ui/format';
 
 const STATUSES: Array<{ value: ApplicationStatus | ''; label: string }> = [
   { value: '', label: 'Any status' },

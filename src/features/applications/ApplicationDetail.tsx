@@ -16,9 +16,9 @@ import api, {
   type CurrentUser,
   type DecisionTrace,
   type TransitionAction,
-} from '../api/client';
-import { Alert, Badge, Button, Card } from '../components/ui';
-import { formatDate, formatMoney, statusTone } from '../components/ui/format';
+} from '../../api/client';
+import { Alert, Badge, Button, Card } from '../../components/ui';
+import { formatDate, formatMoney, statusTone } from '../../components/ui/format';
 
 /** Which actions make sense next, mirrored from the backend transition table. */
 const NEXT_ACTIONS: Record<string, TransitionAction[]> = {

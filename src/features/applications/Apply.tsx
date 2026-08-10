@@ -8,9 +8,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import api, { ApiError, type ApplicationSchema, type ApplicationType, type FundingStream } from '../api/client';
-import SchemaForm, { type Answers } from '../components/SchemaForm';
-import { Alert, Card, Field, Select } from '../components/ui';
+import api, { ApiError, type ApplicationSchema, type ApplicationType, type FundingStream } from '../../api/client';
+import SchemaForm, { type Answers } from '../../components/SchemaForm';
+import { Alert, Card, Field, Select } from '../../components/ui';
 
 const STREAMS: Array<{ value: FundingStream; label: string }> = [
   { value: 'psssp', label: 'C-DFN PSSSP' },

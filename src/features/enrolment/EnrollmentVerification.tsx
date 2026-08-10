@@ -13,11 +13,11 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 
-import { API_BASE_URL } from '../config/api';
-import type { ApplicationSchema } from '../api/schema.generated';
-import SchemaForm, { type Answers } from '../components/SchemaForm';
-import { Alert, Card } from '../components/ui';
-import { formatDate } from '../components/ui/format';
+import { API_BASE_URL } from '../../api/config';
+import type { ApplicationSchema } from '../../api/schema.generated';
+import SchemaForm, { type Answers } from '../../components/SchemaForm';
+import { Alert, Card } from '../../components/ui';
+import { formatDate } from '../../components/ui/format';
 
 interface VerificationContext {
   student_name: string;

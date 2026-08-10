@@ -9,9 +9,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import api, { type Notification } from '../api/client';
-import { Alert, Badge, Button, Card } from '../components/ui';
-import { formatDate } from '../components/ui/format';
+import api, { type Notification } from '../../api/client';
+import { Alert, Badge, Button, Card } from '../../components/ui';
+import { formatDate } from '../../components/ui/format';
 
 export default function Notifications() {
   const [rows, setRows] = useState<Notification[] | null>(null);

@@ -9,9 +9,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import api, { type DashboardSummary } from '../api/client';
-import { Alert, Badge, Card } from '../components/ui';
-import { formatMoney, statusTone } from '../components/ui/format';
+import api, { type DashboardSummary } from '../../api/client';
+import { Alert, Badge, Card } from '../../components/ui';
+import { formatMoney, statusTone } from '../../components/ui/format';
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (

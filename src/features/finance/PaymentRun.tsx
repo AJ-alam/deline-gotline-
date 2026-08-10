@@ -8,9 +8,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import api, { ApiError, type PaymentRun as Run } from '../api/client';
-import { Alert, Badge, Button, Card } from '../components/ui';
-import { formatMoney } from '../components/ui/format';
+import api, { ApiError, type PaymentRun as Run } from '../../api/client';
+import { Alert, Badge, Button, Card } from '../../components/ui';
+import { formatMoney } from '../../components/ui/format';
 
 export default function PaymentRun() {
   const [run, setRun] = useState<Run | null>(null);

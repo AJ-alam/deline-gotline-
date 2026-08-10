@@ -1,17 +1,3 @@
-#!/usr/bin/env bash
-#
-# Reset the Supabase database to a clean state for testing.
-#
-# Deletes every user account (students AND staff), every application,
-# submission, answer, note, payment, appeal, document row, notification,
-# audit log and policy-history entry.
-#
-# Keeps: Form, FormField, Program, PolicySetting, ApplicationDeadline.
-# Does NOT touch files already uploaded to Supabase Storage.
-#
-#   ./scripts/reset_supabase.sh            # dry run: dumps a backup, deletes nothing
-#   ./scripts/reset_supabase.sh --confirm  # takes the backup, then wipes
-#
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

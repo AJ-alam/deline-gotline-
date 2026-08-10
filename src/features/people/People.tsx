@@ -16,9 +16,9 @@ import api, {
   type Directory,
   type DirectoryPerson,
   type UserRole,
-} from '../api/client';
-import { Alert, Badge, Button, Card, Field, Input, Select } from '../components/ui';
-import { formatDate } from '../components/ui/format';
+} from '../../api/client';
+import { Alert, Badge, Button, Card, Field, Input, Select } from '../../components/ui';
+import { formatDate } from '../../components/ui/format';
 
 export default function People() {
   const [directory, setDirectory] = useState<Directory | null>(null);

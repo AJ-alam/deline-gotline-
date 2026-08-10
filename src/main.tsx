@@ -1,12 +1,13 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import App from './App.tsx'
-import RootErrorBoundary from './components/Auth/RootErrorBoundary'
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+
+import App from './app/routes';
+import ErrorBoundary from './app/ErrorBoundary';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <RootErrorBoundary>
+    <ErrorBoundary>
       <App />
-    </RootErrorBoundary>
+    </ErrorBoundary>
   </StrictMode>,
-)
+);

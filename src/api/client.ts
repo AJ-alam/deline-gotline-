@@ -11,7 +11,7 @@
 
 import axios, { AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL } from './config';
 import type { ApplicationSchema, ApplicationType, AnswersFor } from './schema.generated';
 
 export type { ApplicationSchema, ApplicationType, AnswersFor };
