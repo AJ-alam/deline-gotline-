@@ -62,3 +62,14 @@ a:hover { color: #8f6425; }
   font-size: var(--text-xl);
   letter-spacing: -0.02em;
 }
+
+/* Notices. Unread carries a rail rather than only a colour, so it is still
+   distinguishable without colour vision. */
+.notices { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+.notice {
+  padding: var(--s-3);
+  border-left: 3px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.notice--unread { border-left-color: var(--gold); background: var(--surface); }

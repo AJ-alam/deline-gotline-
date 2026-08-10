@@ -21,6 +21,7 @@ const EnrollmentVerification = lazy(() => import('./pages/EnrollmentVerification
 const PolicyRates = lazy(() => import('./pages/PolicyRates'));
 const PaymentRun = lazy(() => import('./pages/PaymentRun'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Notifications = lazy(() => import('./pages/Notifications'));
 
 function Loading() {
   return (
@@ -71,6 +72,10 @@ export default function App() {
           <Route
             path="/dashboard"
             element={<ProtectedRoute><Dashboard /></ProtectedRoute>}
+          />
+          <Route
+            path="/notifications"
+            element={<ProtectedRoute><Notifications /></ProtectedRoute>}
           />
           <Route
             path="/payments"

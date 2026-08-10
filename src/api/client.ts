@@ -195,6 +195,21 @@ export interface DashboardSummary {
   waiting_on_you?: number;
 }
 
+export interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
+export interface NotificationList {
+  /** Everything unread, not just what is on this page. */
+  unread: number;
+  results: Notification[];
+}
+
 export interface Page<T> {
   count: number;
   next: string | null;
@@ -481,6 +496,20 @@ export const api = {
 
   async ruleSets(): Promise<RuleSetSummary[]> {
     const { data } = await http.get<RuleSetSummary[]>('/policy/rule-sets/');
+    return data;
+  },
+
+  /** A person's own notices. Never anyone else's. */
+  async notifications(unreadOnly = false): Promise<NotificationList> {
+    const { data } = await http.get<NotificationList>('/notifications/', {
+      params: unreadOnly ? { unread: 'true' } : undefined,
+    });
+    return data;
+  },
+
+  /** Mark notices read. With no ids, marks everything read. */
+  async markNotificationsRead(ids?: number[]): Promise<{ marked: number; unread: number }> {
+    const { data } = await http.post('/notifications/', ids ? { ids } : {});
     return data;
   },
 
