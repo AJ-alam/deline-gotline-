@@ -11,9 +11,15 @@ Here the event log is the truth and the column is a cached read.
 
 from __future__ import annotations
 
+import logging
+
 from django.db import transaction
 
-from funding.models import Application, ApplicationEvent, ApplicationStatus
+from funding.models import (
+    Application, ApplicationEvent, ApplicationStatus, ApplicationType,
+)
+
+logger = logging.getLogger(__name__)
 
 Action = ApplicationEvent.Action
 
@@ -106,7 +112,60 @@ def record(application, action, actor=None, note='') -> ApplicationEvent:
 
     # Keep the caller's instance consistent with what was written.
     application.status = locked.status
+
+    _announce(locked, action, note)
     return event
+
+
+def _announce(application, action, note: str) -> None:
+    """Tell the applicant what happened.
+
+    Queued on commit inside the same transaction as the event, so a message can
+    never describe a transition that did not persist.
+    """
+    from funding.services import messages
+
+    if action == Action.SUBMITTED:
+        messages.send_application_received(application)
+        _request_enrolment_confirmation(application)
+    elif action == Action.INFO_REQUESTED:
+        messages.send_information_requested(application, note)
+    elif action == Action.APPROVED:
+        messages.send_decision(application, approved=True)
+    elif action == Action.DECLINED:
+        messages.send_decision(application, approved=False, reason=note)
+
+
+# Types whose award depends on the institution confirming enrolment and the
+# tuition actually billed.
+NEEDS_ENROLMENT_CONFIRMATION = (
+    ApplicationType.ADMISSION,
+    ApplicationType.CONTINUING_FUNDING,
+)
+
+
+def _request_enrolment_confirmation(application) -> None:
+    """Ask the institution to confirm, as soon as the application is submitted.
+
+    Tuition is funded against the registrar's figure, so without this the
+    application can never be priced for tuition at all. Failing to send must not
+    fail the submission: the request can be reissued by staff.
+    """
+    from funding.services import verification
+
+    if application.type not in NEEDS_ENROLMENT_CONFIRMATION:
+        return
+    registrar_email = (application.answers or {}).get('registrar_email')
+    if not registrar_email:
+        return
+
+    try:
+        verification.issue(application, registrar_email)
+    except verification.VerificationError as exc:
+        logger.warning(
+            'Could not request enrolment confirmation for application %s: %s',
+            application.pk, exc,
+        )
 
 
 def status_is_consistent(application) -> bool:

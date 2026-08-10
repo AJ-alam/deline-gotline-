@@ -51,12 +51,17 @@ def issue(application: Application, registrar_email: str,
         # Reissuing invalidates the previous link rather than leaving two live.
         existing.delete()
 
-    return EnrollmentVerification.objects.create(
+    created = EnrollmentVerification.objects.create(
         application=application,
         registrar_email=registrar_email,
         token=secrets.token_urlsafe(TOKEN_BYTES),
         expires_at=timezone.now() + validity,
     )
+    # Queued on commit: a registrar must never receive a link to a request that
+    # was rolled back.
+    from funding.services.messages import send_enrolment_request
+    send_enrolment_request(created)
+    return created
 
 
 def resolve(token: str) -> EnrollmentVerification:
