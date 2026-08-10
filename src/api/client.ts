@@ -210,6 +210,26 @@ export interface NotificationList {
   results: Notification[];
 }
 
+export type UserRole = 'student' | 'support_worker' | 'director' | 'finance' | 'admin';
+
+export interface DirectoryPerson {
+  id: number;
+  email: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  role: UserRole;
+  role_label: string;
+  is_active: boolean;
+  beneficiary_number: string;
+  date_joined: string;
+}
+
+export interface Directory {
+  roles: Array<{ value: UserRole; label: string }>;
+  results: DirectoryPerson[];
+}
+
 export interface Page<T> {
   count: number;
   next: string | null;
@@ -496,6 +516,34 @@ export const api = {
 
   async ruleSets(): Promise<RuleSetSummary[]> {
     const { data } = await http.get<RuleSetSummary[]>('/policy/rule-sets/');
+    return data;
+  },
+
+  /** Everyone with an account. Staff may read it; only an admin may change it. */
+  async directory(params?: {
+    search?: string;
+    role?: string;
+    include_inactive?: boolean;
+  }): Promise<Directory> {
+    const { data } = await http.get<Directory>('/people/', {
+      params: {
+        ...(params?.search ? { search: params.search } : {}),
+        ...(params?.role ? { role: params.role } : {}),
+        ...(params?.include_inactive ? { include_inactive: 'true' } : {}),
+      },
+    });
+    return data;
+  },
+
+  async changeRole(id: number, role: UserRole): Promise<DirectoryPerson> {
+    const { data } = await http.patch<DirectoryPerson>(`/people/${id}/`, { role });
+    return data;
+  },
+
+  async setAccountActive(id: number, isActive: boolean): Promise<DirectoryPerson> {
+    const { data } = await http.patch<DirectoryPerson>(`/people/${id}/`, {
+      is_active: isActive,
+    });
     return data;
   },
 
