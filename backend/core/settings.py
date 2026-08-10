@@ -153,6 +153,8 @@ REST_FRAMEWORK = {
         'user': '5000/day',
         'auth': '10/minute',      # login / register / forgot-password
         'password_reset': '5/hour',
+        # Public and token-guarded; limited so the token space cannot be probed.
+        'verification': '20/hour',
     },
     # Never expose internal error details to API consumers
     'EXCEPTION_HANDLER': 'core.responses.custom_exception_handler',

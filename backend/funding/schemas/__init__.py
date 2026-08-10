@@ -102,7 +102,11 @@ class Field:
                 raise ValueError(f'{self.label} must be an amount.')
             if value < 0:
                 raise ValueError(f'{self.label} cannot be negative.')
-            return value
+            # Stored to the cent, so '6000' and '6000.00' cannot both exist as
+            # representations of the same amount. Answers are compared as
+            # strings once written to JSON, and two spellings of one figure
+            # would not match.
+            return value.quantize(Decimal('0.01'))
 
         if self.type in (FieldType.INTEGER, FieldType.PERCENT):
             try:

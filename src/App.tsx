@@ -17,6 +17,7 @@ const Applications = lazy(() => import('./pages/Applications'));
 const Apply = lazy(() => import('./pages/Apply'));
 const ReviewQueue = lazy(() => import('./pages/ReviewQueue'));
 const ApplicationDetail = lazy(() => import('./pages/ApplicationDetail'));
+const EnrollmentVerification = lazy(() => import('./pages/EnrollmentVerification'));
 
 function Loading() {
   return (
@@ -35,6 +36,9 @@ export default function App() {
           <Route path="/" element={<Navigate to="/signin" replace />} />
           <Route path="/signin" element={<SignIn />} />
           <Route path="/register" element={<Register />} />
+
+          {/* Public: the registrar has no account, the token is the credential. */}
+          <Route path="/enrolment/:token" element={<EnrollmentVerification />} />
 
           <Route
             path="/applications"

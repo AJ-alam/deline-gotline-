@@ -23,7 +23,9 @@ from funding.api.serializers import (
     schema_payload,
 )
 from funding.models import Application, ApplicationEvent
+from funding.schemas import ValidationError as SchemaValidationError
 from funding.services import decisions as decision_service
+from funding.services import verification as verification_service
 from funding.services import workflow
 
 
@@ -185,3 +187,43 @@ class ApplicationViewSet(viewsets.ModelViewSet):
                 decision_service.decision_history(application), many=True,
             ).data
         )
+
+
+class EnrollmentVerificationView(APIView):
+    """The registrar's form, reached from an emailed link.
+
+    Public by necessity — a registrar has no account here — so the token is the
+    only credential. It is rate limited, single-use, and every failure returns
+    the same message so the endpoint cannot be used to probe for valid tokens.
+    """
+
+    permission_classes = [AllowAny]
+    throttle_scope = 'verification'
+
+    def get(self, request, token):
+        try:
+            verification = verification_service.resolve(token)
+        except verification_service.VerificationError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        payload, _etag = SchemaView._payload()
+        definition = next(s for s in payload if s['slug'] == 'enrollment_verification')
+        return Response({
+            'application': verification_service.context_for(verification),
+            'schema': definition,
+        })
+
+    def post(self, request, token):
+        try:
+            verification = verification_service.resolve(token)
+        except verification_service.VerificationError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            verification_service.complete(verification, request.data.get('answers') or {})
+        except SchemaValidationError as exc:
+            return Response({'answers': exc.errors}, status=status.HTTP_400_BAD_REQUEST)
+        except verification_service.VerificationError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        return Response({'detail': 'Thank you — the enrolment has been confirmed.'})
