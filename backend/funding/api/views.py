@@ -24,6 +24,7 @@ from funding.api.serializers import (
 )
 from funding.models import Application, ApplicationEvent
 from funding.schemas import ValidationError as SchemaValidationError
+from funding.services import dashboard as dashboard_service
 from funding.services import decisions as decision_service
 from funding.services import verification as verification_service
 from funding.services import workflow
@@ -227,3 +228,16 @@ class EnrollmentVerificationView(APIView):
             return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
 
         return Response({'detail': 'Thank you — the enrolment has been confirmed.'})
+
+
+class DashboardView(APIView):
+    """The numbers a person sees on opening the portal.
+
+    One request, scoped to the role. The screen this replaces fetched seven
+    endpoints every thirty seconds and counted rows in the browser.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(dashboard_service.summary(request.user))

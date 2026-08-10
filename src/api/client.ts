@@ -176,6 +176,25 @@ export interface DispatchResult {
   blocked: number;
 }
 
+export interface DashboardSummary {
+  scope: 'student' | 'staff';
+  applications: {
+    total: number;
+    open: number;
+    by_status: Record<ApplicationStatus, number>;
+  };
+  money: Record<string, string>;
+  /** Staff only. */
+  queues?: {
+    to_review: number;
+    awaiting_decision: number;
+    awaiting_enrolment_confirmation: number;
+  };
+  attention?: { submitted_late: number; residency_mismatch: number };
+  /** Student only. */
+  waiting_on_you?: number;
+}
+
 export interface Page<T> {
   count: number;
   next: string | null;
@@ -462,6 +481,12 @@ export const api = {
 
   async ruleSets(): Promise<RuleSetSummary[]> {
     const { data } = await http.get<RuleSetSummary[]>('/policy/rule-sets/');
+    return data;
+  },
+
+  /** Everything the opening screen needs, in one request. */
+  async dashboard(): Promise<DashboardSummary> {
+    const { data } = await http.get<DashboardSummary>('/dashboard/');
     return data;
   },
 

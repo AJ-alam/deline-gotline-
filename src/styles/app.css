@@ -35,3 +35,30 @@ a:hover { color: #8f6425; }
 @media (max-width: 560px) {
   .answers__row { grid-template-columns: 1fr; gap: var(--s-1); }
 }
+
+/* Stat tiles: the numbers read before anything else on the page. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--s-4);
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--s-4);
+}
+.stat__label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  font-weight: 600;
+  margin-bottom: var(--s-2);
+}
+.stat__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xl);
+  letter-spacing: -0.02em;
+}

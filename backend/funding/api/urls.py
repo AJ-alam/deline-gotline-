@@ -6,7 +6,7 @@ from funding.api.policy_views import (
     PolicySettingDetailView, PolicySettingsView, RuleSetsView,
 )
 from funding.api.views import (
-    ApplicationViewSet, EnrollmentVerificationView, SchemaView,
+    ApplicationViewSet, DashboardView, EnrollmentVerificationView, SchemaView,
 )
 
 router = DefaultRouter()
@@ -19,6 +19,7 @@ urlpatterns = [
     # Public, token-authenticated: the registrar has no account.
     path('enrolment/<str:token>/', EnrollmentVerificationView.as_view(),
          name='enrollment-verification'),
+    path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('finance/pending/', PendingAwardsView.as_view(), name='finance-pending'),
     path('finance/dispatch/', DispatchView.as_view(), name='finance-dispatch'),
     path('policy/rates/', PolicySettingsView.as_view(), name='policy-rates'),
