@@ -238,6 +238,19 @@ STORAGES = {
 # production — with nothing in the logs to say so.
 INSECURE_LOCAL = config('INSECURE_LOCAL', default=False, cast=bool)
 
+# `runserver` is never production, and it can only speak HTTP. Detecting it the
+# same way TESTING is detected means a developer clones this and it works,
+# without anyone having to disable hardening to get past a redirect — which is
+# how the settings that protect production end up switched off in the file.
+RUNSERVER = 'runserver' in sys.argv
+LOCAL_HTTP = INSECURE_LOCAL or TESTING or RUNSERVER
+
+if DEBUG and not LOCAL_HTTP:
+    logging.getLogger(__name__).warning(
+        'DEBUG is on with production transport settings active. '
+        'Set INSECURE_LOCAL=1 if this is a local server that is not runserver.'
+    )
+
 # Always safe, regardless of transport.
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True
@@ -247,8 +260,10 @@ SESSION_COOKIE_AGE = 3600                   # 1 hour
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 
-if INSECURE_LOCAL or TESTING:
-    # Plain HTTP for localhost and the test client.
+if LOCAL_HTTP:
+    # Plain HTTP for the development server and the test client. Redirecting to
+    # HTTPS here produces 'the development server only supports HTTP', because
+    # runserver cannot serve the scheme it is being redirected to.
     SECURE_SSL_REDIRECT = False
     SESSION_COOKIE_SECURE = False
     CSRF_COOKIE_SECURE = False
@@ -261,12 +276,6 @@ else:
     SECURE_HSTS_SECONDS = 31536000          # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-
-    if DEBUG:
-        logging.getLogger(__name__).warning(
-            'DEBUG is enabled with production security settings active. '
-            'Set INSECURE_LOCAL=1 for local development.'
-        )
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
