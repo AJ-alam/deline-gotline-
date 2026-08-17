@@ -49,7 +49,13 @@ def _next_step(user, applications) -> dict:
             'href': '/applications',
         }
 
-    admission = applications.filter(type=ApplicationType.ADMISSION)
+    # An admission that was declined is not an admission they have. Counting it
+    # sent somebody who had just been refused to `apply_more` — "travel,
+    # practicum placements and bursaries are applied for separately" — which
+    # reads as "you are funded, here is what else there is" to a person with no
+    # funding at all, and hides the one thing they might actually do.
+    admission = applications.filter(type=ApplicationType.ADMISSION).exclude(
+        status=ApplicationStatus.DECLINED)
     if not admission.exists():
         return {
             'key': 'apply_admission',
@@ -62,8 +68,15 @@ def _next_step(user, applications) -> dict:
             'href': '/apply/admission',
         }
 
+    # Only where the application is still live. A registrar who has not answered
+    # by the time an application is decided never will, so the verification sits
+    # at REQUESTED for good — and this told a student whose application had been
+    # *declined* that the office was "waiting on your institution" and that
+    # "nothing is needed from you", permanently. The question is not whether a
+    # request is outstanding; it is whether anything is still waiting on it.
     awaiting = EnrollmentVerification.objects.filter(
         application__student=user,
+        application__status__in=ApplicationStatus.open_states(),
         status=EnrollmentVerification.Status.REQUESTED,
     ).exists()
     if awaiting:
@@ -185,12 +198,22 @@ def for_staff(user) -> dict:
         paid=Sum('amount', filter=Q(status=Award.Status.PAID)),
     )
 
-    flags = applications.aggregate(
+    # Scoped to applications still open, because these are things to act on. A
+    # decided application submitted late is a fact about the past; counting it
+    # here put a number beside "needs attention" that no amount of work could
+    # bring down, which is how a queue stops being read at all.
+    open_applications = applications.filter(status__in=ApplicationStatus.open_states())
+    flags = open_applications.aggregate(
         late=Count('id', filter=Q(submitted_after_deadline=True)),
         residency=Count('id', filter=~Q(residency_flag='')),
     )
 
+    # The same fault as the student's "waiting on your institution": a registrar
+    # who has not answered by the time an application is decided never will, so
+    # the request stays REQUESTED for good. Unscoped, this was a work queue with
+    # a floor it could never go below.
     awaiting_enrolment = EnrollmentVerification.objects.filter(
+        application__status__in=ApplicationStatus.open_states(),
         status=EnrollmentVerification.Status.REQUESTED,
     ).count()
 

@@ -104,6 +104,39 @@ class StaffSummaryTests(TestCase):
         self.assertEqual(
             dashboard.summary(self.staff)['queues']['awaiting_enrolment_confirmation'], 0)
 
+    def test_a_decided_application_leaves_the_enrolment_queue(self):
+        """A queue with a floor it cannot reach stops being read.
+
+        A registrar who has not answered by the time the office decides never
+        will, so the request stays REQUESTED for good. Counted regardless of the
+        application, every declined application added one to a work queue
+        permanently — the same fault that told the *student* their institution
+        was still being waited on after they had been refused.
+        """
+        for status in (ApplicationStatus.DECLINED, ApplicationStatus.APPROVED,
+                       ApplicationStatus.SENT_TO_FINANCE):
+            with self.subTest(status=status):
+                EnrollmentVerification.objects.all().delete()
+                Application.objects.all().delete()
+                application = make_application(status=status,
+                                               enrolment_confirmed=False)
+                verification.issue(application, 'registrar@aurora.ca')
+                self.assertEqual(
+                    dashboard.summary(self.staff)['queues']
+                    ['awaiting_enrolment_confirmation'], 0)
+
+    def test_attention_counts_only_what_can_still_be_acted_on(self):
+        """`submitted_late` is an attention item, not a historical tally."""
+        make_application(status=ApplicationStatus.SUBMITTED,
+                         submitted_after_deadline=True)
+        make_application(status=ApplicationStatus.DECLINED,
+                         submitted_after_deadline=True)
+        make_application(status=ApplicationStatus.APPROVED,
+                         submitted_after_deadline=True)
+
+        attention = dashboard.summary(self.staff)['attention']
+        self.assertEqual(attention['submitted_late'], 1)
+
     def test_money_is_split_by_where_it_has_reached(self):
         application = make_application()
         # Approved, because the office's totals are money it has committed to.
@@ -412,6 +445,100 @@ class NextStepTests(TestCase):
     def test_another_students_application_does_not_decide_this_students_step(self):
         make_application(student=make_user(), status=ApplicationStatus.INFO_REQUESTED)
         self.assertEqual(self.step()['key'], 'apply_admission')
+
+    # ── What a closed application must stop saying ───────────────────────────
+    #
+    # Reported by the owner: a declined application went on telling the student
+    # "Waiting on your institution — nothing is needed from you." The
+    # verification is still REQUESTED, because a registrar who never answered
+    # never will, and the query asked about the verification without asking what
+    # had happened to the application it belonged to. The same shape as the
+    # award bug: a related object read without reference to its parent's state.
+
+    def _unanswered(self, status):
+        """An application in `status` whose registrar never replied."""
+        application = make_application(student=self.student, status=status,
+                                       enrolment_confirmed=False)
+        verification.issue(application, 'registrar@example.com')
+        return application
+
+    def test_a_declined_application_stops_blaming_the_institution(self):
+        """The owner's report, isolated to the guard it is about.
+
+        Written as a lone declined admission it passed with the guard removed:
+        a declined admission sends the student to `apply_admission` before the
+        enrolment check is ever reached, so the test was watching a different
+        fix. It needs an admission that is *not* declined to get past that
+        branch, and a decided application behind the unanswered request.
+        """
+        make_application(student=self.student, status=ApplicationStatus.APPROVED)
+        declined = make_application(student=self.student,
+                                    type=ApplicationType.CONTINUING_FUNDING,
+                                    status=ApplicationStatus.DECLINED,
+                                    enrolment_confirmed=False)
+        verification.issue(declined, 'registrar@example.com')
+
+        step = self.step()
+        self.assertNotEqual(step['key'], 'awaiting_enrolment')
+        self.assertNotIn('institution', step['title'].lower())
+
+    def test_an_approved_application_stops_blaming_the_institution_too(self):
+        """Approval requires a confirmed enrolment, so an outstanding request
+        beside an approved application is a stale row and not a hold-up."""
+        self._unanswered(ApplicationStatus.APPROVED)
+        self.assertNotEqual(self.step()['key'], 'awaiting_enrolment')
+
+    def test_an_open_application_still_names_the_institution(self):
+        """The guard must not swallow the case it was written for."""
+        self._unanswered(ApplicationStatus.UNDER_REVIEW)
+        self.assertEqual(self.step()['key'], 'awaiting_enrolment')
+
+    def test_a_student_told_to_answer_is_not_told_to_wait_instead(self):
+        """Priority, with both true at once: a request for information is
+        something they can act on and the registrar is not."""
+        self._unanswered(ApplicationStatus.UNDER_REVIEW)
+        make_application(student=self.student,
+                         status=ApplicationStatus.INFO_REQUESTED)
+        self.assertEqual(self.step()['key'], 'provide_information')
+
+    def test_a_student_whose_only_admission_was_declined_can_start_again(self):
+        """They have no funding and were being pointed at travel and bursaries.
+
+        `apply_more` reads as "you are funded, here is what else there is". To
+        somebody who has just been refused it is close to a taunt, and it hides
+        the one thing they might actually do.
+        """
+        make_application(student=self.student, status=ApplicationStatus.DECLINED)
+        step = self.step()
+        self.assertEqual(step['key'], 'apply_admission')
+        self.assertEqual(step['href'], '/apply/admission')
+
+    def test_a_declined_admission_beside_an_approved_one_is_not_a_fresh_start(self):
+        """Having been funded, the next step is further funding, not reapplying."""
+        make_application(student=self.student, status=ApplicationStatus.DECLINED)
+        make_application(student=self.student, status=ApplicationStatus.APPROVED)
+        self.assertEqual(self.step()['key'], 'apply_more')
+
+    def test_every_status_produces_a_step_that_can_be_rendered(self):
+        """Whatever an application is doing, the screen has something to say.
+
+        A missing key, an empty title, or a href with no action would each
+        render as a blank panel on the one screen that exists to tell somebody
+        what to do next.
+        """
+        for status in ApplicationStatus.values:
+            with self.subTest(status=status):
+                student = make_user()
+                make_application(student=student, status=status,
+                                 enrolment_confirmed=False)
+                step = dashboard.summary(student)['next_step']
+                self.assertTrue(step.get('key'), status)
+                self.assertTrue(step.get('title'), status)
+                self.assertTrue(step.get('detail'), status)
+                # An action with nowhere to go, or a link with no label, is a
+                # dead control. Both empty is fine: it means "nothing to do".
+                self.assertEqual(bool(step.get('action')), bool(step.get('href')),
+                                 f'{status}: {step["action"]!r} / {step["href"]!r}')
 
 
 class StudentPayloadTests(TestCase):

@@ -842,6 +842,39 @@ def audit_money_is_only_money_when_decided(base, student, admin):
           awarded_on(student) == student_before + total,
           f'expected {student_before + total}, got {awarded_on(student)}')
 
+    # ── What the portal says to do next ──
+    #
+    # Also reported by the owner: a declined application went on saying
+    # "Waiting on your institution — nothing is needed from you". The
+    # registrar never answered and never will, so the request sits at REQUESTED
+    # for good; the query asked about the verification without asking what had
+    # happened to the application it belonged to.
+    # On a student of its own. By this point the one above holds several open
+    # applications whose registrars have not answered, so "waiting on your
+    # institution" is the true answer for them and the check would pass without
+    # testing anything.
+    alone, response = register(base, 'declinedonly')
+    if check('a student is registered for the declined-only case',
+             alone is not None, response.text[:200]):
+        filed = alone.post('/api/applications/',
+                           json={'type': 'admission', 'answers': admission_answers(base)})
+        if check('they file one application', filed.status_code == 201,
+                 f'{filed.status_code} {filed.text[:200]}'):
+            only = filed.json()['id']
+            admin.post(f'/api/applications/{only}/transition/', json={'action': 'reviewed'})
+            admin.post(f'/api/applications/{only}/transition/',
+                       json={'action': 'declined', 'note': 'Not an approved programme.'})
+
+            step = alone.get('/api/dashboard/').json()['next_step']
+            check('the next step stops blaming the institution once it is declined',
+                  step['key'] != 'awaiting_enrolment', str(step))
+            check('and offers them a way back in rather than further funding',
+                  step['key'] == 'apply_admission', str(step))
+            check('it names something real to do',
+                  bool(step.get('title')) and bool(step.get('detail')), str(step))
+            check('with a link only where there is an action, and never one without',
+                  bool(step.get('action')) == bool(step.get('href')), str(step))
+
 
 # ── 5. The office correcting an application on the student's behalf ──────────
 
