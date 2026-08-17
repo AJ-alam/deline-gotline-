@@ -17,12 +17,25 @@ from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import BankAccount, Role, User
+from accounts.services import eligibility
 from funding.models import (
     Application, ApplicationDeadline, FundingStream, PolicySetting, RuleSet,
 )
 from funding.services.policy_admin import unit_for
 
 PASSWORD = 'DemoPass123!'
+
+# What a seeded student answered at sign-up. Both C-DFN and DGGR, which is the
+# case worth having in demo data: §7 of the policy allows holding both, and a
+# student funded from one stream would never exercise the top-up.
+SCREENING_ANSWERS = {
+    'indian_act_registered': 'yes',
+    'deline_beneficiary': 'yes',
+    'receives_sfa': 'no',
+    'lives_in_nwt': 'yes',
+    'accredited_institution': 'yes',
+    'programme_twelve_weeks': 'yes',
+}
 
 PEOPLE = [
     ('admin@dgg.test', 'Alice', 'Administrator', Role.ADMIN),
@@ -214,6 +227,17 @@ class Command(BaseCommand):
                 user.beneficiary_number = f'B-{1000 + len(user.email):04d}'
                 user.is_deline_beneficiary = True
                 user.is_indian_act_registered = True
+                # Seeded through the same screening a real applicant answers,
+                # rather than having the tags written in. A seeded student used
+                # to have none at all: the fallback in
+                # `funding.services.streams.saved_streams` still funded them
+                # correctly from the two booleans, so nothing broke — but their
+                # portal showed no streams, and demo data that behaves unlike a
+                # registered account teaches the wrong shape.
+                answers = dict(SCREENING_ANSWERS)
+                user.eligibility_answers = answers
+                user.eligible_streams = eligibility.streams_for(answers)
+                user.eligibility_assessed_at = timezone.now()
             user.set_password(PASSWORD)
             user.save()
 
