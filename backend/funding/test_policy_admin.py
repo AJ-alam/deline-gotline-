@@ -13,6 +13,8 @@ from django.test import TestCase
 from django.utils import timezone
 
 from accounts.models import Role, User
+from funding.test_fixtures import confirm_enrolment
+from funding.services.workflow import NEEDS_ENROLMENT_CONFIRMATION
 from funding.models import (
     Application, ApplicationStatus, ApplicationType, AuditEntry, FundingStream,
     PolicyChange, PolicySetting, RuleSet,
@@ -42,7 +44,13 @@ def make_application(**kwargs):
         },
     )
     defaults.update(kwargs)
-    return Application.objects.create(**defaults)
+    application = Application.objects.create(**defaults)
+    # A confirmed tuition is only ever written by the registrar, so an
+    # admission built without a completed verification is one that could
+    # not exist — and pricing it exercised a path the office cannot reach.
+    if application.type in NEEDS_ENROLMENT_CONFIRMATION:
+        confirm_enrolment(application)
+    return application
 
 
 class RateChangeTests(TestCase):

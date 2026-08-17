@@ -53,6 +53,11 @@ const ACTION_LABELS: Record<TransitionAction, string> = {
   sent_to_finance: 'Send to finance',
 };
 
+/** The statuses in which a recorded decision is money rather than a working.
+ *  Mirrors funding.models.AWARDED_STATUSES; the server is authoritative and
+ *  reports `awarded_total` as 0.00 outside this set. */
+const AWARDED_STATUSES = ['approved', 'sent_to_finance'];
+
 const DECIDING: TransitionAction[] = ['approved', 'declined'];
 
 /**
@@ -364,8 +369,16 @@ export default function ApplicationDetail() {
         <div className="row row--between">
           <h1>{application.type_label}</h1>
           <div className="row">
+            {/* Secondary, not ghost. This is the office rewriting a filed
+                application on the applicant's behalf — the same weight of
+                action as "Edit breakdown" below it, and it was the only
+                control on the page drawn with no border, no background and
+                muted text. Beside a status badge that reads as a caption
+                rather than as something you can press. Sized to match every
+                other action here, which are all `sm`; at the default size it
+                was simultaneously the least visible and the largest. */}
             {canAmend && !amending && (
-              <Button variant="ghost" onClick={() => setAmending(true)}>
+              <Button variant="secondary" size="sm" onClick={() => setAmending(true)}>
                 Edit application
               </Button>
             )}
@@ -487,7 +500,32 @@ export default function ApplicationDetail() {
             }}
           />
         ) : application.decision ? (
-          <DecisionBreakdown trace={application.decision.trace} />
+          <div className="stack">
+            {/* A recorded decision is a pricing. It only becomes an award when
+                somebody approves the application, and until then saying so is
+                the difference between "here is what you would get" and "here
+                is what you have been given". A student was shown a breakdown
+                on an application still under review, and again after it was
+                declined, with nothing on the screen distinguishing either from
+                money that had been granted. The figures stay — an appeal is
+                argued from them — and the sentence above them changes.
+
+                `info`, not `error`: neither state is a fault. The status badge
+                already says the application was declined; this is explaining
+                what the figures underneath it are. */}
+            {!AWARDED_STATUSES.includes(application.status) && (
+              <Alert tone="info">
+                {application.status === 'declined'
+                  ? 'This application was declined. The breakdown below is what it '
+                    + 'was priced at and is not being paid — it is kept so the '
+                    + 'decision can be explained if you appeal.'
+                  : 'Nothing has been awarded yet. This is what the rules work out '
+                    + 'for the answers on file, and it can still change — it '
+                    + 'becomes an award only once the application is approved.'}
+              </Alert>
+            )}
+            <DecisionBreakdown trace={application.decision.trace} />
+          </div>
         ) : preview ? (
           <div className="stack">
             <Alert tone="info">Preview only — nothing has been recorded.</Alert>

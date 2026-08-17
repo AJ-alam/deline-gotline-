@@ -53,6 +53,9 @@ class ManualAwardTests(TestCase):
             answers={'course_load': 'full_time', 'confirmed_tuition': '6000',
                      'semester_start': '2026-09-01', 'semester_end': '2026-12-31'},
         )
+        # The registrar's answer is what writes `confirmed_tuition`, and
+        # what lets an admission be priced at all.
+        confirm_enrolment(self.application)
         self.client = APIClient()
 
     def set_award(self, actor=None, **overrides):

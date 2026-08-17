@@ -10,6 +10,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role, User
+from funding.test_fixtures import confirm_enrolment
 from funding.models import Application, ApplicationStatus, ApplicationType, FundingStream
 from funding.test_fixtures import (
     admission_answers, confirm_enrolment, verification_answers,
@@ -196,6 +197,9 @@ class PricingEndpointTests(APITestCase):
             answers={'course_load': 'full_time', 'confirmed_tuition': '6000',
                      'semester_start': '2026-09-01', 'semester_end': '2026-12-31'},
         )
+        # The registrar's answer is what writes `confirmed_tuition`, and
+        # what lets an admission be priced at all.
+        confirm_enrolment(self.application)
 
     def test_staff_can_preview_an_award_without_recording_it(self):
         self.client.force_authenticate(self.worker)
@@ -281,6 +285,7 @@ class QueryCostTests(APITestCase):
         application = Application.objects.first()
         application.answers = {**VALID_ADMISSION, 'confirmed_tuition': '6000'}
         application.save(update_fields=['answers'])
+        confirm_enrolment(application)
 
         from funding.services.decisions import record_decision
         record_decision(application)

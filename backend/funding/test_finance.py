@@ -81,6 +81,11 @@ class SelectionTests(TestCase):
             answers={'course_load': 'full_time', 'confirmed_tuition': '6000',
                      'semester_start': '2026-09-01', 'semester_end': '2026-12-31'},
         )
+        # Confirmed, so the only thing keeping it out of the payment file is
+        # that nobody has decided it. Without this the application is held back
+        # by the enrolment gate instead, and the test passes without ever
+        # exercising the rule it is named after.
+        confirm_enrolment(pending)
         record_decision(pending)
 
         applications = {row['award'].application_id for row in finance.preview()[0]}

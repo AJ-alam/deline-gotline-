@@ -51,7 +51,22 @@ def record_decision(application, actor=None, rule_set=None, allow_incomplete=Fal
     """Price the application and store the result as the current decision.
 
     The previous decision is superseded, not deleted.
+
+    Refused before the institution has confirmed the enrolment, on the types
+    whose award depends on it. `preview` is deliberately not — staff need to see
+    a working before they chase a registrar. The difference is that recording
+    writes a figure onto the application, and tuition is funded against the
+    registrar's number: priced without it, the tuition rules award nothing, so
+    the total is not a small error but a wrong answer that reads like a real
+    one. The same guard already stops the application being forwarded or
+    approved; it was missing from the one step that produces the amount.
     """
+    from funding.services import workflow
+
+    if not workflow.enrolment_is_confirmed(
+            application, workflow.Action.APPROVED):
+        raise workflow.EnrolmentNotConfirmed(application)
+
     rule_set = rule_set or _rule_set_for(application)
     decision_result = price(application, rule_set, PolicyBook.for_application(application))
 

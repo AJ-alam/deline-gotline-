@@ -106,7 +106,7 @@ def _recent(applications, limit: int = 5) -> list[dict]:
             'type_label': application.get_type_display(),
             'status': application.status,
             'status_label': application.get_status_display(),
-            'awarded_total': str(application.awarded_total),
+            'awarded_total': str(application.awarded_amount),
             'submitted_at': application.submitted_at,
         }
         for application in applications.order_by('-submitted_at')[:limit]
@@ -117,11 +117,13 @@ def for_student(user) -> dict:
     applications = Application.objects.filter(student=user)
     by_status = _counts_by_status(applications)
 
-    # Scoped to the decision in force. Unscoped, this counted every pricing the
-    # application had ever had: approved once for $2,000, shown $4,000 the
-    # moment anybody re-priced it — while the application listed underneath
-    # said $2,000, because `awarded_total` follows the current decision.
-    awarded = (Award.objects.current()
+    # Scoped to the decision in force *and* to an application that has been
+    # approved. Scoping by decision alone was the previous fix and only half of
+    # the answer: it stopped a re-pricing being counted twice, and still counted
+    # a pricing nobody had decided on. A student under review was shown money
+    # for an application the institution had not confirmed, and a student whose
+    # application was declined went on being shown it afterwards.
+    awarded = (Award.objects.awarded()
                .filter(application__student=user)
                .aggregate(total=Sum('amount'))['total']) or ZERO
     # Not scoped: money that left the bank under a decision since superseded
@@ -171,8 +173,9 @@ def for_staff(user) -> dict:
     by_status = _counts_by_status(applications)
 
     # The same scoping as the student's, for the same reason: the office's
-    # totals were inflated by every re-pricing anybody had ever done.
-    money = Award.objects.current().aggregate(
+    # totals were inflated by every re-pricing anybody had ever done, and then
+    # by every pricing of an application nobody had approved.
+    money = Award.objects.awarded().aggregate(
         awarded=Sum('amount'),
         pending=Sum('amount', filter=Q(status=Award.Status.PENDING)),
         # Dispatching the payment file is what marks an award paid, so this is

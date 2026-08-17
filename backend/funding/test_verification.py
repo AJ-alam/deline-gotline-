@@ -18,7 +18,7 @@ from funding.models import (
     Application, ApplicationStatus, ApplicationType, EnrollmentVerification,
     FundingStream, PolicySetting,
 )
-from funding.services import verification
+from funding.services import decisions, verification, workflow
 from funding.services.decisions import record_decision
 from funding.test_rules import seed_rates
 from funding.test_fixtures import confirm_enrolment, verification_answers
@@ -169,11 +169,31 @@ class AwardEffectTests(TestCase):
         call_command('seed_rules', '--publish', '--effective-from', '2020-01-01',
                      verbosity=0)
 
-    def test_no_tuition_is_awarded_before_the_registrar_confirms(self):
+    def test_nothing_is_priced_at_all_before_the_registrar_confirms(self):
+        """Stronger than "no tuition is awarded", which is what this asserted.
+
+        Letting the pricing run and produce a tuition-free total was the bug the
+        owner reported: the office recorded an award on an application the
+        institution had not answered for, and the student was shown $7,600 of
+        living allowance as though it had been granted. The figure was not a
+        small error — it was a confident answer to a question nobody could yet
+        answer. Recording is refused outright now; `preview` still works, which
+        is what staff need while they chase a registrar.
+        """
         application = make_application()
-        decision = record_decision(application)
-        tuition = [line for line in decision.lines.all() if line.category == 'tuition']
-        self.assertEqual(tuition, [])
+        with self.assertRaises(workflow.EnrolmentNotConfirmed):
+            record_decision(application)
+        self.assertFalse(application.decisions.exists())
+        application.refresh_from_db()
+        self.assertEqual(application.awarded_total, Decimal('0.00'))
+
+    def test_a_preview_still_works_while_the_registrar_has_not_answered(self):
+        """Staff have to be able to see a working before they chase anybody."""
+        application = make_application()
+        result = decisions.preview(application)
+        self.assertTrue(result.outcomes)
+        tuition = [o for o in result.applied if o.category == 'tuition']
+        self.assertEqual(tuition, [], 'tuition cannot be priced without a figure')
 
     def test_tuition_is_awarded_against_the_confirmed_figure_not_the_estimate(self):
         application = make_application()          # student estimated 9999

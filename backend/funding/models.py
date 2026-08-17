@@ -65,6 +65,12 @@ class ApplicationStatus(models.TextChoices):
         return (cls.SUBMITTED, cls.UNDER_REVIEW, cls.INFO_REQUESTED, cls.AWAITING_DECISION)
 
 
+# The statuses in which an application's current decision is money the office
+# has committed to. Anything else — still in review, declined — has a pricing
+# and not an award, however much the two look alike in the database.
+AWARDED_STATUSES = (ApplicationStatus.APPROVED, ApplicationStatus.SENT_TO_FINANCE)
+
+
 class Application(models.Model):
     """A student's request for funding.
 
@@ -135,6 +141,26 @@ class Application(models.Model):
     @property
     def is_open(self):
         return self.status in ApplicationStatus.open_states()
+
+    @property
+    def awarded_amount(self) -> Decimal:
+        """What this application has actually been awarded.
+
+        `awarded_total` is the column, and it holds whatever the current
+        decision priced at — written the moment anybody prices, cleared by
+        nothing. Read directly it told a student under review that they had
+        been given $7,600 before the institution had confirmed their enrolment
+        and before anyone had approved anything, and went on telling them so
+        after the application was declined.
+
+        The column stays as it is: staff pricing an application need to see the
+        figure they just produced, and an appeal argues against it. This is what
+        every screen showing *money* asks instead, so the two can never disagree
+        the way `awarded_total` and the dashboard once did.
+        """
+        if self.status not in AWARDED_STATUSES:
+            return Decimal('0.00')
+        return self.awarded_total
 
 
 class ApplicantIdentifier(models.Model):
@@ -240,8 +266,29 @@ class AwardQuerySet(models.QuerySet):
     """
 
     def current(self):
-        """Lines belonging to the decision in force. What is owed."""
+        """Lines belonging to the decision in force. What this application prices at.
+
+        Not the same as what has been *awarded*: an application is priced while
+        it is still being reviewed, and pricing a declined one leaves its lines
+        behind. Use `awarded()` for money, and this only where the question
+        really is "what does the current decision say".
+        """
         return self.filter(decision__is_current=True)
+
+    def awarded(self):
+        """Money the office has actually committed to.
+
+        The decision in force *and* an application that has been approved.
+        `current()` alone answered a different question and was read as though
+        it answered this one: an application priced during review reported the
+        figure to the student before anybody had decided anything, and a
+        declined application went on reporting it afterwards — the student was
+        shown an award for funding they had just been refused.
+
+        Scoping by decision was the previous fix for a related fault, and it was
+        half of the answer. A pricing is not a promise; an approval is.
+        """
+        return self.current().filter(application__status__in=AWARDED_STATUSES)
 
     def paid(self):
         """Money that has left the bank.

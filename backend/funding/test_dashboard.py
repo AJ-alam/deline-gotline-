@@ -106,13 +106,41 @@ class StaffSummaryTests(TestCase):
 
     def test_money_is_split_by_where_it_has_reached(self):
         application = make_application()
+        # Approved, because the office's totals are money it has committed to.
+        # Priced but undecided, this reported the figure as awarded *and* as
+        # awaiting payment, while `finance.preview` — which filters on the
+        # application's status — offered nothing. The two screens disagreed
+        # about the same money and only the payment file was right.
+        workflow.record(application, ApplicationEvent.Action.REVIEWED, self.staff)
+        workflow.record(application, ApplicationEvent.Action.APPROVED,
+                        make_user(Role.DIRECTOR))
         record_decision(application)
+        application.refresh_from_db()
         awarded = application.awarded_total
 
         summary = dashboard.summary(self.staff)
         self.assertEqual(Decimal(summary['money']['awarded']), awarded)
         self.assertEqual(Decimal(summary['money']['awaiting_payment']), awarded)
         self.assertEqual(Decimal(summary['money']['paid']), Decimal('0.00'))
+
+    def test_an_undecided_pricing_is_absent_from_the_office_totals_too(self):
+        """The office's figure has to match the payment file's.
+
+        `finance.pending_awards` has always filtered on the application status;
+        the dashboard did not, so a priced-but-undecided application inflated
+        every total on the staff screen while being correctly absent from the
+        run. Both read `Award.objects.awarded()` now.
+        """
+        from funding.services import finance
+
+        application = make_application()
+        workflow.record(application, ApplicationEvent.Action.REVIEWED, self.staff)
+        record_decision(application)
+
+        summary = dashboard.summary(self.staff)
+        self.assertEqual(Decimal(summary['money']['awarded']), Decimal('0.00'))
+        self.assertEqual(
+            {row['award'].application_id for row in finance.preview()[0]}, set())
 
     def test_money_moves_once_a_batch_is_dispatched(self):
         from funding.services import finance
@@ -191,13 +219,73 @@ class StudentSummaryTests(TestCase):
         self.assertGreater(Decimal(money['paid']), Decimal('0.00'))
         self.assertEqual(Decimal(money['paid']), Decimal(money['awarded']))
 
-    def test_money_counts_only_their_own_awards(self):
-        mine = make_application(student=self.student)
-        record_decision(mine)
-        record_decision(make_application())     # somebody else's
+    def _approve(self, application):
+        """Carry an application to approved, the way the office does."""
+        staff = make_user(Role.SUPPORT_WORKER)
+        workflow.record(application, ApplicationEvent.Action.REVIEWED, staff)
+        workflow.record(application, ApplicationEvent.Action.APPROVED,
+                        make_user(Role.DIRECTOR))
+        application.refresh_from_db()
+        return application
 
+    def test_money_counts_only_their_own_awards(self):
+        mine = self._approve(make_application(student=self.student))
+        record_decision(mine)
+        record_decision(self._approve(make_application()))   # somebody else's
+
+        mine.refresh_from_db()
         summary = dashboard.summary(self.student)
         self.assertEqual(Decimal(summary['money']['awarded']), mine.awarded_total)
+        self.assertGreater(mine.awarded_total, Decimal('0.00'))
+
+    def test_a_priced_application_nobody_has_decided_is_not_money_yet(self):
+        """Reported by the owner against his own test run.
+
+        The office reviewed an application, recorded an award on it, and the
+        student's portal showed the amount as though it had been granted —
+        before the institution had confirmed the enrolment and before anybody
+        had approved anything. Scoping by the current decision was the earlier
+        fix for a related fault and only answered half the question: it stopped
+        a re-pricing counting twice, and still counted a pricing nobody had
+        decided on. A pricing is not a promise.
+        """
+        priced = make_application(student=self.student)
+        workflow.record(priced, ApplicationEvent.Action.REVIEWED,
+                        make_user(Role.SUPPORT_WORKER))
+        record_decision(priced)
+        priced.refresh_from_db()
+
+        self.assertGreater(priced.awarded_total, Decimal('0.00'),
+                           'the pricing itself is still recorded')
+        summary = dashboard.summary(self.student)
+        self.assertEqual(Decimal(summary['money']['awarded']), Decimal('0.00'))
+        self.assertEqual(Decimal(summary['recent'][0]['awarded_total']),
+                         Decimal('0.00'))
+
+    def test_a_declined_application_stops_reporting_an_award(self):
+        """The same fault on the other side, and the worse half of it.
+
+        A student whose application was refused went on being shown the amount
+        it had been priced at. The decision is kept — an appeal is argued from
+        it — but it is not money, and the portal must not say it is.
+        """
+        declined = make_application(student=self.student)
+        staff = make_user(Role.SUPPORT_WORKER)
+        workflow.record(declined, ApplicationEvent.Action.REVIEWED, staff)
+        record_decision(declined)
+        workflow.record(declined, ApplicationEvent.Action.DECLINED, staff,
+                        note='Not an approved programme.')
+        declined.refresh_from_db()
+
+        self.assertEqual(declined.status, ApplicationStatus.DECLINED)
+        self.assertTrue(declined.decisions.filter(is_current=True).exists(),
+                        'the pricing is kept, so an appeal can argue with it')
+        self.assertEqual(declined.awarded_amount, Decimal('0.00'))
+
+        summary = dashboard.summary(self.student)
+        self.assertEqual(Decimal(summary['money']['awarded']), Decimal('0.00'))
+        self.assertEqual(Decimal(summary['recent'][0]['awarded_total']),
+                         Decimal('0.00'))
 
     def test_a_student_is_told_what_is_waiting_on_them(self):
         make_application(student=self.student,

@@ -24,7 +24,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from funding.models import (
-    Application, ApplicationEvent, ApplicationStatus, AuditEntry, Award,
+    AWARDED_STATUSES, Application, ApplicationEvent, ApplicationStatus,
+    AuditEntry, Award,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,10 @@ class DispatchError(Exception):
 # An award may be paid once its application has been approved. Reaching finance
 # does not un-approve it, and the award's own status is what records whether the
 # money has actually gone out.
-PAYABLE_STATUSES = (ApplicationStatus.APPROVED, ApplicationStatus.SENT_TO_FINANCE)
+# The statuses whose award the office has committed to. Imported rather than
+# restated: `Award.objects.awarded()` gates on the same set, and two lists that
+# must agree are two lists that can disagree.
+PAYABLE_STATUSES = AWARDED_STATUSES
 
 
 def pending_awards():
@@ -63,9 +67,8 @@ def pending_awards():
     # PENDING — nothing pays them, so nothing ever changed their status — so an
     # application priced twice offered the same award twice and the money would
     # have gone out twice.
-    return (Award.objects.current()
-            .filter(status=Award.Status.PENDING,
-                    application__status__in=PAYABLE_STATUSES)
+    return (Award.objects.awarded()
+            .filter(status=Award.Status.PENDING)
             .select_related('application', 'application__student')
             .order_by('application__student__last_name', 'application_id', 'id'))
 

@@ -428,6 +428,13 @@ class ApplicationViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_403_FORBIDDEN)
         try:
             decision = decision_service.record_decision(application, actor=request.user)
+        except workflow.EnrolmentNotConfirmed as exc:
+            # Named separately, as it is on `transition`: this is not the
+            # reviewer's mistake, it is the institution not having answered.
+            return Response(
+                {'detail': str(exc), 'blocked_by': 'enrolment_verification'},
+                status=status.HTTP_409_CONFLICT,
+            )
         except decision_service.IncompletePolicyError as exc:
             # Naming the missing rates makes this fixable without reading logs.
             return Response(

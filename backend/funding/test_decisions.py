@@ -14,6 +14,7 @@ from funding.models import (
     Application, ApplicationType, Award, AwardDecision, FundingStream,
     PolicySetting, RuleSet,
 )
+from funding.services.workflow import NEEDS_ENROLMENT_CONFIRMATION
 from funding.services.decisions import (
     IncompletePolicyError, NoRuleSetInForce, current_decision, decision_history,
     preview, record_decision,
@@ -41,7 +42,14 @@ def make_application(**kwargs):
         schema_slug='admission', answers=answers,
     )
     defaults.update(kwargs)
-    return Application.objects.create(student=student, **defaults)
+    application = Application.objects.create(student=student, **defaults)
+    # An admission application carrying a confirmed tuition is one the registrar
+    # has already answered — that key is only ever written by the verification.
+    # Built without one it was an application that could not exist, and pricing
+    # it exercised a path the office cannot reach.
+    if application.type in NEEDS_ENROLMENT_CONFIRMATION:
+        confirm_enrolment(application)
+    return application
 
 
 class RecordingTests(TestCase):
@@ -75,13 +83,18 @@ class RecordingTests(TestCase):
 
     def test_inputs_are_snapshotted_so_later_edits_do_not_rewrite_history(self):
         app = make_application()
+        # What the registrar actually confirmed, read off the application
+        # rather than written out here: the figure is cleaned as money on its
+        # way in, so it is '6000.00' and not the '6000' a fixture types.
+        confirmed = app.answers['confirmed_tuition']
         decision = record_decision(app)
 
         app.answers['confirmed_tuition'] = '99999'
         app.save(update_fields=['answers'])
 
         decision.refresh_from_db()
-        self.assertEqual(decision.inputs['confirmed_tuition'], '6000')
+        self.assertEqual(decision.inputs['confirmed_tuition'], confirmed)
+        self.assertNotEqual(decision.inputs['confirmed_tuition'], '99999')
 
     def test_the_trace_is_stored_with_the_decision(self):
         app = make_application()

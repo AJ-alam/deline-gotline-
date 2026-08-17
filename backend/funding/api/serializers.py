@@ -174,6 +174,11 @@ class ApplicationListSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     student_name = serializers.SerializerMethodField()
     enrolment = serializers.SerializerMethodField()
+    # The amount actually awarded, not whatever the column happens to hold —
+    # see Application.awarded_amount. A row in review or declined reports
+    # 0.00, because it has a pricing and not an award.
+    awarded_total = serializers.DecimalField(
+        source='awarded_amount', max_digits=12, decimal_places=2, read_only=True)
 
     class Meta:
         model = Application
@@ -224,6 +229,10 @@ class ApplicationDetailSerializer(serializers.ModelSerializer):
     documents = serializers.SerializerMethodField()
     can_revise = serializers.SerializerMethodField()
     information_requested = serializers.SerializerMethodField()
+    # As on the list. `decision` alongside it still carries the full pricing,
+    # which is what staff price from and what an appeal argues against.
+    awarded_total = serializers.DecimalField(
+        source='awarded_amount', max_digits=12, decimal_places=2, read_only=True)
 
     class Meta:
         model = Application

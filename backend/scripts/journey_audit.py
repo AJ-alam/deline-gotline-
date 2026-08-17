@@ -237,6 +237,17 @@ def fill_from_schema(schema, **overrides):
     return answers
 
 
+def awarded_on(person) -> Decimal:
+    """What this person's dashboard says has been awarded, right now.
+
+    Read as a baseline and compared as a delta. The totals are cumulative over
+    every application somebody holds, so a check written against an absolute
+    figure passes or fails on what earlier sections of this audit happened to
+    leave behind.
+    """
+    return Decimal(person.get('/api/dashboard/').json()['money']['awarded'])
+
+
 def upload(person, path='/api/documents/', name='transcript.png'):
     return person.http.post(
         f'{person.base}{path}',
@@ -296,6 +307,7 @@ def main():
     app_one = audit_clean_approval(base, both, admin, director)
     audit_information_loop(base, both, admin)
     audit_breakdown(base, both, dggr_only, on_sfa, admin)
+    audit_money_is_only_money_when_decided(base, both, admin)
     audit_office_edit(base, both, admin)
     audit_forward_versus_decide(base, both, admin, director)
     audit_every_type(base, both, admin, worker)
@@ -700,8 +712,23 @@ def audit_breakdown(base, both, dggr_only, on_sfa, admin):
               Decimal(decision['total']) == Decimal('10125.00'), decision['total'])
 
     after = admin.get(f'/api/applications/{app_id}/').json()
-    check('the application now reports the hand-set total, not the priced one',
-          Decimal(after['awarded_total']) == Decimal('10125.00'), after['awarded_total'])
+    # Against the decision, not `awarded_total`: this application has not been
+    # approved, so the amount awarded is correctly nothing. The hand-set figure
+    # is what the current decision now says.
+    check('the current decision is the hand-set one, not the priced one',
+          Decimal((after.get('decision') or {})['total']) == Decimal('10125.00'),
+          str((after.get('decision') or {}).get('total')))
+    check('and an undecided application still reports no award',
+          Decimal(after['awarded_total']) == 0, after['awarded_total'])
+
+    admin.post(f'/api/applications/{app_id}/transition/', json={'action': 'reviewed'})
+    approved = admin.post(f'/api/applications/{app_id}/transition/',
+                          json={'action': 'approved'})
+    if check('once approved, the hand-set total is what is awarded',
+             approved.status_code == 200, f'{approved.status_code} {approved.text[:200]}'):
+        check('and the application reports it',
+              Decimal(approved.json()['awarded_total']) == Decimal('10125.00'),
+              approved.json()['awarded_total'])
 
     history = admin.get(f'/api/applications/{app_id}/decisions/')
     check('the earlier pricing is kept, superseded rather than overwritten',
@@ -719,6 +746,101 @@ def audit_breakdown(base, both, dggr_only, on_sfa, admin):
                                                'description': 'x', 'amount': '99999'}]})
     check('a support worker cannot set an award by hand',
           refused.status_code == 403, f'{refused.status_code} {refused.text[:200]}')
+
+
+# ── A pricing is not a promise ───────────────────────────────────────────────
+
+def audit_money_is_only_money_when_decided(base, student, admin):
+    """Reported by the owner against his own test run.
+
+    The office reviewed an application and recorded an award on it. The
+    institution had not confirmed the enrolment and nobody had approved
+    anything, and the student's portal showed the amount as though it had been
+    granted. The application was then declined, and the portal went on showing
+    it.
+
+    Two faults, one cause: every total was scoped to the current *decision* and
+    none of them asked what had happened to the *application*.
+    """
+    section('A pricing is not a promise')
+
+    sent = student.post('/api/applications/',
+                        json={'type': 'admission', 'answers': admission_answers(base)})
+    if not check('the student files an application', sent.status_code == 201,
+                 f'{sent.status_code} {sent.text[:250]}'):
+        return
+    app_id = sent.json()['id']
+
+    admin.post(f'/api/applications/{app_id}/transition/', json={'action': 'reviewed'})
+
+    # Baselines. Everything below is asserted as a movement from here.
+    student_before, office_before = awarded_on(student), awarded_on(admin)
+
+    # ── Before the institution has answered ──
+    refused = admin.post(f'/api/applications/{app_id}/price/')
+    check('an award cannot be recorded before the institution confirms',
+          refused.status_code == 409, f'{refused.status_code} {refused.text[:200]}')
+    check('and the refusal names what is blocking it',
+          refused.json().get('blocked_by') == 'enrolment_verification',
+          refused.text[:200])
+    check('while the office can still see a working',
+          admin.get(f'/api/applications/{app_id}/decision-preview/').status_code == 200)
+
+    # ── Confirmed, priced, still nobody has decided ──
+    confirm_enrolment(base, app_id)
+    priced = admin.post(f'/api/applications/{app_id}/price/')
+    if not check('once confirmed, the award records', priced.status_code == 201,
+                 f'{priced.status_code} {priced.text[:250]}'):
+        return
+    total = Decimal(priced.json()['total'])
+    check('and it is a real figure', total > 0, str(total))
+
+    seen = student.get(f'/api/applications/{app_id}/').json()
+    check('the student is NOT told they have been awarded it yet',
+          Decimal(seen['awarded_total']) == 0, seen['awarded_total'])
+    check('and their dashboard does not count it',
+          awarded_on(student) == student_before,
+          f'{student_before} -> {awarded_on(student)}')
+    check('the office does not count it either, so its total matches the payment file',
+          awarded_on(admin) == office_before,
+          f'{office_before} -> {awarded_on(admin)}')
+
+    # ── Approved: now it is money ──
+    approved = admin.post(f'/api/applications/{app_id}/transition/',
+                          json={'action': 'approved'})
+    check('the office approves it', approved.status_code == 200,
+          f'{approved.status_code} {approved.text[:200]}')
+    seen = student.get(f'/api/applications/{app_id}/').json()
+    check('now the student is shown the amount',
+          Decimal(seen['awarded_total']) == total, seen['awarded_total'])
+    check('and the dashboard rises by exactly that amount',
+          awarded_on(student) == student_before + total,
+          f'{student_before} + {total} != {awarded_on(student)}')
+
+    # ── Declined: it stops being money again ──
+    second = student.post('/api/applications/',
+                          json={'type': 'admission', 'answers': admission_answers(base)})
+    if not check('a second application is filed', second.status_code == 201,
+                 f'{second.status_code} {second.text[:250]}'):
+        return
+    other = second.json()['id']
+    admin.post(f'/api/applications/{other}/transition/', json={'action': 'reviewed'})
+    confirm_enrolment(base, other)
+    admin.post(f'/api/applications/{other}/price/')
+    declined = admin.post(f'/api/applications/{other}/transition/',
+                          json={'action': 'declined', 'note': 'Not an approved programme.'})
+    check('the office declines it', declined.status_code == 200,
+          f'{declined.status_code} {declined.text[:200]}')
+
+    refused_view = student.get(f'/api/applications/{other}/').json()
+    check('a declined application reports no award',
+          Decimal(refused_view['awarded_total']) == 0, refused_view['awarded_total'])
+    check('but the pricing is kept, so an appeal can argue with it',
+          (refused_view.get('decision') or {}).get('total') is not None,
+          str(refused_view.get('decision')))
+    check("and the declined amount never entered the student's total",
+          awarded_on(student) == student_before + total,
+          f'expected {student_before + total}, got {awarded_on(student)}')
 
 
 # ── 5. The office correcting an application on the student's behalf ──────────
