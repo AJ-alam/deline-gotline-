@@ -178,31 +178,55 @@ class PaidAwardTests(TestCase):
                        ApplicationEvent.Action.APPROVED):
             workflow.record(self.application, action, self.director)
 
-    def test_a_payment_made_under_a_superseded_decision_is_still_reported(self):
+    def _paid_once(self):
         decisions.record_decision(self.application, actor=self.director)
         paid = Award.objects.get(application=self.application)
         paid.status = Award.Status.PAID
         paid.save(update_fields=['status'])
+        return paid
 
-        decisions.record_decision(self.application, actor=self.director)
+    def test_a_paid_award_cannot_be_priced_again(self):
+        """The serious one, and it was a passing test that said otherwise.
+
+        Re-pricing supersedes the current decision and writes a fresh set of
+        lines, and a fresh line is PENDING. `finance.pending_awards()` selects
+        PENDING lines on the current decision of an application in a payable
+        status — and `sent_to_finance` is payable. So re-pricing a dispatched
+        award put every dollar of it back in the payment file.
+
+        The test below used to re-price a paid award and assert that the run
+        offered exactly one row, reading "one" as "not twice". The one row was
+        the *new* decision's line, for money that had already gone out; the
+        paid line was excluded only because it was PAID. It was measuring the
+        double payment and calling it correct.
+
+        `record_manual_decision` has always refused this. `record_decision` —
+        the path the "Record award" button takes — did not.
+        """
+        self._paid_once()
+
+        with self.assertRaises(decisions.AlreadyPaidError):
+            decisions.record_decision(self.application, actor=self.director)
+
+    def test_a_payment_made_under_a_superseded_decision_is_still_reported(self):
+        """Superseding by any other route must not un-count what was paid."""
+        self._paid_once()
 
         self.assertEqual(
             Decimal(dashboard.for_student(self.student)['money']['paid']), AWARDED,
             'money that left the bank stopped being reported as paid')
 
     def test_and_is_not_offered_to_the_payment_run_again(self):
-        decisions.record_decision(self.application, actor=self.director)
-        paid = Award.objects.get(application=self.application)
-        paid.status = Award.Status.PAID
-        paid.save(update_fields=['status'])
+        self._paid_once()
 
-        decisions.record_decision(self.application, actor=self.director)
+        with self.assertRaises(decisions.AlreadyPaidError):
+            decisions.record_decision(self.application, actor=self.director)
 
         ready, _blocked = finance.preview()
         rows = [row for row in ready
                 if row['award'].application_id == self.application.pk]
-        self.assertEqual(len(rows), 1,
-                         'the re-priced award should be payable exactly once')
+        self.assertEqual(rows, [],
+                         'money already paid was offered to the run a second time')
 
 
 class OrphanedAwardTests(TestCase):

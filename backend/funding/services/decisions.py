@@ -36,6 +36,14 @@ class IncompletePolicyError(Exception):
         super().__init__('Missing policy rates: ' + ', '.join(self.missing))
 
 
+def _refuse_if_paid(application) -> None:
+    """Stop before touching an award any of which has been paid."""
+    if application.awards.filter(status=Award.Status.PAID).exists():
+        raise AlreadyPaidError(
+            'Part of this award has already been paid. It cannot be priced or '
+            'edited again after money has gone out.')
+
+
 def preview(application, rule_set=None):
     """Price without recording anything.
 
@@ -63,6 +71,7 @@ def record_decision(application, actor=None, rule_set=None, allow_incomplete=Fal
     """
     from funding.services import workflow
 
+    _refuse_if_paid(application)
     if not workflow.enrolment_is_confirmed(
             application, workflow.Action.APPROVED):
         raise workflow.EnrolmentNotConfirmed(application)
@@ -133,6 +142,23 @@ class AwardEditError(Exception):
     """The breakdown cannot be set to this."""
 
 
+class AlreadyPaidError(Exception):
+    """Money has gone out under this application; its award is settled.
+
+    Re-pricing supersedes the current decision and writes a fresh set of lines,
+    and a fresh line is PENDING. On an application the payment run has already
+    dispatched, that puts money back in the run: `finance.pending_awards()`
+    selects PENDING lines on the current decision of an application in a payable
+    status, and `sent_to_finance` is one. Re-pricing a dispatched award offered
+    every dollar of it for payment a second time — $14,850 of it, on the
+    application this was found against.
+
+    `record_manual_decision` has always refused this. `record_decision` — the
+    path the "Record award" button takes — did not, and it is the one anybody
+    would press.
+    """
+
+
 @transaction.atomic
 def record_manual_decision(application, lines, actor=None, note: str = ''):
     """The office setting the breakdown by hand.
@@ -151,10 +177,7 @@ def record_manual_decision(application, lines, actor=None, note: str = ''):
     Re-pricing from the rules replaces it, which is why the screen warns before
     doing so. Lines already paid are never touched.
     """
-    if any(line for line in application.awards.filter(status=Award.Status.PAID)):
-        raise AwardEditError(
-            'Part of this award has already been paid. The breakdown cannot be '
-            'changed after money has gone out.')
+    _refuse_if_paid(application)
 
     cleaned = []
     for line in lines:

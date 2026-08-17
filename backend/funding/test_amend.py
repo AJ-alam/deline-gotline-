@@ -92,6 +92,36 @@ class AmendmentTests(TestCase):
         self.assertEqual(self.application.answers['institution_name'],
                          'Aurora College — North Slave')
 
+    def test_a_director_mid_decision_is_told_the_answers_changed(self):
+        """An amendment leaves the application where it sits — and where it
+        sits may be the director's queue.
+
+        They were asked to decide one thing and are now deciding another. Only
+        the applicant was told, and they are not the person about to sign it
+        off. Same fault as forwarding an application and approving it a second
+        later: somebody is asked to act on a state that has since changed and is
+        not told about it.
+        """
+        for action in (ApplicationEvent.Action.REVIEWED,
+                       ApplicationEvent.Action.FORWARDED):
+            workflow.record(self.application, action, self.worker)
+        Notification.objects.all().delete()
+
+        self.amend(institution_name='Somewhere else entirely',
+                   _note='Corrected the institution over the phone.')
+
+        told = Notification.objects.filter(user=self.director)
+        self.assertTrue(told.exists(), 'the director was not told')
+        self.assertIn('changed', told.first().title.lower())
+        # And the applicant is still told, as they always were.
+        self.assertTrue(Notification.objects.filter(user=self.student).exists())
+
+    def test_a_director_is_not_told_about_an_amendment_that_is_not_theirs_yet(self):
+        """Nothing is waiting on them, so nothing needs their attention."""
+        self.amend(institution_name='Aurora College — North Slave')
+
+        self.assertFalse(Notification.objects.filter(user=self.director).exists())
+
     def test_a_support_worker_cannot(self):
         """The people who assess an application do not rewrite it.
 

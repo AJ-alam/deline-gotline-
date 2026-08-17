@@ -23,7 +23,11 @@ import api, {
 // carry its own copy, which is how the office's ability to approve a reviewed
 // application without forwarding it reached the server and never reached a
 // button.
-import { NEXT_ACTIONS } from '../../api/schema.generated';
+import {
+  AWARDED_STATUSES,
+  DECIDED_STATUSES,
+  NEXT_ACTIONS,
+} from '../../api/schema.generated';
 import { Alert, Badge, Button, Card, Field, Input, Textarea } from '../../components/ui';
 import { formatDate, formatMoney, statusTone } from '../../components/ui/format';
 import AmendForm from './AmendForm';
@@ -40,11 +44,6 @@ const ACTION_LABELS: Record<TransitionAction, string> = {
   declined: 'Decline',
   sent_to_finance: 'Send to finance',
 };
-
-/** The statuses in which a recorded decision is money rather than a working.
- *  Mirrors funding.models.AWARDED_STATUSES; the server is authoritative and
- *  reports `awarded_total` as 0.00 outside this set. */
-const AWARDED_STATUSES = ['approved', 'sent_to_finance'];
 
 const DECIDING: TransitionAction[] = ['approved', 'declined'];
 
@@ -349,7 +348,7 @@ export default function ApplicationDetail() {
   // server's; repeated here so the button is not offered where it would fail.
   const canAmend =
     me.role === 'admin' &&
-    !['approved', 'declined', 'sent_to_finance'].includes(application.status);
+    !DECIDED_STATUSES.includes(application.status);
 
   return (
     <main className="page stack stack--loose">

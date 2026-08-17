@@ -167,7 +167,10 @@ class ManualAwardTests(TestCase):
 
         response = self.set_award()
 
-        self.assertEqual(response.status_code, 400)
+        # 409, not 400: this is not a malformed request, it is a request that
+        # conflicts with what has already happened to the money. The same
+        # refusal now covers re-pricing from the rules, which did not have it.
+        self.assertEqual(response.status_code, 409)
         self.assertIn('already been paid', str(response.data))
 
     def test_a_category_that_does_not_exist_is_refused(self):

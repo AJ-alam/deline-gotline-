@@ -238,6 +238,31 @@ def send_application_amended(application, actor=None, note: str = '') -> None:
             f'/applications/{application.pk}', Notification.Kind.AMENDED)
 
 
+def send_amended_while_awaiting_decision(application, actor=None,
+                                         note: str = '') -> None:
+    """The answers changed under a director who is mid-decision.
+
+    An amendment leaves the application exactly where it sits, which is the
+    point of it — but where it sits may be the director's queue. They were asked
+    to decide one thing and are now deciding another, with nothing on the screen
+    saying so. That is the same fault as forwarding an application and approving
+    it a second later: somebody is asked to act on a state that has since
+    changed and is not told.
+
+    Only the applicant was told. They are not the person about to sign it off.
+    """
+    from accounts.models import Role
+
+    who = getattr(actor, 'full_name', '') or 'The Education Department'
+    applicant = application.student.full_name if application.student else 'A claimant'
+    tell_the_office(
+        application, [Role.DIRECTOR],
+        'An application waiting on you has changed',
+        f'{who} amended {applicant}’s {application.get_type_display()} while it '
+        f'was awaiting your decision.'
+        + (f' What changed: {note}' if note else ''))
+
+
 def tell_the_office(application, roles, title: str, message: str) -> None:
     """A notice for the people whose turn it is.
 

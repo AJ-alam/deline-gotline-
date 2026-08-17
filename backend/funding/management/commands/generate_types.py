@@ -19,7 +19,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from funding.models import (
-    ApplicationEvent, ApplicationStatus, ApplicationType, FundingStream,
+    AWARDED_STATUSES, DECIDED_STATUSES, ApplicationEvent, ApplicationStatus,
+    ApplicationType, FundingStream,
 )
 from funding.schemas import FieldType, all_schemas
 from funding.services.workflow import ALLOWED_ACTIONS, RESULTING_STATUS
@@ -207,6 +208,21 @@ def render() -> str:
         ).replace("'", '"')
         lines.append(f'  {status}: [{allowed}],')
     lines += ['};', '']
+
+    lines += [
+        '/** Statuses in which the current decision is money the office has',
+        ' *  committed to. Outside these an application has a *pricing*, and the',
+        ' *  server reports its awarded_total as 0.00. */',
+        'export const AWARDED_STATUSES: ApplicationStatus[] = ['
+        + ', '.join(f"'{v}'" for v in AWARDED_STATUSES) + '];',
+        '',
+        '/** Statuses in which somebody has decided. Its answers are the record',
+        ' *  the decision was made from, and the office takes no further action',
+        ' *  that changes what it says or asks anybody a question about it. */',
+        'export const DECIDED_STATUSES: ApplicationStatus[] = ['
+        + ', '.join(f"'{v}'" for v in DECIDED_STATUSES) + '];',
+        '',
+    ]
 
     lines += ['/** Which pot the money comes from. */',
               'export type FundingStream =']

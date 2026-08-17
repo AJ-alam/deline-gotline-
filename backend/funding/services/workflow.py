@@ -320,6 +320,13 @@ def record_amendment(application, actor, note: str = '') -> ApplicationEvent:
 
     from funding.services import messages
     messages.send_application_amended(application, actor=actor, note=note)
+
+    # An amendment leaves the application where it sits — and where it sits may
+    # be the director's queue. They were asked to decide one thing and are now
+    # deciding another.
+    if application.status == ApplicationStatus.AWAITING_DECISION:
+        messages.send_amended_while_awaiting_decision(
+            application, actor=actor, note=note)
     return event
 
 

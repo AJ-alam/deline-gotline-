@@ -441,6 +441,10 @@ class ApplicationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT)
         try:
             decision = decision_service.record_decision(application, actor=request.user)
+        except decision_service.AlreadyPaidError as exc:
+            # Re-pricing a dispatched award writes fresh PENDING lines, which
+            # the payment run then offers again. The money would go out twice.
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
         except workflow.EnrolmentNotConfirmed as exc:
             # Named separately, as it is on `transition`: this is not the
             # reviewer's mistake, it is the institution not having answered.
@@ -546,6 +550,8 @@ class ApplicationViewSet(viewsets.ModelViewSet):
             decision = decision_service.record_manual_decision(
                 application, lines, actor=request.user,
                 note=str(request.data.get('note') or '').strip())
+        except decision_service.AlreadyPaidError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
         except decision_service.AwardEditError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except decision_service.NoRuleSetInForce as exc:

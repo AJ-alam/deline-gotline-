@@ -380,6 +380,16 @@ export const NEXT_ACTIONS: Record<ApplicationStatus, TransitionAction[]> = {
   sent_to_finance: [],
 };
 
+/** Statuses in which the current decision is money the office has
+ *  committed to. Outside these an application has a *pricing*, and the
+ *  server reports its awarded_total as 0.00. */
+export const AWARDED_STATUSES: ApplicationStatus[] = ['approved', 'sent_to_finance'];
+
+/** Statuses in which somebody has decided. Its answers are the record
+ *  the decision was made from, and the office takes no further action
+ *  that changes what it says or asks anybody a question about it. */
+export const DECIDED_STATUSES: ApplicationStatus[] = ['approved', 'declined', 'sent_to_finance'];
+
 /** Which pot the money comes from. */
 export type FundingStream =
   | 'psssp'
