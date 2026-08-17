@@ -27,8 +27,35 @@ DEFAULT_VALIDITY = timedelta(days=30)
 
 # What the registrar confirms, copied onto the application when they answer.
 # Only these keys are accepted: a registrar must not be able to rewrite the
-# student's own answers through this route.
+# student's own answers through this route, and every one of them must be a
+# field the admission schema itself defines — otherwise the application would
+# end up carrying answers its own schema cannot validate.
 CONFIRMABLE_KEYS = ('confirmed_tuition', 'course_load', 'semester_start', 'semester_end')
+
+# How the enrolment verification is filled in from the application it came from.
+# Left of the arrow is a field on the generated form; right is where the answer
+# comes from. Anything absent here the registrar fills in themselves.
+#
+# Date of birth and SIN are deliberately not carried across. The institution
+# does not need either to confirm an enrolment, and a government identifier
+# does not belong in an unencrypted mailbox.
+PREFILL = {
+    'student_number': 'student_number',
+    'student_phone': 'phone',
+    'student_email': 'email',
+    'institution_name': 'institution_name',
+    'program': 'program',
+    'credential_level': 'credential_level',
+    'course_load': 'course_load',
+    'semester': 'semester',
+    'program_year': 'program_year',
+    'program_length_years': 'program_length_years',
+    'semester_start': 'semester_start',
+    'semester_end': 'semester_end',
+    'confirmed_tuition': 'tuition_requested',
+    'institution_email': 'registrar_email',
+    'institution_phone': 'institution_phone',
+}
 
 
 class VerificationError(Exception):
@@ -87,25 +114,61 @@ def resolve(token: str) -> EnrollmentVerification:
     return verification
 
 
+def student_name(application) -> str:
+    """Who the application is about, however its schema asks the question.
+
+    Most forms ask for a first and last name. The continuing-funding renewal
+    asks for one `full_name`, because it shows what is already on file for
+    confirmation rather than collecting it. Both spellings resolve here, so
+    nothing downstream has to know which schema it is looking at — a registrar's
+    email addressed to "A student" is how that goes wrong.
+    """
+    answers = application.answers or {}
+    for key in ('full_name', 'student_name'):
+        single = str(answers.get(key) or '').strip()
+        if single:
+            return single
+    parts = f"{answers.get('first_name', '')} {answers.get('last_name', '')}".strip()
+    return parts or (application.student.full_name if application.student else '')
+
+
+def prefill_for(application) -> dict:
+    """The enrolment verification, already filled in from the application.
+
+    The registrar confirms rather than retypes. Every value here came from the
+    student, which is exactly why the form says so: the institution is being
+    asked to check these against its own records, not to trust them.
+    """
+    answers = application.answers or {}
+    filled = {'student_name': student_name(application)}
+    for target, source in PREFILL.items():
+        value = answers.get(source)
+        if value not in (None, ''):
+            filled[target] = value
+    return filled
+
+
 def context_for(verification: EnrollmentVerification) -> dict:
     """What the registrar is shown.
 
-    Deliberately narrow: the student's name and programme, enough to look them
-    up. Not their address, banking, beneficiary number or anything else on the
-    application — the registrar is answering one question, not reviewing a file.
+    Deliberately narrow: enough to identify the student and confirm the
+    enrolment. Not their address, banking, beneficiary number, date of birth or
+    SIN — the registrar is answering one question, not reviewing a file.
     """
-    answers = verification.application.answers or {}
-    student = verification.application.student
+    application = verification.application
     return {
-        'student_name': (
-            f"{answers.get('first_name', '')} {answers.get('last_name', '')}".strip()
-            or (student.full_name if student else '')
-        ),
-        'date_of_birth': answers.get('date_of_birth', ''),
-        'institution_name': answers.get('institution_name', ''),
-        'program': answers.get('program', ''),
-        'semester': answers.get('semester', ''),
+        'student_name': student_name(application),
+        'institution_name': (application.answers or {}).get('institution_name', ''),
+        'program': (application.answers or {}).get('program', ''),
         'expires_at': verification.expires_at.isoformat(),
+        'note_to_registrar': (
+            'The student has verified their identity and contact information '
+            'through the DGG Student Portal. Their date of birth and Social '
+            'Insurance Number have been withheld from this form to protect '
+            'their identity.'
+        ),
+        # What the form arrives with already filled in.
+        'prefill': prefill_for(application),
     }
 
 
@@ -134,9 +197,15 @@ def complete(verification: EnrollmentVerification, submitted: dict) -> Enrollmen
     locked.registrar_name = str(cleaned.get('registrar_name') or '')
     locked.responded_at = timezone.now()
     locked.status = EnrollmentVerification.Status.COMPLETED
+    # The institution's declaration in full, kept with the verification rather
+    # than merged into the student's answers.
+    locked.answers = {
+        key: (value if isinstance(value, (str, int, float, bool)) else str(value))
+        for key, value in cleaned.items()
+    }
     locked.save(update_fields=[
         'confirmed_enrolled', 'confirmed_course_load', 'registrar_name',
-        'responded_at', 'status',
+        'responded_at', 'status', 'answers',
     ])
 
     application = locked.application

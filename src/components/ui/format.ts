@@ -8,6 +8,20 @@
 
 export type Tone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral';
 
+/**
+ * A policy rate, in whatever it is measured in.
+ *
+ * The rates screen formatted every one of them as money and ignored `unit`, so
+ * an 80% achievement threshold read as "$80.00" — on the screen an
+ * administrator changes what students are paid from.
+ */
+export function formatRate(value: string | number, unit: string): string {
+  if (unit !== '%') return formatMoney(value);
+  const number = typeof value === 'string' ? Number(value) : value;
+  if (!Number.isFinite(number)) return '—';
+  return `${number}%`;
+}
+
 export function formatMoney(amount: string | number): string {
   const value = typeof amount === 'string' ? Number(amount) : amount;
   if (!Number.isFinite(value)) return '—';

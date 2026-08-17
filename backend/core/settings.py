@@ -155,6 +155,15 @@ REST_FRAMEWORK = {
         'password_reset': '5/hour',
         # Public and token-guarded; limited so the token space cannot be probed.
         'verification': '20/hour',
+        # Public and unauthenticated: anyone can create a record here, so the
+        # ceiling is low enough that the queue cannot be flooded from one
+        # address, and high enough for a household or a school computer lab.
+        'guest_application': '10/hour',
+        # The proof of completion a guest claim requires. Same ceiling as the
+        # submission it belongs to: one claim, one certificate. Every upload is
+        # already capped at 10MB, allowlisted by type and stored under a
+        # generated name, so this bounds the disk an anonymous address can use.
+        'guest_document': '10/hour',
     },
     # Never expose internal error details to API consumers
     'EXCEPTION_HANDLER': 'core.responses.custom_exception_handler',
@@ -183,6 +192,15 @@ SPECTACULAR_SETTINGS = {
 # (Form B registrar links, password resets). Must be a real Django setting:
 # email builders read it via getattr(settings, 'FRONTEND_URL', ...).
 FRONTEND_URL = config('FRONTEND_URL', default='http://localhost:3000').rstrip('/')
+
+# How students reach the office. Shown on the help page, which is public —
+# somebody who cannot sign in is exactly who needs a phone number. Settings
+# rather than a constant in the client, so a deployment can correct an address
+# without a release; a help page that is out of date is worse than none.
+SUPPORT_EMAIL = config('SUPPORT_EMAIL', default='education.support@gov.deline.ca')
+SUPPORT_PHONE = config('SUPPORT_PHONE', default='(867) 589-3515')
+SUPPORT_ADDRESS = config('SUPPORT_ADDRESS',
+                         default='P.O. Box 156, Délı̨nę, NT X0E 0G0')
 
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [

@@ -12,9 +12,14 @@
 import axios, { AxiosError, type AxiosInstance, type InternalAxiosRequestConfig } from 'axios';
 
 import { API_BASE_URL } from './config';
-import type { ApplicationSchema, ApplicationType, AnswersFor } from './schema.generated';
+import type {
+  AnswersFor,
+  ApplicationSchema,
+  ApplicationType,
+  SchemaField,
+} from './schema.generated';
 
-export type { ApplicationSchema, ApplicationType, AnswersFor };
+export type { ApplicationSchema, ApplicationType, AnswersFor, SchemaField };
 
 // ── Wire types ───────────────────────────────────────────────────────────────
 
@@ -39,6 +44,21 @@ export type TransitionAction =
   | 'sent_to_finance';
 
 export type FundingStream = 'psssp' | 'ucepp' | 'dggr';
+
+/**
+ * What can be applied for without an account.
+ *
+ * Both are one-off awards claimed after the fact — a summer placement and a
+ * finished credential — where insisting on a portal account first is what kept
+ * the claim from being made at all.
+ */
+export type GuestApplicationType = 'practicum' | 'graduation_bursary';
+
+/** All a guest gets back: there is no application page for them to open. */
+export interface GuestReceipt {
+  reference: string;
+  detail: string;
+}
 
 export interface ApplicationEvent {
   id: number;
@@ -89,6 +109,29 @@ export interface AwardDecision {
 }
 
 /** The shape the staff queue reads — deliberately without answers or history. */
+/**
+ * Where the institution's confirmation has got to.
+ *
+ * On the summary as well as the detail: an admission application cannot be
+ * forwarded or approved until the registrar answers, so the queue has to say
+ * so before anyone opens the row and tries.
+ */
+export interface EnrolmentState {
+  required: boolean;
+  /**
+   * `not_requested` is not the same as `not_required`. It means this form does
+   * need the institution and nobody has asked yet — which is a dead end until
+   * somebody does: tuition cannot be confirmed, so the application cannot be
+   * forwarded or approved. Both were once reported as 'not_required'.
+   */
+  status: 'not_required' | 'not_requested' | 'requested' | 'completed' | 'expired';
+  label: string;
+  confirmed?: boolean;
+  registrar_email?: string;
+  requested_at?: string;
+  responded_at?: string | null;
+}
+
 export interface ApplicationSummary {
   id: number;
   type: ApplicationType;
@@ -101,6 +144,7 @@ export interface ApplicationSummary {
   submitted_at: string;
   submitted_after_deadline: boolean;
   residency_flag: string;
+  enrolment: EnrolmentState;
 }
 
 export interface Application extends ApplicationSummary {
@@ -109,6 +153,74 @@ export interface Application extends ApplicationSummary {
   office_notes: Record<string, unknown>;
   events: ApplicationEvent[];
   decision: AwardDecision | null;
+  /** What the institution declared, once it has. Null until then. */
+  enrolment_answers: Record<string, unknown> | null;
+  /**
+   * Government identifiers, masked. The server never sends the whole number —
+   * reading one is a separate, audited act.
+   */
+  identifiers: Record<string, string>;
+  /**
+   * Whether an award can be paid, and nothing more.
+   *
+   * `account` is the last four digits. The bank details are asked for on the
+   * form and kept out of `answers` entirely — they live on the account record
+   * finance pays from, and only the payment file carries the whole number.
+   */
+  /** Everything attached, so a reviewer can open it. */
+  documents: AttachedDocument[];
+  /** Whether the person reading this may edit it — the student it belongs to,
+   *  and only while the office is waiting for something. */
+  can_revise: boolean;
+  /** Null unless the office has asked for something. */
+  information_requested: InformationRequest | null;
+  banking: {
+    on_file: boolean;
+    /** Masked, e.g. '••••3210'. Empty when nothing is on file. */
+    account: string;
+    holder: string;
+    /** A guest application's details, waiting to be attached to an account. */
+    held: boolean;
+  };
+}
+
+/** Contact details and the questions the office is asked most. */
+export interface Help {
+  contact: { email: string; phone: string; address: string };
+  faq: Array<{ question: string; answer: string }>;
+}
+
+/** A file attached to an application, as a screen needs it. */
+export interface AttachedDocument {
+  id: number;
+  field_key: string;
+  original_name: string;
+  uploaded_at: string;
+  /** Served by Django, permission-checked. Not a MEDIA_URL path. */
+  url: string;
+}
+
+/** What the office asked for, and who asked. */
+export interface InformationRequest {
+  note: string;
+  asked_by: string;
+  asked_at: string;
+}
+
+/** One line of a hand-set breakdown, as the office types it. */
+export interface AwardLineInput {
+  category: string;
+  description: string;
+  amount: string;
+}
+
+export interface UploadedDocument {
+  id: number;
+  field_key: string;
+  original_name: string;
+  uploaded_at: string;
+  /** What the answer becomes: the schema stores a pointer, not the file. */
+  reference: string;
 }
 
 export interface PolicyRate {
@@ -193,10 +305,62 @@ export interface DashboardSummary {
   attention?: { submitted_late: number; residency_mismatch: number };
   /** Student only. */
   waiting_on_you?: number;
+  student?: { name: string; reference: string };
+  /**
+   * The one thing this student should do next, decided server-side.
+   *
+   * The rule for "what comes next" is funding policy, not presentation: it
+   * belongs where the statuses are, not restated in a component that cannot
+   * see an outstanding enrolment request.
+   */
+  next_step?: {
+    key: string;
+    title: string;
+    detail: string;
+    /** Empty when there is nothing for them to do but wait. */
+    action: string;
+    href: string;
+  };
+  recent?: Array<{
+    id: number;
+    type: ApplicationType;
+    type_label: string;
+    status: ApplicationStatus;
+    status_label: string;
+    awarded_total: string;
+    submitted_at: string;
+  }>;
+  /**
+   * The next cut-offs, one per term, soonest first.
+   *
+   * Empty when the office has set none, and the screen then shows no dates
+   * rather than inventing them. Deduplicated server-side: the same date is set
+   * for every stream, so the rows would otherwise repeat each date three times.
+   */
+  deadlines?: Array<{
+    semester: string;
+    academic_year: string;
+    closes_at: string;
+    late_allowed: boolean;
+  }>;
 }
+
+/**
+ * What kind of thing happened.
+ *
+ * Recorded by the server, not inferred from the title. Matching on words in a
+ * display string is how a reworded label used to change behaviour.
+ */
+export type NotificationKind =
+  | 'received'
+  | 'action_needed'
+  | 'approved'
+  | 'declined'
+  | 'general';
 
 export interface Notification {
   id: number;
+  kind: NotificationKind;
   title: string;
   message: string;
   link: string | null;
@@ -343,15 +507,24 @@ export const tokens = {
   },
 };
 
-const http: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
-});
+// No global Content-Type. Axios sets 'application/json' for a plain object by
+// itself, and setting it here applied it to file uploads too: a FormData body
+// labelled application/json never gets a multipart boundary, so Django parses
+// no file and DRF answers 'The submitted data was not a file. Check the
+// encoding type on the form.'
+// Exported so tests can inspect what is actually put on the wire. Prefer the
+// named endpoints below over reaching for this directly.
+export const http: AxiosInstance = axios.create({ baseURL: API_BASE_URL });
 
 http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = tokens.access;
   if (token && !config.headers.Authorization) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Belt and braces: if anything ever sets a JSON content type on a request
+  // carrying FormData, drop it so the browser can supply the boundary.
+  if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
   }
   return config;
 });
@@ -412,6 +585,20 @@ export const api = {
   async schema(type: ApplicationType): Promise<ApplicationSchema> {
     const { data } = await http.get<ApplicationSchema>(`/schemas/${type}/`);
     return data;
+  },
+
+  /**
+   * What this student's copy of a form opens with.
+   *
+   * Their own answers, so unlike the schema it is never cached. Only the
+   * continuing-funding renewal has much to say here: it exists to be confirmed
+   * rather than filled in.
+   */
+  async formPrefill(type: ApplicationType): Promise<Record<string, string | number | boolean>> {
+    const { data } = await http.get<{ answers: Record<string, string | number | boolean> }>(
+      `/form-prefill/${type}/`,
+    );
+    return data.answers;
   },
 
   /** The screening questions. Public: someone checks before they have an account. */
@@ -477,12 +664,173 @@ export const api = {
   },
 
   /** Answers are typed against the schema for `type`. */
+  /**
+   * Submit an application.
+   *
+   * No stream: it follows from the eligibility answers given at sign-up and the
+   * SFA answer on this form, and the server decides it. It gates which tuition
+   * and living-allowance rules apply, so a client that could choose it could
+   * choose one the applicant does not qualify for.
+   */
   async submit<T extends ApplicationType>(
     type: T,
-    stream: FundingStream,
     answers: AnswersFor<T>,
   ): Promise<Application> {
-    const { data } = await http.post<Application>('/applications/', { type, stream, answers });
+    const { data } = await http.post<Application>('/applications/', { type, answers });
+    return data;
+  },
+
+  /**
+   * The forms that can be filled in without an account.
+   *
+   * Which types those are is the server's decision, not a list duplicated here:
+   * a client-side list would drift, and widening it here would widen nothing —
+   * the endpoint refuses anything else.
+   */
+  async guestSchemas(): Promise<ApplicationSchema[]> {
+    const { data } = await http.get<ApplicationSchema[]>('/guest-applications/');
+    return data;
+  },
+
+  /** Submit one of them. There is no session, and no application to return to. */
+  async submitGuest(
+    type: GuestApplicationType,
+    // Whatever the schema says the answers are. Two field types hold a list —
+    // several receipts, or the rows of an expense breakdown — so narrowing this
+    // to scalars would have described the wire wrongly.
+    answers: Record<string, unknown>,
+  ): Promise<GuestReceipt> {
+    const { data } = await http.post<GuestReceipt>('/guest-applications/', {
+      type,
+      answers,
+    });
+    return data;
+  },
+
+  /**
+   * Attach a document.
+   *
+   * Sent as multipart and stored server-side; the answer keeps a reference, not
+   * the file. May be uploaded before the application exists — the form is
+   * filled in over several sittings — and claimed on submission.
+   */
+  /**
+   * The help page.
+   *
+   * No token attached deliberately: somebody who cannot sign in is exactly who
+   * needs the phone number, and this is served without a session.
+   */
+  async help(): Promise<Help> {
+    const { data } = await http.get<Help>('/help/');
+    return data;
+  },
+
+  /**
+   * Answer a request for more information.
+   *
+   * The whole answer set, not a patch: the server validates a revision by the
+   * same schema that validated the original, and recording that the
+   * information was provided is part of the same act.
+   */
+  async revise(id: number, answers: Record<string, unknown>, note = '') {
+    const { data } = await http.post<Application>(
+      `/applications/${id}/revise/`, { answers, note });
+    return data;
+  },
+
+  /**
+   * The office correcting a filed application on the applicant's behalf.
+   *
+   * Administrators only, refused on anything already decided, and the applicant
+   * is notified by the server every time. Sends the whole answer set for the
+   * same reason `revise` does: a partial update needs a second, weaker notion
+   * of complete, and the weaker one is the one that lets something through.
+   */
+  async amend(id: number, answers: Record<string, unknown>, note = '') {
+    const { data } = await http.post<Application>(
+      `/applications/${id}/amend/`, { answers, note });
+    return data;
+  },
+
+  /**
+   * Ask the institution to confirm an enrolment, or ask again.
+   *
+   * Submission does this by itself when a registrar address is already known.
+   * It is not, for a renewal by somebody whose earlier applications are not in
+   * the portal — and for an address that bounced or a request that expired,
+   * this is the only way back.
+   */
+  async requestEnrolment(id: number, registrarEmail = '') {
+    const { data } = await http.post<Application>(
+      `/applications/${id}/request-enrolment/`,
+      registrarEmail ? { registrar_email: registrarEmail } : {});
+    return data;
+  },
+
+  /**
+   * Set the funding breakdown by hand.
+   *
+   * The rules price the ordinary case. They cannot know an institution charges
+   * a fee no rate covers, or that the office agreed something at the counter —
+   * and the alternatives were to edit a policy rate, which changes what
+   * everyone is paid, or to pay the wrong amount. Recorded as a decision like
+   * any other: it supersedes, and every line says who entered it.
+   */
+  async setAward(id: number, lines: AwardLineInput[], note = '') {
+    const { data } = await http.post<AwardDecision>(
+      `/applications/${id}/award/`, { lines, note });
+    return data;
+  },
+
+  async awardCategories(id: number) {
+    const { data } = await http.get<Array<{ value: string; label: string }>>(
+      `/applications/${id}/award-categories/`);
+    return data;
+  },
+
+  async uploadDocument(
+    file: File,
+    fieldKey: string,
+    applicationId?: number,
+  ): Promise<UploadedDocument> {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('field_key', fieldKey);
+    if (applicationId !== undefined) form.append('application', String(applicationId));
+
+    const { data } = await http.post<UploadedDocument>('/documents/', form);
+    return data;
+  },
+
+  /**
+   * Open an attached document.
+   *
+   * It cannot be an ordinary link. The endpoint is permission-checked and
+   * authorised by the bearer token, which a browser navigation does not carry:
+   * a plain `<a href>` opened the API's 401 page instead of the transcript, for
+   * every role. Fetched here so the token goes with it, then handed to the tab
+   * as a blob.
+   */
+  async openDocument(url: string): Promise<Blob> {
+    const { data } = await http.get<Blob>(url.replace(/^\/api/, ''), {
+      responseType: 'blob',
+    });
+    return data;
+  },
+
+  /**
+   * The enrolment verification as the registrar will receive it.
+   *
+   * Rendered from the same schema and the same pre-fill the server would send,
+   * so what a student previews is what actually goes.
+   */
+  async enrolmentPreview(type: ApplicationType, answers: Record<string, unknown>) {
+    const { data } = await http.post<{
+      schema: ApplicationSchema;
+      prefill: Record<string, string | number | boolean>;
+      note_to_registrar: string;
+      registrar_email: string;
+    }>('/enrolment-preview/', { type, answers });
     return data;
   },
 

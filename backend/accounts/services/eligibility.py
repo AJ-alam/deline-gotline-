@@ -14,6 +14,22 @@ The rules are the office's, transcribed unchanged:
 
 Two conditions stop intake regardless of the above: an unaccredited institution,
 and a programme shorter than twelve weeks.
+
+**These six questions are the sign-up page, and the owner has asked that they
+stay exactly as they are.** Three more were added here on 17 Aug 2026 to carry
+§6 of the Bursary & Awards Program Procedure — whether the programme is an
+upgrading programme, and whether the applicant is already funded by another
+organisation or another land claim agreement — and were removed again at his
+request. Two consequences follow, and they are policy gaps rather than bugs:
+
+  * **UCEPP cannot be assigned.** §8 makes it the upgrading-programme stream and
+    that is the only thing separating it from PSSSP. Nothing here asks, so no
+    applicant reaches it; the office assigns it by hand or not at all.
+  * **§6(A)(e) and §6(C)(d) are not enforced.** Somebody already receiving PSSSP
+    or UCEPP through another organisation, or student funding under another land
+    claim agreement, is not excluded by this screening.
+
+Do not re-add the questions to close those gaps without asking first.
 """
 
 from __future__ import annotations
@@ -87,8 +103,34 @@ def missing_answers(answers: dict) -> list[str]:
     return [q['key'] for q in QUESTIONS if not str(answers.get(q['key'], '')).strip()]
 
 
+def streams_for(answers: dict) -> list[str]:
+    """Every stream these answers qualify for, best first.
+
+    Split out of `assess` because the sign-up path needs exactly this and
+    nothing else: it saves the result on the account as the person's funding
+    tags, which is what `funding.services.streams` reads back per application.
+
+    PSSSP before DGGR. The order is what
+    `funding.services.streams.for_application` reads to pick an application's
+    primary stream, and the federal programme that funds tuition and a living
+    allowance has to come before the one that only tops it up.
+
+    UCEPP is never produced here — see the note at the top of this module.
+    """
+    registered = _yes(answers, 'indian_act_registered')
+    beneficiary = _yes(answers, 'deline_beneficiary')
+    on_sfa = _yes(answers, 'receives_sfa')
+
+    streams = []
+    if registered and not on_sfa:
+        streams.append('psssp')
+    if beneficiary:
+        streams.append('dggr')
+    return streams
+
+
 def assess(answers: dict) -> Outcome:
-    """Decide eligibility from the six answers."""
+    """Decide eligibility from the screening answers."""
     missing = missing_answers(answers)
     if missing:
         return Outcome(
@@ -124,15 +166,7 @@ def assess(answers: dict) -> Outcome:
         )
 
     # ── Which streams apply ──
-    registered = _yes(answers, 'indian_act_registered')
-    beneficiary = _yes(answers, 'deline_beneficiary')
-    on_sfa = _yes(answers, 'receives_sfa')
-
-    streams = []
-    if registered and not on_sfa:
-        streams.append('psssp')
-    if beneficiary:
-        streams.append('dggr')
+    streams = streams_for(answers)
 
     if streams:
         return Outcome(
@@ -146,6 +180,10 @@ def assess(answers: dict) -> Outcome:
         )
 
     # ── Nothing applies: say precisely why ──
+    registered = _yes(answers, 'indian_act_registered')
+    beneficiary = _yes(answers, 'deline_beneficiary')
+    on_sfa = _yes(answers, 'receives_sfa')
+
     if not registered and not beneficiary:
         return Outcome(
             eligible=False,

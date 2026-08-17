@@ -21,6 +21,7 @@ from funding.models import (
 from funding.services import verification
 from funding.services.decisions import record_decision
 from funding.test_rules import seed_rates
+from funding.test_fixtures import confirm_enrolment, verification_answers
 
 _counter = itertools.count(1)
 
@@ -36,25 +37,13 @@ STUDENT_ANSWERS = {
     'account_number': '9876543210',
 }
 
-REGISTRAR_ANSWERS = {
-    'student_name': 'Jane Doe',
-    'institution_name': 'Aurora College',
-    'program': 'Nursing',
-    'is_enrolled': True,
-    'course_load': 'Full-time',
-    'semester_start': '2026-09-01',
-    'semester_end': '2026-12-31',
-    'confirmed_tuition': '6000',
-    'registrar_name': 'R. Gistrar',
-    'signature': 'R. Gistrar',
-}
+REGISTRAR_ANSWERS = verification_answers()
 
 
 def make_application(**kwargs):
     student = User.objects.create_user(
         f'v{next(_counter)}@test.com', 'pw12345678',
-        first_name='Jane', last_name='Doe',
-    )
+        first_name='Jane', last_name='Doe',is_deline_beneficiary=True, is_indian_act_registered=True)
     defaults = dict(
         student=student, type=ApplicationType.ADMISSION, stream=FundingStream.PSSSP,
         schema_slug='admission', answers=dict(STUDENT_ANSWERS),

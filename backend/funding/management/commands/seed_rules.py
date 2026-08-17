@@ -106,15 +106,12 @@ RULES = [
     ),
 
     # ── Books ──
-    dict(
-        code='book_allowance',
-        description='Books and supplies allowance',
-        category=Award.Category.BOOKS,
-        order=80,
-        applies_to_types=[ApplicationType.ADMISSION, ApplicationType.CONTINUING_FUNDING],
-        condition={'field': 'receives_sfa', 'op': 'ne', 'value': True},
-        effect={'kind': 'flat_rate', 'section': 'system_config', 'key': 'book_allowance'},
-    ),
+    # There is no separate book allowance. §7(A) and §8(A) fund "mandatory books
+    # and supplies ... including technology if it is required by the
+    # institution" out of the same per-semester tuition cap as the tuition
+    # itself. A flat $500 on top paid every student an amount the policy does
+    # not describe, and paid it whether or not the tuition cap had already
+    # covered the books.
 
     # ── One-time awards ──
     dict(
@@ -135,34 +132,44 @@ RULES = [
         effect={
             'kind': 'tiered',
             'value_field': 'gpa_achieved',
+            # Thresholds by rate key, not by literal. They were published as
+            # editable rates *and* written in here, so the policy screen let an
+            # administrator move a threshold that nothing read.
             'tiers': [
-                {'at_least': 80, 'section': 'academic_scholarship', 'key': 'high_achievement_award'},
-                {'at_least': 70, 'section': 'academic_scholarship', 'key': 'mid_achievement_award'},
+                {'at_least_key': 'high_threshold_percent',
+                 'section': 'academic_scholarship', 'key': 'high_achievement_award'},
+                {'at_least_key': 'mid_threshold_percent',
+                 'section': 'academic_scholarship', 'key': 'mid_achievement_award'},
             ],
         },
     ),
     dict(
         code='travel_assistance',
-        description='Travel assistance, capped by the purpose of travel',
+        description='Travel assistance, capped by the purpose of travel and dependants',
         category=Award.Category.TRAVEL,
         order=130,
         applies_to_types=[ApplicationType.TRAVEL],
         effect={
             'kind': 'capped_request',
             'request_field': 'amount_requested',
-            'section': 'travel', 'key': 'max_{travel_purpose}',
+            # §7(C) caps a trip at $2,000 without dependants and $3,500 with
+            # them. Keyed on the purpose alone, a student with dependants was
+            # capped at the same figure as one without — the policy's own
+            # distinction had nowhere to live.
+            'section': 'travel', 'key': 'max_{travel_purpose}_{dependants}',
         },
     ),
+    # A flat rate, not a capped request: the form asks the employer what the
+    # student did, never what the award should be. There is no figure to cap.
     dict(
         code='practicum_allowance',
-        description='Practicum placement allowance, up to the cap',
+        description='Summer student / practicum award, at the published rate',
         category=Award.Category.BURSARY,
         order=140,
         applies_to_types=[ApplicationType.PRACTICUM],
         effect={
-            'kind': 'capped_request',
-            'request_field': 'amount_requested',
-            'section': 'practicum', 'key': 'max_allowance',
+            'kind': 'flat_rate',
+            'section': 'practicum', 'key': 'allowance',
         },
     ),
     dict(

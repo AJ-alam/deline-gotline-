@@ -19,7 +19,7 @@ from funding.models import (
 )
 from funding.services import policy_admin
 from funding.services.decisions import record_decision
-from funding.test_rules import seed_rates
+from funding.test_rules import rate_of, seed_rates
 
 _counter = itertools.count(1)
 
@@ -27,14 +27,12 @@ _counter = itertools.count(1)
 def make_admin(role=Role.ADMIN):
     return User.objects.create_user(
         f'p{next(_counter)}@test.com', 'pw12345678',
-        first_name='A', last_name='Dmin', role=role,
-    )
+        first_name='A', last_name='Dmin', role=role,is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
 def make_application(**kwargs):
     student = User.objects.create_user(
-        f'ps{next(_counter)}@test.com', 'pw12345678', first_name='S', last_name='T',
-    )
+        f'ps{next(_counter)}@test.com', 'pw12345678', first_name='S', last_name='T',is_deline_beneficiary=True, is_indian_act_registered=True)
     defaults = dict(
         student=student, type=ApplicationType.ADMISSION, stream=FundingStream.PSSSP,
         schema_slug='admission', status=ApplicationStatus.SUBMITTED,
@@ -54,11 +52,15 @@ class RateChangeTests(TestCase):
         self.actor = make_admin()
         self.setting = PolicySetting.objects.get(
             section='psssp_living', key='fulltime_no_dependents')
+        # What the office publishes today, not a figure written in here. This
+        # file used to assert against $1,800, which had been the seeded rate
+        # once and was still being asserted long after it was not.
+        self.was = rate_of('psssp_living', 'fulltime_no_dependents')
 
     def test_a_change_records_what_the_value_was(self):
         change = policy_admin.change_rate(self.setting, '2000', actor=self.actor)
 
-        self.assertEqual(change.previous_value, Decimal('1800.00'))
+        self.assertEqual(change.previous_value, self.was)
         self.assertEqual(change.new_value, Decimal('2000.00'))
         self.assertEqual(change.changed_by, self.actor)
         self.setting.refresh_from_db()
@@ -69,7 +71,7 @@ class RateChangeTests(TestCase):
         entry = AuditEntry.objects.get(action='policy.rate_changed')
         self.assertEqual(entry.actor, self.actor)
         self.assertIn('psssp_living', entry.detail)
-        self.assertIn('1800', entry.detail)
+        self.assertIn(str(self.was), entry.detail)
         self.assertIn('2000', entry.detail)
 
     def test_amounts_are_accepted_the_way_people_type_them(self):
@@ -83,7 +85,7 @@ class RateChangeTests(TestCase):
 
     def test_setting_the_same_value_is_refused_rather_than_logged_as_a_change(self):
         with self.assertRaises(policy_admin.PolicyEditError):
-            policy_admin.change_rate(self.setting, '1800', actor=self.actor)
+            policy_admin.change_rate(self.setting, str(self.was), actor=self.actor)
         self.assertFalse(PolicyChange.objects.exists())
 
     def test_a_suspended_rate_is_recorded_as_a_deliberate_act(self):
@@ -137,8 +139,9 @@ class DecisionsAreNotRewrittenTests(TestCase):
             line for line in decision.trace['rules']
             if line['code'] == 'psssp_living' and line['applied']
         ]
-        # 1800 a month for four months, not the new 5000.
-        self.assertEqual(living[0]['amount'], '7200.00')
+        # The rate in force at submission, for four months — not the new 5000.
+        was = rate_of('psssp_living', 'fulltime_no_dependents')
+        self.assertEqual(living[0]['amount'], str(was * 4))
 
     def test_an_application_submitted_after_the_change_prices_at_the_new_rate(self):
         policy_admin.change_rate(
@@ -270,7 +273,8 @@ class PolicyEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.setting.refresh_from_db()
-        self.assertEqual(self.setting.value, Decimal('1800.00'))
+        self.assertEqual(self.setting.value,
+                         rate_of('psssp_living', 'fulltime_no_dependents'))
 
     def test_an_invalid_amount_is_reported_against_the_field(self):
         self.client.force_authenticate(self.admin)
@@ -312,3 +316,31 @@ class PolicyEndpointTests(TestCase):
         self.assertEqual(
             self.client.patch('/api/policy/rates/999999/', {'value': '1'},
                               format='json').status_code, 404)
+
+
+class RateUnitTests(TestCase):
+    """A rate has to say what it is measured in.
+
+    Every rate was seeded as '$' and the screen formatted all of them as money,
+    so an 80% achievement threshold reached administrators as '$80.00'. The
+    threshold decides which scholarship band a student is paid, and the screen
+    that sets it was describing it as an amount of money.
+    """
+
+    def test_a_percentage_is_not_measured_in_dollars(self):
+        self.assertEqual(policy_admin.unit_for('high_threshold_percent'), '%')
+        self.assertEqual(policy_admin.unit_for('max_percent_covered'), '%')
+
+    def test_an_amount_still_is(self):
+        self.assertEqual(policy_admin.unit_for('high_achievement_award'), '$')
+        self.assertEqual(policy_admin.unit_for('max_tuition'), '$')
+
+    def test_no_seeded_percentage_claims_to_be_money(self):
+        """Asserted over the seeded book rather than over the helper, because
+        the helper being right is only interesting if the rates use it."""
+        seed_rates()
+        wrong = PolicySetting.objects.filter(key__contains='percent').exclude(unit='%')
+        self.assertEqual(
+            list(wrong.values_list('key', flat=True)), [],
+            'a percentage rate is published as an amount of money',
+        )

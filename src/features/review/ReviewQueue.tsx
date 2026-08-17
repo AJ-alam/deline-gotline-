@@ -138,6 +138,7 @@ export default function ReviewQueue() {
                   <th>Status</th>
                   <th>Submitted</th>
                   <th>Awarded</th>
+                  <th>Enrolment</th>
                   <th>Flags</th>
                 </tr>
               </thead>
@@ -153,6 +154,18 @@ export default function ReviewQueue() {
                     </td>
                     <td>{formatDate(row.submitted_at)}</td>
                     <td className="num">{formatMoney(row.awarded_total)}</td>
+                    <td>
+                      {/* Tuition is funded against the registrar's figure, so a
+                          row that is not confirmed cannot be forwarded. Saying
+                          so here saves opening it to find out. */}
+                      {row.enrolment.required ? (
+                        <Badge tone={row.enrolment.confirmed ? 'ok' : 'warn'}>
+                          {row.enrolment.label}
+                        </Badge>
+                      ) : (
+                        <span className="small muted">&mdash;</span>
+                      )}
+                    </td>
                     <td>
                       <div className="row">
                         {row.submitted_after_deadline && <Badge tone="warn">Late</Badge>}

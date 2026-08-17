@@ -3,6 +3,11 @@
 These are the office's rules, transcribed from the sign-up page they used to
 live inside. They are tested here because the browser is not a place to enforce
 policy: the previous version could be bypassed by calling the API directly.
+
+The six questions are fixed at the owner's request. What the policy would add —
+the upgrading programme that routes to UCEPP, and the two funded-elsewhere
+exclusions — is deliberately absent; see the note in
+`accounts/services/eligibility.py`.
 """
 
 from django.test import TestCase
@@ -11,6 +16,9 @@ from rest_framework.test import APIClient
 from accounts.models import User
 from accounts.services import eligibility
 
+# Answers that qualify for everything. Every test below is this dictionary with
+# one answer changed, so what a test is actually about is the override and
+# nothing else.
 ELIGIBLE_BOTH = {
     'indian_act_registered': 'yes',
     'deline_beneficiary': 'yes',
@@ -19,6 +27,8 @@ ELIGIBLE_BOTH = {
     'accredited_institution': 'yes',
     'programme_twelve_weeks': 'yes',
 }
+
+QUESTION_COUNT = len(eligibility.QUESTIONS)
 
 
 class StreamRoutingTests(TestCase):
@@ -33,6 +43,8 @@ class StreamRoutingTests(TestCase):
         self.assertEqual(outcome.streams, ['dggr'])
 
     def test_both_can_apply_together(self):
+        """§7: "students may receive both C-DFN PSSSP Bursaries and DGGR
+        Bursaries, if they are eligible for both"."""
         self.assertEqual(eligibility.assess(ELIGIBLE_BOTH).streams, ['psssp', 'dggr'])
 
     def test_sfa_blocks_cdfn_but_not_the_dggr_bursary(self):
@@ -83,7 +95,7 @@ class RefusalTests(TestCase):
         self.assertIn('answer all six', outcome.message.lower())
 
     def test_every_question_must_be_answered(self):
-        self.assertEqual(len(eligibility.missing_answers({})), 6)
+        self.assertEqual(len(eligibility.missing_answers({})), QUESTION_COUNT)
 
 
 class EndpointTests(TestCase):
@@ -103,7 +115,7 @@ class EndpointTests(TestCase):
     def test_the_questions_are_public(self):
         response = self.client.get('/api/auth/eligibility/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['questions']), 6)
+        self.assertEqual(len(response.data['questions']), QUESTION_COUNT)
         self.assertTrue(response.data['questions'][0]['choices'])
 
     def test_someone_can_check_before_they_have_an_account(self):
@@ -140,9 +152,47 @@ class EndpointTests(TestCase):
         self.assertTrue(person.is_indian_act_registered)
         self.assertTrue(person.is_deline_beneficiary)
 
-    def test_answers_about_a_course_of_study_are_not_stored_on_the_person(self):
-        """SFA and programme length belong to an application, not to someone
-        permanently — they change every term."""
+    def test_the_streams_are_saved_on_the_account_as_tags(self):
+        """The decision, not just the facts behind it.
+
+        Recomputing it later from `is_indian_act_registered` and
+        `is_deline_beneficiary` would drop the SFA answer entirely, so a student
+        on SFA would silently regain PSSSP. The screening's own answers are kept
+        alongside the tags, so the decision can be explained afterwards.
+        """
+        self._register()
+        person = User.objects.get(email='new@example.com')
+        self.assertEqual(person.eligible_streams, ['psssp', 'dggr'])
+        self.assertIsNotNone(person.eligibility_assessed_at)
+        self.assertEqual(person.eligibility_answers['receives_sfa'], 'no')
+
+    def test_an_sfa_recipient_is_tagged_dggr_alone(self):
+        self._register(eligibility={**ELIGIBLE_BOTH, 'receives_sfa': 'yes'})
+        person = User.objects.get(email='new@example.com')
+        self.assertEqual(person.eligible_streams, ['dggr'])
+
+    def test_the_tags_are_returned_but_cannot_be_set_by_the_person(self):
+        """They are the office's decision about somebody, not a preference."""
+        self._register()
+        signed_in = self.client.post(
+            '/api/auth/token/',
+            {'email': 'new@example.com', 'password': 'pw12345678'}, format='json')
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f'Bearer {signed_in.data["access"]}')
+
+        self.assertEqual(self.client.get('/api/me/').data['eligible_streams'],
+                         ['psssp', 'dggr'])
+
+        self.client.patch('/api/me/', {'eligible_streams': ['psssp', 'ucepp', 'dggr']},
+                          format='json')
+        person = User.objects.get(email='new@example.com')
+        self.assertEqual(person.eligible_streams, ['psssp', 'dggr'])
+
+    def test_answers_about_a_course_of_study_are_not_stored_as_columns(self):
+        """SFA belongs to an application, not to someone permanently — it
+        changes every term, and every form whose award depends on it asks it
+        again. The screening answers are kept verbatim for the audit trail, but
+        nothing reads SFA back off the person."""
         self._register()
         person = User.objects.get(email='new@example.com')
         held = {f.name for f in person._meta.get_fields()}

@@ -1,0 +1,279 @@
+/* The opening screen. Shared by the student and staff views; the base .stat
+   and .stats rules live in styles/app.css.
+
+   The header band is dark glass, matching the sidebar. Everything below it is
+   on light solid surfaces — glass behind a column of figures costs legibility
+   for no gain, and this is a screen people read money off. The decoration is
+   confined to the part carrying no data. */
+
+/* ── Header band ── */
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-5);
+  padding: var(--s-6);
+  border-radius: 16px;
+  background: #0c161b;
+  color: #e6e0d5;
+  box-shadow: var(--shadow-2);
+}
+
+/* The light behind the glass, same construction as the sidebar. */
+.hero::before,
+.hero::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  pointer-events: none;
+}
+.hero::before {
+  width: 340px;
+  height: 340px;
+  top: -170px;
+  left: -80px;
+  background: radial-gradient(circle, #1d5163 0%, #12313d 50%, transparent 72%);
+  opacity: 0.9;
+}
+.hero::after {
+  width: 300px;
+  height: 300px;
+  right: -90px;
+  bottom: -150px;
+  background: radial-gradient(circle, var(--gold-bright) 0%, #8a5f2a 45%, transparent 70%);
+  opacity: 0.45;
+}
+
+.hero__body,
+.hero__deadline { position: relative; z-index: 1; }
+
+.hero__eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-bright);
+}
+.hero__title {
+  margin-top: var(--s-2);
+  font-size: var(--text-3xl);
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+.hero__meta {
+  margin-top: var(--s-3);
+  font-size: var(--text-sm);
+  color: #a49b8a;
+}
+.hero__chip {
+  display: inline-block;
+  margin-left: var(--s-1);
+  padding: 2px var(--s-2);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+}
+
+/* The next cut-off, given room, because missing one costs a semester's
+   funding. The rest are a strip below. */
+.hero__deadline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-4);
+  min-width: 210px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+.hero__deadline-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #857b6c;
+}
+.hero__deadline-term { font-size: var(--text-sm); color: #cec7b9; }
+.hero__deadline-date {
+  font-weight: 650;
+  font-size: var(--text-lg);
+  color: var(--gold-bright);
+}
+.hero__deadline-away { font-size: var(--text-xs); color: #a49b8a; }
+
+/* ── Deadline strip ──
+   Rendered only when the office has set deadlines, so it is never a row of
+   dates nobody chose. */
+.deadline-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  font-size: var(--text-sm);
+}
+.deadline-strip__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.deadline { display: inline-flex; align-items: baseline; gap: var(--s-2); }
+.deadline__term {
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.deadline time {
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Next step ──
+   The one thing to do, decided server-side. Deliberately the loudest thing
+   below the band: the screen it replaces opened with three zeros. */
+.next-step {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  padding: var(--s-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(140deg, var(--gold-soft), var(--surface) 60%);
+  box-shadow: var(--shadow-1);
+}
+.next-step__icon {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  background: var(--gold);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(184, 130, 60, 0.35);
+}
+.next-step__body { min-width: 240px; flex: 1; }
+.next-step__eyebrow {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #96671f;
+}
+.next-step__title { margin-top: var(--s-1); font-size: var(--text-xl); }
+.next-step__detail {
+  margin-top: var(--s-2);
+  color: var(--text-2);
+  max-width: 62ch;
+}
+
+/* A link that reads as the primary action without being a Button inside an
+   anchor, which nests two focusable-looking things in one target. */
+.next-step__action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 12px var(--s-5);
+  border-radius: var(--radius);
+  background: var(--gold);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(184, 130, 60, 0.35);
+  transition: background-color 0.12s ease;
+}
+.next-step__action:hover { background: #a4732f; color: #fff; }
+
+/* ── Stat tiles ── */
+
+.stat__hint { margin-top: var(--s-1); font-size: var(--text-xs); color: var(--text-3); }
+
+/* A stat that is a way into the work rather than a figure to read. */
+.stat--link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.stat--link:hover { border-color: var(--gold); background: var(--gold-soft); }
+
+/* ── Recent activity ── */
+
+.activity { list-style: none; margin: 0; padding: 0; }
+.activity__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.activity__row:last-child { border-bottom: 0; padding-bottom: 0; }
+.activity__row:first-child { padding-top: 0; }
+
+.activity__link {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+.activity__icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+.activity__link:hover .activity__type { text-decoration: underline; }
+.activity__link:hover .activity__icon { background: var(--gold-soft); color: var(--gold); }
+.activity__type { display: block; font-weight: 600; }
+.activity__when { display: block; font-size: var(--text-sm); color: var(--text-3); }
+.activity__meta { display: flex; align-items: center; gap: var(--s-3); }
+.activity__amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+/* The empty state (.empty) is shared, and lives in styles/app.css: routes are
+   lazy and carry their own CSS, so a page reached directly would not have it. */
+
+/* ── Paper forms ── */
+
+.paper { display: flex; gap: var(--s-4); align-items: flex-start; }
+.paper__icon { flex: none; color: var(--gold); }
+
+@media (max-width: 640px) {
+  .hero { padding: var(--s-5); }
+  .hero__title { font-size: var(--text-2xl); }
+  .hero__deadline { width: 100%; }
+  .next-step__action { width: 100%; justify-content: center; }
+}

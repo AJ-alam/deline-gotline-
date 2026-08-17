@@ -6,12 +6,6 @@
   padding: var(--s-6) var(--s-4) var(--s-8);
 }
 
-.auth-page {
-  max-width: 420px;
-  margin: 0 auto;
-  padding: var(--s-8) var(--s-4);
-}
-
 a {
   color: var(--gold);
   text-decoration-thickness: 1px;
@@ -63,6 +57,82 @@ a:hover { color: #8f6425; }
   letter-spacing: -0.02em;
 }
 
+/* Page header: a title and the one action that belongs with it. */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-4);
+}
+.page-head p { margin-top: var(--s-1); }
+
+/* A link that reads as the primary action. Not a Button inside a Link, which
+   nests two focusable-looking things in one target. */
+.page-head__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 11px var(--s-4);
+  border-radius: var(--radius);
+  background: var(--gold);
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(184, 130, 60, 0.3);
+  transition: background-color 0.12s ease;
+}
+.page-head__action:hover { background: #a4732f; color: #fff; }
+
+/* Filter chips. */
+.filters { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.chip {
+  padding: 7px var(--s-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+/* Scoped away from the selected chip on purpose. `.chip:hover` is (0,2,0) and
+   `.chip--on` is (0,1,0), so an unscoped hover wins on `color` while the
+   selected chip keeps its dark `background` — dark text on black, unreadable
+   exactly when the pointer is on it. Every state that sets a background needs
+   its own hover. */
+.chip:not(.chip--on):hover { border-color: var(--gold); color: var(--text); }
+
+/* Selected carries weight and a border as well as fill, so it survives without
+   colour vision. */
+.chip--on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+.chip--on:hover {
+  background: var(--ink-2);
+  border-color: var(--ink-2);
+  color: #fff;
+}
+
+/* Empty states. Says what will appear here and when — an empty box tells a
+   first-time user nothing except that something may be broken. Shared, because
+   routes are lazy and carry their own CSS: a page reached directly must not
+   depend on another page's stylesheet having been loaded first. */
+.empty { text-align: center; padding: var(--s-6) var(--s-4); }
+.empty__icon { color: var(--border-strong); }
+.empty__title { margin-top: var(--s-3); font-weight: 600; }
+.empty__detail {
+  margin: var(--s-2) auto 0;
+  max-width: 46ch;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
 /* Notices. Unread carries a rail rather than only a colour, so it is still
    distinguishable without colour vision. */
 .notices { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
@@ -75,8 +145,292 @@ a:hover { color: #8f6425; }
 .notice--unread { border-left-color: var(--gold); background: var(--surface); }
 
 /* Screening questions. A fieldset/legend pair, so a screen reader announces the
-   question with each option rather than reading six loose radio groups. */
+   question with each option rather than reading six loose radio groups.
+
+   A legend is rendered inside the fieldset's top border, which a question two
+   lines long cuts straight through. Floating it is what takes it out of that
+   special rendering and makes it lay out as an ordinary block — but a float is
+   still a float, so the choices below it must clear, or they are squeezed into
+   whatever strip is left beside it. */
 .quiz { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--s-3); margin: 0; }
-.quiz__question { font-weight: 600; font-size: var(--text-sm); padding: 0 var(--s-1); }
+.quiz__question {
+  float: left;
+  width: 100%;
+  padding: 0;
+  margin-bottom: var(--s-2);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.quiz__question + *,
+.quiz .row { clear: both; }
 .quiz__choice { display: inline-flex; align-items: center; gap: var(--s-2); cursor: pointer; }
 .quiz__choice input { accent-color: var(--gold); width: 16px; height: 16px; }
+
+/* ── Stepped forms ──
+   The admission application is forty-five questions; on one page that is where
+   people give up. Steps are presentation only — the schema decides what is
+   asked and the server decides what is valid. */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--s-4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  border-bottom: 1px solid var(--border);
+}
+.steps__label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  cursor: pointer;
+}
+/* Forward is not reachable by clicking: the required answers on the step being
+   left are what allow it. Disabled rather than hidden, so the shape of the
+   whole form is visible from the first step. */
+.steps__label:disabled { cursor: default; }
+.steps__number {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+.steps__step--current .steps__label { color: var(--text); font-weight: 650; }
+.steps__step--current .steps__number {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #fff;
+}
+.steps__step--done .steps__label { color: var(--text-2); }
+.steps__step--done .steps__number {
+  background: var(--ok-bg);
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+/* ── Uploads ──
+   These were text inputs, so the documents an assessment depends on could be
+   claimed but never attached. */
+.upload { display: flex; align-items: center; gap: var(--s-3); flex-wrap: wrap; }
+.upload__button {
+  display: inline-flex;
+  align-items: center;
+  padding: 9px var(--s-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.upload__button:hover { background: var(--surface-2); border-color: var(--gold); }
+.upload__button--invalid { border-color: var(--danger); }
+/* The real input is visually hidden, not display:none — it must stay focusable
+   and reachable from the keyboard. */
+.upload__state { display: inline-flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.upload__done { font-size: var(--text-sm); color: var(--ok); font-weight: 600; }
+.upload__failed { font-size: var(--text-sm); color: var(--danger); }
+
+/* A word that acts as a button — removing an attached file, or a table row.
+   Not an <a>: nothing is being navigated to. */
+.textbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.textbtn:hover { color: var(--danger); }
+
+/* ── Several files answering one question ──
+   A travel claim carries a boarding pass, a hotel folio and four taxi receipts.
+   The list is what makes it possible to remove the wrong one without starting
+   the whole attachment again. */
+.uploads { display: flex; flex-direction: column; gap: var(--s-3); }
+.uploads__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.uploads__list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.uploads__list li span { overflow-wrap: anywhere; }
+
+/* ── A repeating row of questions ── */
+.rows { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-3); }
+.rows__table { width: 100%; border-collapse: collapse; }
+.rows__table th {
+  padding: 0 var(--s-2) var(--s-2);
+  text-align: left;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.rows__table td { padding: var(--s-1) var(--s-2); vertical-align: top; }
+.rows__table tfoot td {
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border-strong);
+}
+.rows__table--invalid { outline: 1px solid var(--danger); outline-offset: var(--s-2); }
+
+/* Stacked on a phone, where four columns of inputs are unusable. The column
+   heading travels with the cell rather than being lost with the header row. */
+@media (max-width: 720px) {
+  .rows__table thead { display: none; }
+  .rows__table, .rows__table tbody, .rows__table tfoot,
+  .rows__table tr, .rows__table td { display: block; width: 100%; }
+  .rows__table tr {
+    margin-bottom: var(--s-3);
+    padding-bottom: var(--s-3);
+    border-bottom: 1px solid var(--border);
+  }
+  .rows__table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: var(--s-1);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-2);
+  }
+}
+
+/* The expense breakdown as a reviewer reads it back. */
+.answers__table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.answers__table th {
+  padding: 0 var(--s-3) var(--s-2) 0;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.answers__table td { padding: var(--s-1) var(--s-3) var(--s-1) 0; }
+
+/* ── The generated enrolment verification, on the last step ── */
+.formb {
+  padding: var(--s-4);
+  border: 1px solid var(--info);
+  border-left-width: 3px;
+  border-radius: var(--radius-lg);
+  background: var(--info-bg);
+}
+.formb__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.formb__title { font-size: var(--text-base); }
+
+/* ── Help & FAQ ──
+   Contact details first, because somebody who has opened this page has usually
+   stopped looking for a form and started looking for a person. */
+.contact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4) var(--s-5);
+  margin: 0;
+}
+.contact__row { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
+.contact__row--wide { grid-column: 1 / -1; }
+.contact dt {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.contact dd { margin: 0; overflow-wrap: anywhere; }
+.contact a { color: var(--text); }
+.contact a:hover { color: var(--gold); }
+
+@media (max-width: 720px) {
+  .contact { grid-template-columns: 1fr; }
+}
+
+/* Native <details>, not a hand-rolled accordion: it is open to search-in-page,
+   works before the JavaScript settles, and needs no key handling written. */
+.faq { display: flex; flex-direction: column; }
+.faq__item { border-top: 1px solid var(--border); }
+.faq__item:first-child { border-top: none; }
+.faq__question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-4) 0;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.faq__question::-webkit-details-marker { display: none; }
+.faq__question::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-3);
+  border-bottom: 2px solid var(--text-3);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  flex: none;
+}
+.faq__item[open] .faq__question::after { transform: rotate(45deg); }
+.faq__question:hover { color: var(--gold); }
+.faq__question:hover::after { border-color: var(--gold); }
+.faq__answer { margin: 0 0 var(--s-4); color: var(--text-2); max-width: 68ch; }
+
+/* ── Documents on an application ──
+   The answers hold a reference like `document:12`. A reviewer was shown that
+   string and had no way to open the transcript an assessment depends on. */
+.documents { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); }
+.documents__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.documents__item a,
+.documents__item .linklike { overflow-wrap: anywhere; }
+
+/* A control that reads as a link but is a button, because opening a document
+   needs the bearer token attached and so cannot be a plain navigation. */
+.linklike {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--link, var(--accent));
+  text-decoration: underline;
+  text-align: left;
+  cursor: pointer;
+}
+.linklike:hover { text-decoration: none; }

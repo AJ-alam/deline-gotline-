@@ -23,8 +23,7 @@ _counter = itertools.count(1)
 def make_student(email=None):
     email = email or f'student{next(_counter)}@test.com'
     return User.objects.create_user(
-        email=email, password='pw123456', first_name='Test', last_name='Student', role='student',
-    )
+        email=email, password='pw123456', first_name='Test', last_name='Student', role='student',is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
 def make_application(student=None, **kwargs):
@@ -81,8 +80,7 @@ class ApplicationEventTests(TestCase):
     def test_workflow_history_is_queryable_in_order(self):
         app = make_application()
         staff = User.objects.create_user(
-            email='ssw@test.com', password='pw123456', first_name='Sam', last_name='Worker', role='support_worker',
-        )
+            email='ssw@test.com', password='pw123456', first_name='Sam', last_name='Worker', role='support_worker',is_deline_beneficiary=True, is_indian_act_registered=True)
         for action in (
             ApplicationEvent.Action.SUBMITTED,
             ApplicationEvent.Action.REVIEWED,
@@ -99,8 +97,7 @@ class ApplicationEventTests(TestCase):
     def test_events_survive_actor_deletion(self):
         app = make_application()
         staff = User.objects.create_user(
-            email='gone@test.com', password='pw123456', first_name='Gone', last_name='Person', role='support_worker',
-        )
+            email='gone@test.com', password='pw123456', first_name='Gone', last_name='Person', role='support_worker',is_deline_beneficiary=True, is_indian_act_registered=True)
         ApplicationEvent.objects.create(
             application=app, action=ApplicationEvent.Action.APPROVED, actor=staff,
         )

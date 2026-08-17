@@ -136,7 +136,17 @@ class CappedTuition(Effect):
         cap = context.rates.rate(params['section'], key)
         granted = min(context.remaining_tuition, cap)
         context.remaining_tuition -= granted
-        return Outcome(granted, f'Capped at ${cap}; ${granted} of the bill remained unfunded')
+        # Reports what is left, not what was paid. This read
+        # '${granted} of the bill remained unfunded', which named the amount
+        # *awarded* as the amount outstanding — so a $7,431 bill capped at
+        # $7,000 told the director $7,000 was still owing when $431 was. This
+        # sentence is what a decision is justified by and what an appeal argues
+        # against; it said the opposite of what happened.
+        return Outcome(
+            granted,
+            f'Capped at ${cap}; ${granted} awarded, '
+            f'${context.remaining_tuition} of the bill left unfunded',
+        )
 
 
 class PercentageRelief(Effect):
@@ -192,17 +202,46 @@ class Tiered(Effect):
     def validate(self, params):
         super().validate(params)
         for tier in params.get('tiers', ()):
-            for key in ('at_least', 'section', 'key'):
+            for key in ('section', 'key'):
                 if key not in tier:
                     raise EffectError(f"tier is missing {key!r}")
+            # One or the other, never neither: a tier with no threshold has no
+            # opinion about when it applies.
+            if 'at_least' not in tier and 'at_least_key' not in tier:
+                raise EffectError(
+                    "tier needs 'at_least' or 'at_least_key'"
+                )
+
+    @staticmethod
+    def _threshold(tier, context) -> Decimal:
+        """Where this tier begins.
+
+        `at_least_key` names a rate, so the office can move a threshold from the
+        policy screen. `academic_scholarship` shipped with the thresholds
+        written into the rule and *also* published as editable rates that
+        nothing read: an administrator could change 'High achievement threshold'
+        from 80 to 75, watch it save with a history entry, and change nothing at
+        all. That is the same defect as a dashboard count that can only ever be
+        zero, except that it looks like it worked.
+        """
+        if 'at_least_key' in tier:
+            return context.rates.rate(tier['section'], tier['at_least_key'])
+        return Decimal(str(tier['at_least']))
 
     def apply(self, params, context):
         value = _decimal(context.answers.get(params['value_field']))
-        tiers = sorted(params['tiers'], key=lambda t: Decimal(str(t['at_least'])), reverse=True)
-        for tier in tiers:
-            if value >= Decimal(str(tier['at_least'])):
+        thresholds = [(self._threshold(tier, context), tier)
+                      for tier in params['tiers']]
+        for threshold, tier in sorted(thresholds, key=lambda pair: pair[0],
+                                      reverse=True):
+            # A threshold of zero means the rate behind it is missing, and
+            # PolicyBook has already recorded that. Awarding the top band to
+            # everyone because a rate was deleted is the worst way to fail.
+            if threshold <= 0:
+                continue
+            if value >= threshold:
                 amount = context.rates.rate(tier['section'], tier['key'])
-                return Outcome(amount, f'{value} reaches the {tier["at_least"]} tier')
+                return Outcome(amount, f'{value} reaches the {threshold} tier')
         return Outcome(ZERO, f'{value} does not reach any tier')
 
 

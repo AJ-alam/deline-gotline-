@@ -14,7 +14,10 @@ from accounts.models import Role, User
 from funding.models import (
     Application, ApplicationEvent, ApplicationStatus, ApplicationType, FundingStream,
 )
-from funding.services import verification, workflow
+from funding.services import messages, verification, workflow
+from funding.test_fixtures import confirm_enrolment
+from rest_framework.test import APIClient
+
 from notifications.delivery import deliver_pending
 from notifications.models import Notification, OutboundEmail
 
@@ -30,8 +33,7 @@ ANSWERS = {
 def make_application(**kwargs):
     student = User.objects.create_user(
         f'm{next(_counter)}@test.com', 'pw12345678',
-        first_name='Jane', last_name='Doe',
-    )
+        first_name='Jane', last_name='Doe',is_deline_beneficiary=True, is_indian_act_registered=True)
     defaults = dict(
         student=student, type=ApplicationType.ADMISSION, stream=FundingStream.PSSSP,
         schema_slug='admission', answers=dict(ANSWERS),
@@ -44,8 +46,7 @@ def make_application(**kwargs):
 def make_staff(role=Role.SUPPORT_WORKER):
     return User.objects.create_user(
         f's{next(_counter)}@test.com', 'pw12345678',
-        first_name='S', last_name='Taff', role=role,
-    )
+        first_name='S', last_name='Taff', role=role,is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
 @override_settings(FRONTEND_URL='https://portal.example.ca')
@@ -145,6 +146,9 @@ class WorkflowMessageTests(TestCase):
         application = make_application()
         staff, director = make_staff(), make_staff(Role.DIRECTOR)
         workflow.record(application, ApplicationEvent.Action.REVIEWED, staff)
+        # Tuition is funded against the registrar's figure, so nothing
+        # reaches the director until the institution confirms.
+        confirm_enrolment(application)
         workflow.record(application, ApplicationEvent.Action.FORWARDED, staff)
 
         OutboundEmail.objects.all().delete()
@@ -182,6 +186,10 @@ class WorkflowMessageTests(TestCase):
         """Forwarding to the Director is not the applicant's business."""
         application = make_application()
         staff = make_staff()
+        # Confirmed before the queue is cleared: requesting the confirmation
+        # emails the registrar, and that is not one of the internal steps under
+        # test here.
+        confirm_enrolment(application)
         OutboundEmail.objects.all().delete()
         with self.captureOnCommitCallbacks(execute=True):
             workflow.record(application, ApplicationEvent.Action.REVIEWED, staff)
@@ -207,6 +215,9 @@ class InPortalNoticeTests(TestCase):
         director = make_staff(Role.DIRECTOR)
         staff = make_staff()
         workflow.record(application, ApplicationEvent.Action.REVIEWED, staff)
+        # Tuition is funded against the registrar's figure, so nothing
+        # reaches the director until the institution confirms.
+        confirm_enrolment(application)
         workflow.record(application, ApplicationEvent.Action.FORWARDED, staff)
         workflow.record(application, ApplicationEvent.Action.APPROVED, director)
 
@@ -224,3 +235,57 @@ class InPortalNoticeTests(TestCase):
 
         application.refresh_from_db()
         self.assertEqual(application.status, ApplicationStatus.SUBMITTED)
+
+
+class NotificationKindTests(TestCase):
+    """What kind of thing happened, recorded rather than inferred.
+
+    Without this a client wanting to mark an urgent notice differently has to
+    match on words in the title — the same "identity is the display string"
+    mistake that once let a reworded label change what a student was paid.
+    """
+
+    def setUp(self):
+        self.student = User.objects.create_user(
+            'kinds@test.com', 'pw12345678', first_name='Kind', last_name='Test',
+            role=Role.STUDENT, is_deline_beneficiary=True, is_indian_act_registered=True)
+        self.application = Application.objects.create(
+            student=self.student, type=ApplicationType.ADMISSION,
+            stream=FundingStream.PSSSP, schema_slug='admission', answers={})
+
+    def kind_of(self):
+        return Notification.objects.filter(user=self.student).latest('created_at').kind
+
+    def test_a_receipt_is_recorded_as_received(self):
+        messages.send_application_received(self.application)
+        self.assertEqual(self.kind_of(), Notification.Kind.RECEIVED)
+
+    def test_a_request_for_information_is_recorded_as_needing_action(self):
+        """The one a student must not scroll past."""
+        messages.send_information_requested(self.application, 'Send your transcript.')
+        self.assertEqual(self.kind_of(), Notification.Kind.ACTION_NEEDED)
+
+    def test_an_approval_and_a_refusal_are_told_apart(self):
+        messages.send_decision(self.application, approved=True)
+        self.assertEqual(self.kind_of(), Notification.Kind.APPROVED)
+
+        messages.send_decision(self.application, approved=False, reason='Ineligible')
+        self.assertEqual(self.kind_of(), Notification.Kind.DECLINED)
+
+    def test_the_kind_survives_the_title_being_reworded(self):
+        """A client keying off the title would break here; one keying off the
+        kind does not."""
+        messages.send_information_requested(self.application, 'Anything at all.')
+        notice = Notification.objects.filter(user=self.student).latest('created_at')
+        notice.title = 'Something else entirely'
+        notice.save(update_fields=['title'])
+        notice.refresh_from_db()
+        self.assertEqual(notice.kind, Notification.Kind.ACTION_NEEDED)
+
+    def test_the_api_carries_the_kind(self):
+        messages.send_information_requested(self.application, 'Send your transcript.')
+        client = APIClient()
+        client.force_authenticate(self.student)
+        response = client.get('/api/notifications/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['results'][0]['kind'], 'action_needed')

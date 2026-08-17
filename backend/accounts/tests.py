@@ -12,7 +12,7 @@ class UserCreationTests(TestCase):
 
     def test_a_user_is_created_with_an_email_and_password(self):
         user = User.objects.create_user('jane@example.com', 'pw12345678',
-                                        first_name='Jane', last_name='Doe')
+                                        first_name='Jane', last_name='Doe', is_deline_beneficiary=True, is_indian_act_registered=True)
         self.assertEqual(user.email, 'jane@example.com')
         self.assertTrue(user.check_password('pw12345678'))
         self.assertEqual(user.role, Role.STUDENT)
@@ -20,12 +20,12 @@ class UserCreationTests(TestCase):
 
     def test_the_whole_email_is_normalised_not_just_the_domain(self):
         user = User.objects.create_user('Jane@EXAMPLE.COM', 'pw12345678',
-                                        first_name='Jane', last_name='Doe')
+                                        first_name='Jane', last_name='Doe', is_deline_beneficiary=True, is_indian_act_registered=True)
         self.assertEqual(user.email, 'jane@example.com')
 
     def test_the_same_address_in_different_case_cannot_register_twice(self):
         User.objects.create_user('jane@example.com', 'pw12345678',
-                                 first_name='Jane', last_name='Doe')
+                                 first_name='Jane', last_name='Doe', is_deline_beneficiary=True, is_indian_act_registered=True)
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 User.objects.create(email='JANE@example.com', first_name='J',
@@ -33,7 +33,7 @@ class UserCreationTests(TestCase):
 
     def test_sign_in_finds_the_account_whatever_case_was_typed(self):
         User.objects.create_user('jane@example.com', 'pw12345678',
-                                 first_name='Jane', last_name='Doe')
+                                 first_name='Jane', last_name='Doe', is_deline_beneficiary=True, is_indian_act_registered=True)
         self.assertEqual(
             User.objects.get_by_natural_key('JANE@Example.COM').email,
             'jane@example.com',
@@ -41,15 +41,15 @@ class UserCreationTests(TestCase):
 
     def test_an_email_is_required(self):
         with self.assertRaises(ValueError):
-            User.objects.create_user('', 'pw12345678')
+            User.objects.create_user('', 'pw12345678', is_deline_beneficiary=True, is_indian_act_registered=True)
 
     def test_emails_are_unique(self):
         User.objects.create_user('jane@example.com', 'pw12345678',
-                                 first_name='Jane', last_name='Doe')
+                                 first_name='Jane', last_name='Doe', is_deline_beneficiary=True, is_indian_act_registered=True)
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 User.objects.create_user('jane@example.com', 'pw12345678',
-                                         first_name='Other', last_name='Person')
+                                         first_name='Other', last_name='Person', is_deline_beneficiary=True, is_indian_act_registered=True)
 
     def test_a_superuser_has_admin_access(self):
         user = User.objects.create_superuser('root@example.com', 'pw12345678',
@@ -66,7 +66,7 @@ class UserCreationTests(TestCase):
 
     def test_the_password_is_never_stored_in_the_clear(self):
         user = User.objects.create_user('jane@example.com', 'pw12345678',
-                                        first_name='Jane', last_name='Doe')
+                                        first_name='Jane', last_name='Doe', is_deline_beneficiary=True, is_indian_act_registered=True)
         self.assertNotEqual(user.password, 'pw12345678')
         self.assertIn('$', user.password)
 
@@ -77,8 +77,7 @@ class NameTests(TestCase):
         return User.objects.create_user(
             'jane@example.com', 'pw12345678',
             first_name=kwargs.pop('first_name', 'Jane'),
-            last_name=kwargs.pop('last_name', 'Doe'), **kwargs,
-        )
+            last_name=kwargs.pop('last_name', 'Doe'), **kwargs,is_deline_beneficiary=True, is_indian_act_registered=True)
 
     def test_full_name_joins_the_parts(self):
         self.assertEqual(self._user().full_name, 'Jane Doe')
@@ -91,7 +90,7 @@ class NameTests(TestCase):
 
     def test_display_name_falls_back_to_the_email_when_no_name_is_known(self):
         user = User.objects.create_user('anon@example.com', 'pw12345678',
-                                        first_name='', last_name='')
+                                        first_name='', last_name='', is_deline_beneficiary=True, is_indian_act_registered=True)
         self.assertEqual(user.display_name, 'anon@example.com')
 
 
@@ -101,8 +100,7 @@ class RoleTests(TestCase):
     def _user(self, role):
         return User.objects.create_user(
             f'{role}@example.com', 'pw12345678',
-            first_name='Test', last_name='User', role=role,
-        )
+            first_name='Test', last_name='User', role=role,is_deline_beneficiary=True, is_indian_act_registered=True)
 
     def test_students_neither_review_nor_decide(self):
         student = self._user(Role.STUDENT)
@@ -157,7 +155,7 @@ class BankAccountTests(TestCase):
 
     def setUp(self):
         self.user = User.objects.create_user('jane@example.com', 'pw12345678',
-                                             first_name='Jane', last_name='Doe')
+                                             first_name='Jane', last_name='Doe', is_deline_beneficiary=True, is_indian_act_registered=True)
 
     def _account(self, **kwargs):
         defaults = dict(

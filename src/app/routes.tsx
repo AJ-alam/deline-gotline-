@@ -18,6 +18,7 @@ import '../styles/app.css';
 
 const SignIn = lazy(() => import('../features/auth/SignIn'));
 const Register = lazy(() => import('../features/auth/Register'));
+const GuestApply = lazy(() => import('../features/auth/GuestApply'));
 const EnrollmentVerification = lazy(() => import('../features/enrolment/EnrollmentVerification'));
 
 const Dashboard = lazy(() => import('../features/dashboard/Dashboard'));
@@ -29,6 +30,8 @@ const PaymentRun = lazy(() => import('../features/finance/PaymentRun'));
 const PolicyRates = lazy(() => import('../features/policy/PolicyRates'));
 const People = lazy(() => import('../features/people/People'));
 const Notifications = lazy(() => import('../features/notifications/Notifications'));
+const Help = lazy(() => import('../features/help/Help'));
+const PrintableForms = lazy(() => import('../features/forms/PrintableForms'));
 
 function Loading() {
   return (
@@ -49,6 +52,8 @@ export default function App() {
           <Route path="/" element={<Navigate to="/signin" replace />} />
           <Route path="/signin" element={<SignIn />} />
           <Route path="/register" element={<Register />} />
+          {/* One-off awards, claimed without an account. */}
+          <Route path="/apply-once/:type" element={<GuestApply />} />
           <Route path="/enrolment/:token" element={<EnrollmentVerification />} />
 
           <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
@@ -62,6 +67,9 @@ export default function App() {
             <Route path="/policy" element={<PolicyRates />} />
             <Route path="/people" element={<People />} />
             <Route path="/notifications" element={<Notifications />} />
+            <Route path="/help" element={<Help />} />
+            <Route path="/forms" element={<PrintableForms />} />
+            <Route path="/forms/:type" element={<PrintableForms />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/signin" replace />} />

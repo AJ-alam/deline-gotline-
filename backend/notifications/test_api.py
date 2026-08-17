@@ -18,8 +18,7 @@ _counter = itertools.count(1)
 def make_user(role=Role.STUDENT):
     return User.objects.create_user(
         f'n{next(_counter)}@test.com', 'pw12345678',
-        first_name='Test', last_name=f'P{next(_counter)}', role=role,
-    )
+        first_name='Test', last_name=f'P{next(_counter)}', role=role,is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
 def notice(user, title='Application received', is_read=False, **kwargs):

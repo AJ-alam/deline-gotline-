@@ -2,7 +2,30 @@ from django.db import models
 from django.conf import settings
 
 class Notification(models.Model):
+    """A notice inside the portal, alongside the email."""
+
+    class Kind(models.TextChoices):
+        """What kind of thing happened.
+
+        Recorded rather than inferred. Without it a client wanting to mark an
+        urgent notice differently has to match on words in the title, which is
+        the same "identity is the display string" mistake that let a reworded
+        label change what a student was paid.
+        """
+
+        RECEIVED = 'received', 'Application received'
+        ACTION_NEEDED = 'action_needed', 'Something is needed from you'
+        APPROVED = 'approved', 'Approved'
+        DECLINED = 'declined', 'Declined'
+        # The office changed a filed application. Its own kind rather than
+        # GENERAL: a person needs to be able to tell "we corrected something on
+        # your form" from every other notice, and matching on the wording is
+        # how a display string comes to carry meaning.
+        AMENDED = 'amended', 'Changed by the office'
+        GENERAL = 'general', 'General'
+
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+    kind = models.CharField(max_length=24, choices=Kind.choices, default=Kind.GENERAL)
     title = models.CharField(max_length=255)
     message = models.TextField()
     is_read = models.BooleanField(default=False)

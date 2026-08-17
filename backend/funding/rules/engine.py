@@ -81,7 +81,7 @@ def build_context(application, rates) -> EvaluationContext:
     answers = dict(application.answers or {})
 
     load_key = 'fulltime' if answers.get('course_load') == 'full_time' else 'parttime'
-    dependants_key = 'with_dependents' if answers.get('has_dependents') else 'no_dependents'
+    dependants_key = 'with_dependents' if _has_dependents(answers) else 'no_dependents'
 
     facts = {
         'load': load_key,
@@ -125,6 +125,43 @@ def price(application, rule_set, rates) -> Decision:
     return decision
 
 
+def _streams_for(application, context) -> set[str]:
+    """Every pot this application may draw from.
+
+    Not just `application.stream`. That column holds the *primary* stream —
+    PSSSP where it applies, because it is the federal programme that funds
+    tuition and a living allowance — and it decides which deadline the
+    submission is measured against. But DGGR tops up rather than replaces: a
+    student who qualifies for both was being funded from one of them, because
+    the gate compared a rule against a single value.
+
+    So the gate is asked against everything the applicant qualifies for, worked
+    out from the same facts the sign-up screening used. A stream nobody
+    qualifies for cannot appear here, and the awards a rule set produces are
+    still entirely the rules' business — this only stops a rule being skipped
+    for an applicant it was written for.
+    """
+    from funding.services import streams as streams_service
+
+    if application.type in streams_service.ALWAYS_DGGR:
+        # These are the government's own bursary funds whatever the applicant's
+        # C-DFN status, and the guest path already forces them to DGGR.
+        return {application.stream}
+
+    qualifies = set(streams_service.eligible_streams(
+        application.student, context.answers)) if application.student_id else set()
+
+    # The stored stream always counts: an application the office moved into a
+    # stream by hand — UCEPP is assigned, never derived — must still be priced
+    # in it.
+    qualifies.add(application.stream)
+
+    declared = context.answers.get('funding_stream')
+    if declared:
+        qualifies.add(str(declared).lower())
+    return qualifies
+
+
 def _apply_rule(rule, application, context) -> RuleOutcome:
     def skipped(reason):
         return RuleOutcome(rule.code, rule.description, rule.category, False, ZERO, reason)
@@ -133,11 +170,7 @@ def _apply_rule(rule, application, context) -> RuleOutcome:
         return skipped(f'Does not apply to {application.get_type_display()}')
 
     if rule.applies_to_streams:
-        streams = {application.stream}
-        declared = context.answers.get('funding_stream')
-        if declared:
-            streams.add(str(declared).lower())
-        if not streams & set(rule.applies_to_streams):
+        if not _streams_for(application, context) & set(rule.applies_to_streams):
             return skipped('Does not apply to this funding stream')
 
     try:
@@ -154,6 +187,29 @@ def _apply_rule(rule, application, context) -> RuleOutcome:
         rule.code, rule.description, rule.category, True,
         result.amount, result.explanation,
     )
+
+
+def _has_dependents(answers) -> bool:
+    """Whether the dependants rate applies.
+
+    Two schemas ask this two ways: the admission form asks a yes/no, the
+    continuing-funding renewal asks how many. Asking both would let one answer
+    contradict the other, so the count is the fallback and the explicit answer
+    wins where a form provides it.
+    """
+    stated = answers.get('has_dependents')
+    if isinstance(stated, bool):
+        return stated
+    if stated not in (None, ''):
+        return str(stated).strip().lower() in ('true', 'yes', 'y', '1', 'on')
+
+    count = answers.get('dependent_count')
+    if count in (None, ''):
+        return False
+    try:
+        return int(Decimal(str(count).strip())) > 0
+    except (ArithmeticError, ValueError, TypeError):
+        return False
 
 
 def _months(answers) -> int:

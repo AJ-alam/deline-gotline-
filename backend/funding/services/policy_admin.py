@@ -27,6 +27,17 @@ from funding.models import AuditEntry, PolicyChange, PolicySetting, RuleSet
 logger = logging.getLogger(__name__)
 
 
+def unit_for(key: str) -> str:
+    """What a rate is measured in, from the key that names it.
+
+    Every rate was seeded as '$' and the screen formatted all of them as money,
+    so an 80% achievement threshold was published to administrators as
+    '$80.00' — on the one screen where they change what students are paid. The
+    key already says which kind it is; nothing else needs to be decided.
+    """
+    return '%' if 'percent' in key else '$'
+
+
 class PolicyEditError(Exception):
     """The change was refused."""
 

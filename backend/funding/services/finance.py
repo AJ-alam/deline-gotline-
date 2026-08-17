@@ -40,17 +40,55 @@ class DispatchError(Exception):
     """The batch could not be sent."""
 
 
+# An award may be paid once its application has been approved. Reaching finance
+# does not un-approve it, and the award's own status is what records whether the
+# money has actually gone out.
+PAYABLE_STATUSES = (ApplicationStatus.APPROVED, ApplicationStatus.SENT_TO_FINANCE)
+
+
 def pending_awards():
-    """Awards approved but not yet sent to finance."""
-    return (Award.objects
+    """Awards approved but not yet paid.
+
+    Keyed on the award's status, because that is the thing that records whether
+    money has left. The application status only decides whether it *may*.
+
+    SENT_TO_FINANCE has to be included. Staff can record that transition by hand
+    from the application screen — the detail view offers it as the next step on
+    anything approved — and doing so left the award PENDING while removing it
+    from every payment run, permanently and with nothing reporting it. On one
+    database this had stranded $17,100 across three awards on a single
+    application: approved, owed, and invisible to the people who pay it.
+    """
+    # `current()` is not a nicety here. A superseded decision's lines are still
+    # PENDING — nothing pays them, so nothing ever changed their status — so an
+    # application priced twice offered the same award twice and the money would
+    # have gone out twice.
+    return (Award.objects.current()
             .filter(status=Award.Status.PENDING,
-                    application__status=ApplicationStatus.APPROVED)
+                    application__status__in=PAYABLE_STATUSES)
             .select_related('application', 'application__student')
             .order_by('application__student__last_name', 'application_id', 'id'))
 
 
 def _bank_account(student):
     return student.bank_accounts.filter(is_current=True).first() if student else None
+
+
+def _release_requested(application) -> bool:
+    """Whether the applicant asked for the money to go to someone else.
+
+    The graduation award offers this as a tick. Nothing here can act on it —
+    paying a third party is an authorisation the office grants, not a checkbox
+    — so the only safe reading is that the award must not go out in the
+    automatic file.
+
+    A flag nothing reads is how `residency_flag` came to be a dashboard count
+    that could only ever be zero. A flag read *only by a screen*, while the
+    payment run pays the student's own account regardless, is worse: the
+    applicant asked for the money to go elsewhere, was not refused, and it went
+    where they said it should not.
+    """
+    return bool((application.answers or {}).get('release_to_other'))
 
 
 def preview():
@@ -60,10 +98,38 @@ def preview():
     discovering afterwards that four students were missing from the file.
     """
     ready, blocked = [], []
+
+    # An award whose decision link is missing would be filtered out by
+    # `current()` and disappear from this screen entirely. Nothing creates one —
+    # `record_decision` is the only writer and it always sets the decision — but
+    # "nothing creates one" is not a reason to let money vanish quietly if one
+    # ever exists. Reported, not dropped.
+    for award in (Award.objects
+                  .filter(decision__isnull=True, status=Award.Status.PENDING,
+                          application__status__in=PAYABLE_STATUSES)
+                  .select_related('application', 'application__student')):
+        blocked.append({
+            'award': award,
+            'reason': ('This award is not attached to a pricing decision, so it '
+                       'cannot be checked against one. Re-price the application.'),
+        })
+
     for award in pending_awards():
-        student = award.application.student
+        application = award.application
+        student = application.student
         account = _bank_account(student)
-        if student is None:
+        if _release_requested(application):
+            recipient = (application.answers or {}).get('release_recipient')
+            blocked.append({
+                'award': award,
+                'reason': (
+                    'Payment was requested to another person'
+                    + (f' ({recipient})' if recipient else '')
+                    + '. Release of funds is arranged by the office, not by the '
+                      'payment run.'
+                ),
+            })
+        elif student is None:
             blocked.append({'award': award, 'reason': 'No student is attached to this application.'})
         elif not account:
             blocked.append({'award': award, 'reason': f'{student.full_name} has no bank account on file.'})
@@ -108,7 +174,7 @@ def build_csv(rows) -> str:
 
 @transaction.atomic
 def dispatch(actor=None) -> dict:
-    """Send every ready award, and mark it sent.
+    """Send every ready award, and mark it paid.
 
     Returns the file and a summary. Awards that cannot be paid are left pending
     and reported, never quietly excluded.
@@ -128,12 +194,31 @@ def dispatch(actor=None) -> dict:
     if len(locked) != len(ids):
         raise DispatchError('Some awards were dispatched by someone else. Try again.')
 
-    csv_text = build_csv(ready)
     now = timezone.now()
+
+    # The reference finance reconciles against. `Award.reference` is unique and
+    # was written by nothing, so every row in every file said 'AWD-<primary
+    # key>' — the database's own counter, handed to a bank. Assigned before the
+    # file is built so the file and the record carry the same string, and only
+    # if the award has none: a reference that changes is not a reference.
+    for row in ready:
+        award = row['award']
+        if not award.reference:
+            award.reference = f'DGG-{now:%Y%m%d}-{award.pk:06d}'
+    Award.objects.bulk_update([row['award'] for row in ready], ['reference'])
+
+    csv_text = build_csv(ready)
     total = sum((row['award'].amount for row in ready), Decimal('0.00'))
 
+    # PAID, not SENT_TO_FINANCE. Nothing anywhere wrote PAID, so
+    # `Award.objects.paid()` — which exists precisely so that money paid under a
+    # decision since superseded still counts as paid — could only ever return
+    # nothing, and the student's dashboard reported $0.00 paid against an
+    # awarded total in the millions. Dispatching the file is the act this
+    # system can observe; the timestamps below still record when it went and
+    # who sent it.
     Award.objects.filter(pk__in=ids).update(
-        status=Award.Status.SENT_TO_FINANCE,
+        status=Award.Status.PAID,
         sent_to_finance_at=now,
         sent_to_finance_by=actor,
     )

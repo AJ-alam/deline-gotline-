@@ -15,8 +15,10 @@ from decimal import Decimal
 from django.db.models import Count, Q, Sum
 
 from funding.models import (
-    Application, ApplicationStatus, Award, EnrollmentVerification,
+    Application, ApplicationStatus, ApplicationType, Award,
+    EnrollmentVerification,
 )
+from funding.services import deadlines as deadline_service
 
 ZERO = Decimal('0.00')
 
@@ -30,15 +32,102 @@ def _counts_by_status(queryset) -> dict[str, int]:
     return {status: counted.get(status, 0) for status in ApplicationStatus.values}
 
 
+def _next_step(user, applications) -> dict:
+    """The one thing this student should do next.
+
+    A dashboard of three totals tells someone with no applications nothing at
+    all: it reads as a report on an empty file rather than a way in. This names
+    the next action, and the reason, so the opening screen is usable by someone
+    who has never applied for anything.
+    """
+    if applications.filter(status=ApplicationStatus.INFO_REQUESTED).exists():
+        return {
+            'key': 'provide_information',
+            'title': 'Answer the office',
+            'detail': 'An application is waiting on more information from you.',
+            'action': 'Open it',
+            'href': '/applications',
+        }
+
+    admission = applications.filter(type=ApplicationType.ADMISSION)
+    if not admission.exists():
+        return {
+            'key': 'apply_admission',
+            'title': 'Start your admission application',
+            'detail': (
+                'This is the first application, and it establishes which '
+                'funding you are eligible for. Everything else follows from it.'
+            ),
+            'action': 'Start application',
+            'href': '/apply/admission',
+        }
+
+    awaiting = EnrollmentVerification.objects.filter(
+        application__student=user,
+        status=EnrollmentVerification.Status.REQUESTED,
+    ).exists()
+    if awaiting:
+        return {
+            'key': 'awaiting_enrolment',
+            'title': 'Waiting on your institution',
+            'detail': (
+                'We have asked your registrar to confirm your enrolment and '
+                'the tuition billed. Tuition cannot be awarded until it '
+                'arrives. Nothing is needed from you.'
+            ),
+            'action': '',
+            'href': '',
+        }
+
+    if applications.filter(status__in=ApplicationStatus.open_states()).exists():
+        return {
+            'key': 'in_review',
+            'title': 'Your application is with the office',
+            'detail': 'You will be told as soon as there is a decision.',
+            'action': 'Track it',
+            'href': '/applications',
+        }
+
+    return {
+        'key': 'apply_more',
+        'title': 'Apply for further funding',
+        'detail': 'Travel, practicum placements and bursaries are applied for separately.',
+        'action': 'See what you can apply for',
+        'href': '/applications',
+    }
+
+
+def _recent(applications, limit: int = 5) -> list[dict]:
+    """The last few applications, as a student would describe them."""
+    return [
+        {
+            'id': application.id,
+            'type': application.type,
+            'type_label': application.get_type_display(),
+            'status': application.status,
+            'status_label': application.get_status_display(),
+            'awarded_total': str(application.awarded_total),
+            'submitted_at': application.submitted_at,
+        }
+        for application in applications.order_by('-submitted_at')[:limit]
+    ]
+
+
 def for_student(user) -> dict:
     applications = Application.objects.filter(student=user)
     by_status = _counts_by_status(applications)
 
-    awarded = (Award.objects
+    # Scoped to the decision in force. Unscoped, this counted every pricing the
+    # application had ever had: approved once for $2,000, shown $4,000 the
+    # moment anybody re-priced it — while the application listed underneath
+    # said $2,000, because `awarded_total` follows the current decision.
+    awarded = (Award.objects.current()
                .filter(application__student=user)
                .aggregate(total=Sum('amount'))['total']) or ZERO
-    paid = (Award.objects
-            .filter(application__student=user, status=Award.Status.PAID)
+    # Not scoped: money that left the bank under a decision since superseded
+    # still left the bank.
+    paid = (Award.objects.paid()
+            .filter(application__student=user)
             .aggregate(total=Sum('amount'))['total']) or ZERO
 
     return {
@@ -51,17 +140,46 @@ def for_student(user) -> dict:
         'money': {'awarded': str(awarded), 'paid': str(paid)},
         # What the student is waiting on, phrased as something they can act on.
         'waiting_on_you': by_status[ApplicationStatus.INFO_REQUESTED],
+        'student': {
+            'name': user.first_name or user.full_name,
+            'reference': user.beneficiary_number or '',
+        },
+        'next_step': _next_step(user, applications),
+        'recent': _recent(applications),
+        'deadlines': _deadlines(),
     }
+
+
+def _deadlines() -> list[dict]:
+    """The next cut-offs. Empty when the office has set none, and the client
+    shows nothing rather than inventing dates."""
+    # No stream: these are deduplicated by term, and naming one of the three
+    # streams the date came from would be arbitrary and read as a restriction.
+    return [
+        {
+            'semester': deadline.semester,
+            'academic_year': deadline.academic_year,
+            'closes_at': deadline.closes_at,
+            'late_allowed': deadline.late_allowed,
+        }
+        for deadline in deadline_service.upcoming()
+    ]
 
 
 def for_staff(user) -> dict:
     applications = Application.objects.all()
     by_status = _counts_by_status(applications)
 
-    money = Award.objects.aggregate(
+    # The same scoping as the student's, for the same reason: the office's
+    # totals were inflated by every re-pricing anybody had ever done.
+    money = Award.objects.current().aggregate(
         awarded=Sum('amount'),
         pending=Sum('amount', filter=Q(status=Award.Status.PENDING)),
-        sent=Sum('amount', filter=Q(status=Award.Status.SENT_TO_FINANCE)),
+        # Dispatching the payment file is what marks an award paid, so this is
+        # the figure that has gone out. It counted SENT_TO_FINANCE while nothing
+        # wrote PAID; both cannot be read, and the one the run writes is the one
+        # that is true.
+        paid=Sum('amount', filter=Q(status=Award.Status.PAID)),
     )
 
     flags = applications.aggregate(
@@ -83,7 +201,7 @@ def for_staff(user) -> dict:
         'money': {
             'awarded': str(money['awarded'] or ZERO),
             'awaiting_payment': str(money['pending'] or ZERO),
-            'sent_to_finance': str(money['sent'] or ZERO),
+            'paid': str(money['paid'] or ZERO),
         },
         # The three queues someone actually works from.
         'queues': {

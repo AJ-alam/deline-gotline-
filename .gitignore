@@ -24,6 +24,10 @@ env/
 *.sqlite3
 backend/db.sqlite3
 db.sqlite3
+# And every copy taken before a migration. `*.sqlite3` does not match
+# `db.sqlite3.backup-20260816`, so a database set aside for safety was the one
+# thing in the directory git offered to commit.
+*.sqlite3.*
 backend/staticfiles/
 staticfiles/
 backend/media/

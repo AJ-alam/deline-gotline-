@@ -18,7 +18,8 @@ import api, {
   type EligibilityOutcome,
   type EligibilityQuestion,
 } from '../../api/client';
-import { Alert, Button, Card, Field, Input } from '../../components/ui';
+import { Alert, Button, Field, Input } from '../../components/ui';
+import AuthLayout from './AuthLayout';
 
 type Step = 'eligibility' | 'details';
 
@@ -94,13 +95,16 @@ export default function Register() {
   // ── Step one: screening ──
   if (step === 'eligibility') {
     return (
-      <main className="auth-page stack">
-        <Card title="Check your eligibility">
-          <div className="stack">
-            <p className="small muted">
-              Six questions, so we can tell you what you may apply for before you
-              fill anything in.
-            </p>
+      <AuthLayout>
+        <header>
+          <h1 className="auth-panel__title">Check your eligibility</h1>
+          <p className="auth-panel__lead">
+            Six questions, so we can tell you what you may apply for before you
+            fill anything in.
+          </p>
+        </header>
+
+        <div className="stack" style={{ marginTop: 'var(--s-6)' }}>
 
             {formError && <Alert tone="error">{formError}</Alert>}
             {!questions && <div className="spinner" role="status" aria-label="Loading" />}
@@ -154,20 +158,22 @@ export default function Register() {
               )}
             </div>
 
-            <p className="small muted">
-              Already registered? <Link to="/signin">Sign in</Link>
-            </p>
-          </div>
-        </Card>
-      </main>
+          <p className="auth-panel__foot">
+            Already registered? <Link to="/signin">Sign in</Link>
+          </p>
+        </div>
+      </AuthLayout>
     );
   }
 
   // ── Step two: the account itself ──
   return (
-    <main className="auth-page stack">
-      <Card title="Create your account">
-        <form className="stack" onSubmit={submit} noValidate>
+    <AuthLayout>
+      <header>
+        <h1 className="auth-panel__title">Create your account</h1>
+      </header>
+
+      <form className="stack" onSubmit={submit} noValidate style={{ marginTop: 'var(--s-6)' }}>
           {outcome && (
             <Alert tone="ok">
               You may apply for {outcome.streams.map((s) => s.toUpperCase()).join(' and ')}.
@@ -220,8 +226,7 @@ export default function Register() {
               Back
             </Button>
           </div>
-        </form>
-      </Card>
-    </main>
+      </form>
+    </AuthLayout>
   );
 }

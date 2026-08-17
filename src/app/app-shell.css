@@ -1,54 +1,214 @@
-/* The frame around every signed-in page. */
+/* The frame around every signed-in page.
+   A fixed sidebar on wide screens; a drawer under one.
 
-.shell__bar {
-  background: var(--ink);
-  color: var(--text-inverse);
-  border-bottom: 3px solid var(--gold);
+   The sidebar is glass, matching the signed-out screens. Glass needs something
+   behind it to refract, so the panel paints its own lit ground — a deep
+   gradient with two pools of colour — and the nav surface floats translucent
+   on top of that. A flat dark rectangle with a blur filter over an opaque
+   background is not glass; it is a dark rectangle. */
+
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
 }
-.shell__inner {
-  max-width: var(--container);
-  margin: 0 auto;
-  padding: var(--s-3) var(--s-4);
+
+/* ── Sidebar ── */
+
+.shell__side {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow: hidden;
+  background: #0c161b;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* The light behind the glass. */
+.shell__side::before,
+.shell__side::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  pointer-events: none;
+}
+.shell__side::before {
+  width: 420px;
+  height: 420px;
+  top: -160px;
+  left: -140px;
+  background: radial-gradient(circle, #1d5163 0%, #12313d 50%, transparent 72%);
+  opacity: 0.9;
+}
+.shell__side::after {
+  width: 380px;
+  height: 380px;
+  bottom: -190px;
+  right: -150px;
+  background: radial-gradient(circle, var(--gold-bright) 0%, #8a5f2a 45%, transparent 70%);
+  opacity: 0.42;
+}
+
+/* The glass sheet itself, above the light. */
+.shell__side-inner {
+  position: relative;
+  z-index: 1;
+  height: 100%;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--s-5);
-  flex-wrap: wrap;
+  padding: var(--s-5) var(--s-4);
+  overflow-y: auto;
+  background: linear-gradient(160deg, rgba(14, 13, 11, 0.55), rgba(14, 13, 11, 0.78));
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  /* Thin scrollbar, so a long nav does not gain a chunky grey gutter. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
 }
 
 .shell__brand { text-decoration: none; color: inherit; display: block; }
-.shell__brand-name { display: block; font-weight: 600; font-size: var(--text-sm); }
+.shell__brand-name {
+  display: block;
+  font-weight: 650;
+  font-size: var(--text-sm);
+  color: #fff;
+  letter-spacing: -0.01em;
+}
 .shell__brand-sub {
   display: block;
-  font-size: var(--text-xs);
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 650;
   color: var(--gold-bright);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
-.shell__nav { display: flex; gap: var(--s-1); flex-wrap: wrap; flex: 1; }
-
-.shell__link {
-  color: #d9d2c4;
-  text-decoration: none;
-  padding: var(--s-2) var(--s-3);
-  border-radius: var(--radius);
-  font-size: var(--text-sm);
-  white-space: nowrap;
-  display: inline-flex;
+.shell__identity {
+  display: flex;
   align-items: center;
-  gap: var(--s-2);
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
-.shell__link:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-
-/* Current section is marked by an underline as well as colour, so it is still
-   identifiable without colour vision. */
-.shell__link--current {
+.shell__avatar {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  background: linear-gradient(150deg, var(--gold-bright), var(--gold));
+  color: #2a1c08;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.shell__identity-text { min-width: 0; }
+.shell__who {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 600;
   color: #fff;
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 -2px 0 var(--gold-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.shell__role {
+  display: block;
+  font-size: var(--text-xs);
+  color: #a49b8a;
+  text-transform: capitalize;
+}
+
+.shell__nav { display: flex; flex-direction: column; gap: var(--s-5); flex: 1; }
+.shell__group { display: flex; flex-direction: column; gap: 3px; }
+.shell__group-heading {
+  padding: 0 var(--s-3) var(--s-2);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #857b6c;
+}
+
+/* Generous targets: these are used by people who are not practised at this,
+   sometimes on a phone. Nothing here is smaller than a comfortable tap. */
+.shell__link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 42px;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  color: #cec7b9;
+  text-decoration: none;
+  font-size: var(--text-sm);
+  transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+/* Scoped away from the current link: `:hover` is (0,2,0) and
+   `.shell__link--current` is (0,1,0), so an unscoped hover would replace the
+   gold highlight with plain grey and the current section would appear to
+   deselect itself under the pointer. */
+.shell__link:not(.shell__link--current):hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.shell__icon { flex: none; opacity: 0.85; }
+.shell__link-text { min-width: 0; flex: 1; }
+.shell__link-label { display: block; }
+.shell__link-hint {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: #8d8474;
+}
+
+/* Current section is marked three ways — a lit surface, a gold bar and weight —
+   so it is identifiable without relying on colour vision alone. */
+.shell__link--current {
+  background: linear-gradient(
+    100deg, rgba(184, 130, 60, 0.32), rgba(255, 255, 255, 0.07)
+  );
+  border-color: rgba(229, 166, 98, 0.4);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+.shell__link--current::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 22px;
+  border-radius: 0 3px 3px 0;
+  background: var(--gold-bright);
+}
+.shell__link--current:hover {
+  background: linear-gradient(
+    100deg, rgba(184, 130, 60, 0.45), rgba(255, 255, 255, 0.12)
+  );
+  border-color: rgba(229, 166, 98, 0.6);
+  color: #fff;
+}
+.shell__link--current .shell__icon { opacity: 1; color: var(--gold-bright); }
+.shell__link--current .shell__link-hint { color: #c4b8a4; }
 
 .shell__count {
+  flex: none;
   background: var(--gold);
   color: #fff;
   border-radius: var(--radius-full);
@@ -58,22 +218,126 @@
   font-variant-numeric: tabular-nums;
 }
 
-.shell__account { display: flex; align-items: center; gap: var(--s-3); }
-.shell__who { font-size: var(--text-sm); color: #d9d2c4; }
+/* Help, in reach from every page. */
+.shell__help {
+  display: flex;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: #a49b8a;
+}
+.shell__help strong { color: #fff; display: block; }
+.shell__help .shell__icon { color: var(--gold-bright); opacity: 1; }
 
 .shell__signout {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: #d9d2c4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #cec7b9;
   border-radius: var(--radius);
-  padding: 6px var(--s-3);
+  padding: 10px var(--s-3);
   font: inherit;
   font-size: var(--text-sm);
   cursor: pointer;
 }
-.shell__signout:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.shell__signout:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
 
-@media (max-width: 720px) {
-  .shell__inner { gap: var(--s-3); }
-  .shell__nav { order: 3; width: 100%; }
+/* ── Content column ── */
+
+.shell__main { min-width: 0; background: var(--bg); }
+
+/* The top bar carries only what the sidebar cannot: the drawer toggle on
+   narrow screens. It is hidden entirely when the sidebar is visible. */
+.shell__bar { display: none; }
+.shell__menu {
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.shell__bar-title { flex: 1; font-weight: 600; font-size: var(--text-sm); }
+.shell__bar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: #d9d2c4;
+  text-decoration: none;
+  font-size: var(--text-sm);
+}
+
+.shell__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  padding: 0;
+  background: rgba(12, 22, 27, 0.55);
+  backdrop-filter: blur(2px);
+  cursor: pointer;
+}
+
+/* ── Narrow ── */
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+
+  .shell__side {
+    position: fixed;
+    z-index: 50;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 280px;
+    height: 100dvh;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.5);
+  }
+  .shell--menu-open .shell__side { transform: none; }
+
+  .shell__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-3) var(--s-4);
+    background: var(--ink);
+    color: var(--text-inverse);
+    border-bottom: 3px solid var(--gold);
+  }
+}
+
+/* ── Degradation ──
+   No blur available, or the reader has asked for less transparency: the same
+   sidebar, on an opaque panel. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .shell__side-inner { background: rgba(14, 13, 11, 0.92); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .shell__side-inner {
+    background: #14120f;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .shell__side::before,
+  .shell__side::after { opacity: 0.25; }
+}
+
+@media (forced-colors: active) {
+  .shell__link--current { border: 1px solid CanvasText; }
 }

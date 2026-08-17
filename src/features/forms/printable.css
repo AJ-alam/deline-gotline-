@@ -1,0 +1,110 @@
+/* Forms laid out for paper.
+   On screen this is a preview of the printed page; @media print strips the
+   portal around it so what comes out of the printer is the form alone. */
+
+.form-list { list-style: none; margin: 0; padding: 0; }
+.form-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.form-list__row:last-child { border-bottom: 0; padding-bottom: 0; }
+.form-list__row:first-child { padding-top: 0; }
+.form-list__name { display: block; font-weight: 600; }
+
+.printed {
+  background: #fff;
+  color: #000;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--s-7);
+  max-width: 8.5in;
+  margin: 0 auto;
+}
+
+.printed__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding-bottom: var(--s-4);
+  border-bottom: 2px solid #000;
+}
+.printed__org { font-weight: 700; font-size: var(--text-sm); }
+.printed__sub { font-size: var(--text-xs); color: #444; }
+.printed__title { font-size: var(--text-xl); text-align: right; }
+
+.printed__note {
+  margin: var(--s-4) 0;
+  font-size: var(--text-sm);
+  color: #333;
+}
+
+.printed__section { margin-top: var(--s-5); break-inside: auto; }
+.printed__section-title {
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding-bottom: var(--s-1);
+  border-bottom: 1px solid #000;
+  margin-bottom: var(--s-3);
+  break-after: avoid;
+}
+
+/* A question and the space to answer it. Kept whole across a page break —
+   a label at the foot of one page and its line at the head of the next is
+   how a paper form gets filled in wrong. */
+.printed-field { margin-bottom: var(--s-4); break-inside: avoid; }
+.printed-field__label { font-size: var(--text-sm); font-weight: 600; }
+.printed-field__hint { font-size: var(--text-xs); color: #555; }
+/* The statement being agreed to. Full size and in the body colour: it is the
+   thing being signed up to, not a note about it. */
+.printed-field__declaration {
+  font-size: var(--text-sm);
+  color: #000;
+  margin-bottom: 6px;
+}
+
+.printed-rule {
+  height: 1.6em;
+  border-bottom: 1px solid #999;
+  margin-top: var(--s-1);
+}
+
+.printed-choices { display: flex; flex-wrap: wrap; gap: var(--s-4); margin-top: var(--s-2); }
+.printed-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--text-sm);
+}
+.printed-box {
+  width: 13px;
+  height: 13px;
+  border: 1px solid #000;
+  display: inline-block;
+}
+
+@media print {
+  /* Everything that is portal rather than form. */
+  .shell__side,
+  .shell__bar,
+  .shell__scrim,
+  .no-print {
+    display: none !important;
+  }
+  .shell { display: block; }
+  .page { padding: 0; max-width: none; }
+
+  .printed {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    max-width: none;
+  }
+
+  @page { margin: 15mm; }
+}

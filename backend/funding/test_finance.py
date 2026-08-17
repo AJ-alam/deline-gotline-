@@ -10,6 +10,7 @@ import itertools
 from decimal import Decimal
 
 from django.core.management import call_command
+from django.db.models import Sum
 from django.test import TestCase
 from rest_framework.test import APIClient
 
@@ -21,6 +22,7 @@ from funding.models import (
 from funding.services import finance, workflow
 from funding.services.decisions import record_decision
 from funding.test_rules import seed_rates
+from funding.test_fixtures import confirm_enrolment
 
 _counter = itertools.count(1)
 
@@ -29,8 +31,7 @@ def make_user(role=Role.STUDENT, with_account=True):
     user = User.objects.create_user(
         f'f{next(_counter)}@test.com', 'pw12345678',
         first_name='Test', last_name=f'Person{next(_counter)}', role=role,
-        beneficiary_number='B-1234',
-    )
+        beneficiary_number='B-1234',is_deline_beneficiary=True, is_indian_act_registered=True)
     if with_account and role == Role.STUDENT:
         BankAccount.objects.create(
             user=user, account_holder=user.full_name, transit_number='12345',
@@ -53,6 +54,9 @@ def approved_application(student=None, **kwargs):
     )
     staff, director = make_user(Role.SUPPORT_WORKER), make_user(Role.DIRECTOR)
     workflow.record(application, ApplicationEvent.Action.REVIEWED, staff)
+    # Tuition is funded against the registrar's figure, so nothing reaches the
+    # director until the institution has confirmed it.
+    confirm_enrolment(application)
     workflow.record(application, ApplicationEvent.Action.FORWARDED, staff)
     workflow.record(application, ApplicationEvent.Action.APPROVED, director)
     record_decision(application, actor=director)
@@ -82,6 +86,37 @@ class SelectionTests(TestCase):
         applications = {row['award'].application_id for row in finance.preview()[0]}
         self.assertNotIn(pending.pk, applications)
 
+    def test_an_award_survives_staff_marking_the_application_sent_by_hand(self):
+        """The application screen offers 'Send to finance' as the next step on
+        anything approved, and pressing it does not dispatch anything.
+
+        Selecting on the *application* status dropped the award out of every
+        payment run at that moment, permanently, while it was still PENDING and
+        still owed. Nothing reported it: it was not ready, not blocked, just
+        absent. The award's own status is what records whether money has left.
+        """
+        application = approved_application()
+        staff = make_user(Role.SUPPORT_WORKER)
+        workflow.record(application, ApplicationEvent.Action.SENT_TO_FINANCE, staff)
+        application.refresh_from_db()
+        self.assertEqual(application.status, ApplicationStatus.SENT_TO_FINANCE)
+
+        ready, blocked = finance.preview()
+        payable = {row['award'].application_id for row in ready}
+        self.assertIn(
+            application.pk, payable,
+            'an approved, unpaid award vanished from the payment run',
+        )
+        self.assertEqual(blocked, [])
+
+    def test_an_award_already_paid_is_not_offered_again(self):
+        """The counterpart: the award's status, not the application's, is what
+        stops a second payment."""
+        approved_application()
+        finance.dispatch()
+        ready, blocked = finance.preview()
+        self.assertEqual((ready, blocked), ([], []))
+
     def test_a_student_with_no_bank_account_is_reported_not_dropped(self):
         """A missing row in a finance file is a person who does not get paid."""
         approved_application(student=make_user(with_account=False))
@@ -104,16 +139,38 @@ class DispatchTests(TestCase):
                      verbosity=0)
         self.finance_officer = make_user(Role.FINANCE)
 
-    def test_dispatch_marks_every_award_sent(self):
+    def test_dispatch_marks_every_award_paid(self):
         application = approved_application()
         result = finance.dispatch(actor=self.finance_officer)
 
         self.assertGreater(result['count'], 0)
         self.assertGreater(result['total'], Decimal('0'))
         for award in application.awards.all():
-            self.assertEqual(award.status, Award.Status.SENT_TO_FINANCE)
+            self.assertEqual(award.status, Award.Status.PAID)
             self.assertIsNotNone(award.sent_to_finance_at)
             self.assertEqual(award.sent_to_finance_by, self.finance_officer)
+
+    def test_dispatched_money_is_money_paid(self):
+        """The status is not the point; what reads it is.
+
+        `Award.objects.paid()` is what every 'how much has actually gone out'
+        figure is built on, including the student's own dashboard. Nothing wrote
+        PAID, so it answered nothing on every database, and the dashboard
+        reported $0.00 paid beside an awarded total in the millions. Asserted
+        through the queryset rather than the column, because the column being
+        right is only interesting if the reader finds it.
+        """
+        application = approved_application()
+        self.assertFalse(Award.objects.paid().exists())
+
+        finance.dispatch(actor=self.finance_officer)
+
+        paid = Award.objects.paid().filter(application=application)
+        self.assertEqual(paid.count(), application.awards.count())
+        self.assertEqual(
+            paid.aggregate(total=Sum('amount'))['total'],
+            application.awards.aggregate(total=Sum('amount'))['total'],
+        )
 
     def test_an_award_is_never_sent_twice(self):
         approved_application()
@@ -149,7 +206,7 @@ class DispatchTests(TestCase):
         result = finance.dispatch(actor=self.finance_officer)
 
         for award in payable.awards.all():
-            self.assertEqual(award.status, Award.Status.SENT_TO_FINANCE)
+            self.assertEqual(award.status, Award.Status.PAID)
         for award in unpayable.awards.all():
             self.assertEqual(award.status, Award.Status.PENDING)
             self.assertIsNone(award.sent_to_finance_at)

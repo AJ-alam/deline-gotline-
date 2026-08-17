@@ -8,6 +8,7 @@ someone re-runs the calculation.
 from __future__ import annotations
 
 import logging
+from decimal import Decimal, InvalidOperation
 
 from django.db import transaction
 from django.utils import timezone
@@ -67,6 +68,16 @@ def record_decision(application, actor=None, rule_set=None, allow_incomplete=Fal
         previous.is_current = False
         previous.save(update_fields=['is_current'])
 
+        # A superseded decision's unpaid lines are not owed any more, and they
+        # said PENDING forever — a status that means "waiting to be paid" on
+        # money nothing will ever pay. Every reader was already scoped by
+        # `current()`, so this changes no total; it stops the table describing
+        # $1.2m of cancelled awards as outstanding. Lines already PAID are left
+        # exactly as they are: money that left the bank under a decision since
+        # superseded still left the bank.
+        previous.lines.filter(status=Award.Status.PENDING).update(
+            status=Award.Status.CANCELLED)
+
     decision = AwardDecision.objects.create(
         application=application,
         rule_set=rule_set,
@@ -100,6 +111,116 @@ def record_decision(application, actor=None, rule_set=None, allow_incomplete=Fal
         application.pk, decision.total, rule_set.name, rule_set.version,
         len(decision_result.applied),
     )
+    return decision
+
+
+class AwardEditError(Exception):
+    """The breakdown cannot be set to this."""
+
+
+@transaction.atomic
+def record_manual_decision(application, lines, actor=None, note: str = ''):
+    """The office setting the breakdown by hand.
+
+    The rules produce an award for the ordinary case. They cannot know that a
+    student's institution charges a fee nothing has a rate for, or that the
+    office agreed something at the counter — and until this existed the only
+    ways to express that were to edit a policy rate, which changes what
+    *everyone* is paid, or to pay the wrong amount.
+
+    Recorded as a decision like any other: it supersedes rather than overwrites,
+    it carries a trace saying who set it and why, and an appeal argues against
+    it the same way. What it does not do is pretend to be the rules — every line
+    says it was entered by a person.
+
+    Re-pricing from the rules replaces it, which is why the screen warns before
+    doing so. Lines already paid are never touched.
+    """
+    if any(line for line in application.awards.filter(status=Award.Status.PAID)):
+        raise AwardEditError(
+            'Part of this award has already been paid. The breakdown cannot be '
+            'changed after money has gone out.')
+
+    cleaned = []
+    for line in lines:
+        category = str(line.get('category') or '').strip()
+        if category not in Award.Category.values:
+            raise AwardEditError(f'{category or "(blank)"} is not an award category.')
+        try:
+            amount = Decimal(str(line.get('amount')).replace('$', '').replace(',', '').strip())
+        except (InvalidOperation, ArithmeticError, AttributeError, TypeError):
+            raise AwardEditError(f'{line.get("amount")!r} is not an amount.')
+        if amount < 0:
+            raise AwardEditError('An award line cannot be negative.')
+        cleaned.append({
+            'category': category,
+            'amount': amount.quantize(Decimal('0.01')),
+            'description': str(line.get('description') or '').strip()
+                           or Award.Category(category).label,
+        })
+
+    if not cleaned:
+        raise AwardEditError('An award needs at least one line.')
+
+    rule_set = _rule_set_for(application)
+    total = sum((line['amount'] for line in cleaned), Decimal('0.00'))
+    who = getattr(actor, 'full_name', '') or 'the office'
+
+    previous = (AwardDecision.objects.select_for_update()
+                .filter(application=application, is_current=True).first())
+    if previous is not None:
+        previous.is_current = False
+        previous.save(update_fields=['is_current'])
+        previous.lines.filter(status=Award.Status.PENDING).update(
+            status=Award.Status.CANCELLED)
+
+    decision = AwardDecision.objects.create(
+        application=application,
+        rule_set=rule_set,
+        rule_set_version=rule_set.version,
+        total=total,
+        inputs=dict(application.answers or {}),
+        trace={
+            'rule_set': f'Set by hand ({rule_set.name} v{rule_set.version} in force)',
+            'priced_on': timezone.now().date().isoformat(),
+            'total': str(total),
+            'missing_rates': [],
+            'set_by_hand': True,
+            'set_by': who,
+            'note': note,
+            'rules': [
+                {
+                    'code': f'manual_{index + 1}',
+                    'description': line['description'],
+                    'category': line['category'],
+                    'applied': True,
+                    'amount': str(line['amount']),
+                    'reason': f'Entered by {who}' + (f' — {note}' if note else ''),
+                }
+                for index, line in enumerate(cleaned)
+            ],
+        },
+        is_complete=True,
+        priced_on=timezone.now().date(),
+        created_by=actor,
+    )
+
+    if previous is not None:
+        previous.superseded_by = decision
+        previous.save(update_fields=['superseded_by'])
+
+    for index, line in enumerate(cleaned):
+        Award.objects.create(
+            application=application, decision=decision,
+            rule_code=f'manual_{index + 1}',
+            category=line['category'], amount=line['amount'],
+        )
+
+    application.awarded_total = total
+    application.save(update_fields=['awarded_total', 'updated_at'])
+
+    logger.info('Application %s awarded %s by hand by %s (%d line(s)).',
+                application.pk, total, who, len(cleaned))
     return decision
 
 

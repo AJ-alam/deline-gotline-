@@ -1,0 +1,107 @@
+/* Notices.
+   .page-head, .filters, .chip and .empty are shared and live in
+   features/applications/applications.css and styles/app.css. */
+
+.notice-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+
+.notice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  /* The rail carries the kind. Colour alone would not: the same information
+     has to survive a screen that cannot show it. */
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.notice-card--actionable { cursor: pointer; }
+.notice-card--actionable:hover {
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+.notice-card--actionable:hover .notice-card__title { text-decoration: underline; }
+.notice-card--actionable:focus-visible { box-shadow: var(--focus-ring); }
+
+/* Read notices step back rather than disappear; they are still the record. */
+.notice-card--read { background: var(--surface-2); box-shadow: none; }
+.notice-card--read .notice-card__title { font-weight: 600; }
+.notice-card--read .notice-card__icon { opacity: 0.55; }
+
+.notice-card--unread .notice-card__title { font-weight: 700; }
+
+/* ── Kind ── */
+.notice-card--info { border-left-color: var(--info); }
+.notice-card--warn { border-left-color: var(--warn); }
+.notice-card--ok { border-left-color: var(--ok); }
+.notice-card--danger { border-left-color: var(--danger); }
+.notice-card--neutral { border-left-color: var(--border-strong); }
+
+.notice-card__icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+.notice-card--info .notice-card__icon { background: var(--info-bg); color: var(--info); }
+.notice-card--warn .notice-card__icon { background: var(--warn-bg); color: var(--warn); }
+.notice-card--ok .notice-card__icon { background: var(--ok-bg); color: var(--ok); }
+.notice-card--danger .notice-card__icon { background: var(--danger-bg); color: var(--danger); }
+.notice-card--read .notice-card__icon { background: var(--surface); }
+
+.notice-card__body { flex: 1; min-width: 0; }
+.notice-card__head { display: flex; align-items: center; gap: var(--s-2); }
+.notice-card__title { min-width: 0; }
+
+/* An unread marker that is a shape, not only a weight. */
+.notice-card__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+.notice-card__message {
+  margin-top: var(--s-1);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.notice-card__foot {
+  margin-top: var(--s-2);
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.notice-card__kind {
+  padding: 2px var(--s-2);
+  border-radius: var(--radius-full);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.notice-card__kind--info { background: var(--info-bg); color: var(--info); }
+.notice-card__kind--warn { background: var(--warn-bg); color: var(--warn); }
+.notice-card__kind--ok { background: var(--ok-bg); color: var(--ok); }
+.notice-card__kind--danger { background: var(--danger-bg); color: var(--danger); }
+.notice-card__kind--neutral { background: var(--neutral-bg); color: var(--neutral); }
+
+.notice-card__go { flex: none; align-self: center; color: var(--text-3); }
+.notice-card--actionable:hover .notice-card__go { color: var(--gold); }
+
+@media (max-width: 640px) {
+  .notice-card__go { display: none; }
+}

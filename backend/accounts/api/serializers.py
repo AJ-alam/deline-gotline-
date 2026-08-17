@@ -1,5 +1,6 @@
 """User-facing account data."""
 
+from django.utils import timezone
 from rest_framework import serializers
 
 from accounts.models import BankAccount, User
@@ -31,9 +32,14 @@ class UserSerializer(serializers.ModelSerializer):
                   'phone', 'alternate_phone', 'street_address', 'city', 'province',
                   'postal_code', 'beneficiary_number', 'treaty_number',
                   'is_deline_beneficiary', 'is_indian_act_registered',
+                  'eligible_streams', 'eligibility_assessed_at',
                   'role', 'role_label', 'date_joined', 'bank_account')
+        # The streams are the office's decision about a person, not a preference
+        # they may edit. Returned so the portal can show what someone qualifies
+        # for; changed only by re-running the screening.
         read_only_fields = ('id', 'email', 'role', 'role_label', 'date_joined',
-                            'full_name', 'display_name', 'bank_account')
+                            'full_name', 'display_name', 'bank_account',
+                            'eligible_streams', 'eligibility_assessed_at')
 
     def get_bank_account(self, user):
         current = user.bank_accounts.filter(is_current=True).first()
@@ -74,7 +80,7 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def create(self, validated):
         answers = validated.pop('eligibility', {})
-        validated.pop('_eligibility_outcome', None)
+        outcome = validated.pop('_eligibility_outcome', None)
         user = User.objects.create_user(**validated)
 
         # What the answers say about the person is kept; what they say about a
@@ -83,5 +89,16 @@ class RegisterSerializer(serializers.ModelSerializer):
             answers, 'indian_act_registered')
         user.is_deline_beneficiary = eligibility_service._yes(
             answers, 'deline_beneficiary')
-        user.save(update_fields=['is_indian_act_registered', 'is_deline_beneficiary'])
+
+        # The decision itself, saved rather than re-derived. Two of the answers
+        # it rests on have no column of their own, so recomputing it later from
+        # the account would quietly give a different result — see the comment on
+        # User.eligible_streams.
+        user.eligible_streams = list(outcome.streams) if outcome else []
+        user.eligibility_answers = dict(answers)
+        user.eligibility_assessed_at = timezone.now()
+        user.save(update_fields=[
+            'is_indian_act_registered', 'is_deline_beneficiary',
+            'eligible_streams', 'eligibility_answers', 'eligibility_assessed_at',
+        ])
         return user

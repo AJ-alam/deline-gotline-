@@ -11,6 +11,9 @@ from rest_framework.test import APITestCase
 
 from accounts.models import Role, User
 from funding.models import Application, ApplicationStatus, ApplicationType, FundingStream
+from funding.test_fixtures import (
+    admission_answers, confirm_enrolment, verification_answers,
+)
 from funding.test_rules import seed_rates
 
 _counter = itertools.count(1)
@@ -19,20 +22,10 @@ _counter = itertools.count(1)
 def make_user(role=Role.STUDENT):
     return User.objects.create_user(
         f'{role}{next(_counter)}@test.com', 'pw12345678',
-        first_name='Test', last_name='Person', role=role,
-    )
+        first_name='Test', last_name='Person', role=role,is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
-VALID_ADMISSION = {
-    'first_name': 'Jane', 'last_name': 'Doe', 'date_of_birth': '2001-05-04',
-    'email': 'jane@example.com', 'street_address': '1 Main St', 'city': 'Deline',
-    'province': 'NT', 'institution_name': 'Aurora College', 'program': 'Nursing',
-    'registrar_email': 'registrar@aurora.ca', 'semester': 'Fall',
-    'semester_start': '2026-09-01', 'semester_end': '2026-12-31',
-    'course_load': 'Full-time', 'signature': 'Jane Doe',
-    'doc_transcript': 'provided', 'doc_letter_of_intent': 'provided',
-    'doc_status_card': 'provided', 'doc_void_cheque': 'provided',
-}
+VALID_ADMISSION = admission_answers()
 
 
 class SchemaEndpointTests(APITestCase):
@@ -173,6 +166,9 @@ class TransitionEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_the_director_can_approve_once_forwarded(self):
+        # Tuition is funded against the registrar's figure, so an admission
+        # application cannot leave review until the institution confirms.
+        confirm_enrolment(self.application)
         self._transition(self.worker, 'reviewed')
         self._transition(self.worker, 'forwarded')
         response = self._transition(self.director, 'approved')
@@ -264,9 +260,13 @@ class QueryCostTests(APITestCase):
             )
 
     def test_the_queue_costs_the_same_however_many_rows(self):
-        with self.assertNumQueries(2):
+        # Three: the count, the page, and one prefetch for the enrolment
+        # verifications on that page. What matters is that the number does not
+        # change with the number of rows — a per-row lookup is the thing this
+        # guards against.
+        with self.assertNumQueries(3):
             self.client.get('/api/applications/?page_size=5')
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             self.client.get('/api/applications/?page_size=25')
 
     def test_detail_reads_the_prefetched_decision_rather_than_refetching(self):
@@ -324,3 +324,73 @@ class SchemaCachingTests(APITestCase):
         response = self.client.get('/api/schemas/', HTTP_IF_NONE_MATCH='"stale"')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.data)
+
+
+class ListFilterTests(APITestCase):
+    """Filtering the application list.
+
+    DjangoFilterBackend is enabled globally, but a view that declares no
+    filterset filters nothing — and does so silently, returning 200 and the
+    whole list. Both the student's list and the staff queue passed ?status=
+    and were quietly given everything, so a student filtering to "being
+    reviewed" still saw applications that had been declined.
+    """
+
+    def setUp(self):
+        self.student = make_user()
+        self.reviewed = Application.objects.create(
+            student=self.student, type=ApplicationType.ADMISSION,
+            stream=FundingStream.PSSSP, schema_slug='admission',
+            status=ApplicationStatus.UNDER_REVIEW, answers={})
+        self.declined = Application.objects.create(
+            student=self.student, type=ApplicationType.TRAVEL,
+            stream=FundingStream.DGGR, schema_slug='travel',
+            status=ApplicationStatus.DECLINED, answers={})
+        self.client.force_authenticate(self.student)
+
+    def ids(self, query=''):
+        response = self.client.get(f'/api/applications/{query}')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {row['id'] for row in response.data['results']}
+
+    def test_unfiltered_returns_everything(self):
+        self.assertEqual(self.ids(), {self.reviewed.pk, self.declined.pk})
+
+    def test_filtering_by_status_excludes_the_others(self):
+        self.assertEqual(self.ids('?status=under_review'), {self.reviewed.pk})
+
+    def test_a_declined_application_is_not_returned_as_under_review(self):
+        """The reported symptom."""
+        self.assertNotIn(self.declined.pk, self.ids('?status=under_review'))
+
+    def test_filtering_by_type_excludes_the_others(self):
+        self.assertEqual(self.ids('?type=travel'), {self.declined.pk})
+
+    def test_filtering_by_stream_excludes_the_others(self):
+        self.assertEqual(self.ids('?stream=psssp'), {self.reviewed.pk})
+
+    def test_the_count_reflects_the_filter(self):
+        """A count of everything under a filtered list misreports the total."""
+        response = self.client.get('/api/applications/?status=under_review')
+        self.assertEqual(response.data['count'], 1)
+
+    def test_filters_combine(self):
+        self.assertEqual(
+            self.ids('?status=under_review&type=admission'), {self.reviewed.pk})
+        self.assertEqual(self.ids('?status=under_review&type=travel'), set())
+
+    def test_an_unknown_status_is_refused_rather_than_ignored(self):
+        """Silently returning everything is how this went unnoticed."""
+        response = self.client.get('/api/applications/?status=not_a_status')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_a_filter_cannot_reach_another_students_applications(self):
+        other = Application.objects.create(
+            student=make_user(), type=ApplicationType.ADMISSION,
+            stream=FundingStream.PSSSP, schema_slug='admission',
+            status=ApplicationStatus.UNDER_REVIEW, answers={})
+        self.assertNotIn(other.pk, self.ids('?status=under_review'))
+
+    def test_staff_filtering_narrows_the_queue(self):
+        self.client.force_authenticate(make_user(Role.SUPPORT_WORKER))
+        self.assertEqual(self.ids('?status=declined'), {self.declined.pk})

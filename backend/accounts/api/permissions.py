@@ -51,5 +51,17 @@ class IsStaffOrOwner(BasePermission):
         if user.reviews_applications or user.decides_applications or user.handles_payments:
             return True
         owner = getattr(obj, 'student_id', None) or getattr(obj, 'user_id', None)
-        # A student may read their own record but not rewrite a submitted one.
-        return owner == user.id and request.method in SAFE_METHODS
+        if owner != user.id:
+            return False
+        if request.method in SAFE_METHODS:
+            return True
+
+        # One write, and only one. A student may answer a request for more
+        # information on their own application — that is the whole point of
+        # asking — and may do nothing else to it. The view checks the status as
+        # well: this says who, `ApplicationViewSet.revise` says when.
+        #
+        # Named rather than opened by method, because "a student may POST to
+        # their own application" would also hand them `transition` and
+        # `price`.
+        return getattr(view, 'action', None) == 'revise'

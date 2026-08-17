@@ -53,8 +53,69 @@
 .textarea { min-height: 110px; resize: vertical; }
 .input--invalid, .select--invalid, .textarea--invalid { border-color: var(--danger); }
 
+/* A field with a reveal control inside it — passwords, and the Social
+   Insurance Number on the admission application. */
+/* The reveal control lives inside the password box. */
+.auth-reveal {
+  position: relative;
+  display: flex;
+}
+.auth-reveal .input {
+  padding-right: 68px;
+}
+.auth-reveal button {
+  position: absolute;
+  top: 50%;
+  right: var(--s-2);
+  transform: translateY(-50%);
+  padding: 6px var(--s-2);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.auth-reveal button:hover {
+  color: var(--text);
+}
+
 .checkbox { display: flex; align-items: center; gap: var(--s-2); font-size: var(--text-base); }
 .checkbox input { width: 16px; height: 16px; accent-color: var(--gold); }
+
+/* An answer a half column would truncate: a paragraph, a signature, a
+   declaration. */
+.field--wide { grid-column: 1 / -1; }
+
+/* A required yes/no, asked as two choices so that answering 'no' is a visible
+   act rather than an untouched box. */
+.choices { display: flex; gap: var(--s-4); align-items: center; min-height: 38px; }
+.choices__option {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--text-base);
+  cursor: pointer;
+}
+.choices__option input { width: 16px; height: 16px; accent-color: var(--gold); }
+.choices--invalid { color: var(--danger); }
+
+.declaration {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.declaration__text {
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--text-base);
+}
 
 .badge {
   display: inline-block;
@@ -79,6 +140,68 @@
 }
 .card__header { padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--border); }
 .card__body { padding: var(--s-5); }
+
+/* The native dialog, given the shape of everything else here. `::backdrop`
+   dims the page; the dialog itself keeps the card's border and radius. */
+.dialog {
+  width: min(480px, calc(100vw - 2 * var(--s-5)));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-3);
+}
+.dialog::backdrop { background: rgba(26, 24, 20, 0.5); backdrop-filter: blur(2px); }
+.dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-5);
+  border-bottom: 1px solid var(--border);
+}
+.dialog__title { font-size: var(--text-lg); }
+.dialog__description { margin-top: var(--s-1); font-size: var(--text-sm); color: var(--text-3); }
+.dialog__close {
+  flex: none;
+  width: 32px; height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dialog__close:hover { background: var(--border); }
+.dialog__body { padding: var(--s-5); }
+
+/* A list of things to choose between, each its own target. */
+.choice-list { display: flex; flex-direction: column; gap: var(--s-3); }
+.choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.choice:hover { border-color: var(--gold); background: var(--gold-soft); }
+/* Both are spans, and an inline element ignores margin-top — so the detail ran
+   straight on from the question: 'Completed a programme?A one-time award…'. */
+.choice__title { display: block; font-weight: 650; }
+.choice__detail {
+  display: block;
+  margin-top: var(--s-1);
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
 
 .alert { padding: var(--s-3) var(--s-4); border-radius: var(--radius); border-left: 3px solid; font-size: var(--text-sm); }
 .alert--error { background: var(--danger-bg); border-color: var(--danger); color: #7c2c26; }

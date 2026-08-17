@@ -29,13 +29,13 @@ class ApplicationType(models.TextChoices):
     CONTINUING_FUNDING = 'continuing_funding', 'Continuing Funding'     # was Form C
     APPEAL = 'appeal', 'Appeal / Reconsideration'                       # was Form D
     TRAVEL = 'travel', 'Travel & Emergency Assistance'                  # was Form E
-    PRACTICUM = 'practicum', 'Practicum Placement Allowance'            # was Form F
+    PRACTICUM = 'practicum', 'Summer Student / Practicum Award'         # was Form F
     GRADUATION_BURSARY = 'graduation_bursary', 'Graduation Bursary'     # was Form G
     EMERGENCY_RELIEF = 'emergency_relief', 'Emergency Relief'            # was Form H
     # 'Form H' meant three different things: the calculator read it as summer
     # student employment, seed_forms created it as Emergency Relief, and the
     # frontend mapped it to Form D (Appeal). The seeded form is authoritative.
-    HARDSHIP_BURSARY = 'hardship_bursary', 'Hardship Bursary'
+    HARDSHIP_BURSARY = 'hardship_bursary', 'Emergency Hardship Bursary (Last Resort)'
     ACADEMIC_SCHOLARSHIP = 'academic_scholarship', 'Academic Scholarship'
 
 
@@ -137,6 +137,45 @@ class Application(models.Model):
         return self.status in ApplicationStatus.open_states()
 
 
+class ApplicantIdentifier(models.Model):
+    """A government identifier, encrypted, kept out of `answers`.
+
+    `Application.answers` is returned whole by the detail endpoint, rendered on
+    the printable form, and used to pre-fill the enrolment verification sent to
+    the institution. A Social Insurance Number in there would be readable by
+    every staff role and by the registrar. It lives here instead: ciphertext
+    plus the last three digits, which is all any screen ever shows.
+    """
+
+    class Kind(models.TextChoices):
+        SIN = 'sin', 'Social Insurance Number'
+        # A guest applicant's bank details, held until the office attaches the
+        # application to an account and funding.services.banking promotes them.
+        # There is no user to hang a BankAccount on until then, and `answers`
+        # is the one place they must not sit.
+        BANK_ACCOUNT = 'bank_account', 'Bank account'
+
+    application = models.ForeignKey(
+        'Application', on_delete=models.CASCADE, related_name='identifiers',
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.SIN)
+    ciphertext = models.TextField()
+    # Enough to confirm with an applicant which number is on file. Never enough
+    # to file anything with it.
+    last_three = models.CharField(max_length=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'applicant_identifier'
+        constraints = [
+            models.UniqueConstraint(fields=('application', 'kind'),
+                                    name='one_identifier_per_kind_per_application'),
+        ]
+
+    def __str__(self):
+        return f'{self.get_kind_display()} •••••{self.last_three}'
+
+
 class ApplicationEvent(models.Model):
     """Every status transition, with who and why.
 
@@ -154,6 +193,11 @@ class ApplicationEvent(models.Model):
         APPROVED = 'approved', 'Approved'
         DECLINED = 'declined', 'Declined'
         SENT_TO_FINANCE = 'sent_to_finance', 'Sent to Finance'
+        # The office correcting a filed application on the applicant's behalf.
+        # Deliberately absent from RESULTING_STATUS: an amendment is not a step
+        # through review, and a correction must not move an application past the
+        # queue it is sitting in.
+        AMENDED = 'amended', 'Amended by the office'
 
     application = models.ForeignKey(
         Application, on_delete=models.CASCADE, related_name='events',
@@ -174,6 +218,39 @@ class ApplicationEvent(models.Model):
 
     def __str__(self):
         return f"{self.application_id}: {self.action}"
+
+
+class AwardQuerySet(models.QuerySet):
+    """Award lines, scoped to the decision that is actually in force.
+
+    A decision supersedes rather than overwrites, so an appeal can be argued
+    against the figures that were in force, and its award lines are kept for
+    the same reason. Which means every sum over awards has to say which
+    decision it means — and the ones that did not counted every pricing an
+    application had ever had.
+
+    A student approved once for $2,000 saw $4,000 the moment anybody re-priced
+    their application, the office's totals were inflated to match, and the
+    payment run offered both sets of rows: the money would have gone out twice.
+    `Application.awarded_total` was right throughout, which is why the two
+    figures on one screen disagreed.
+
+    `current()` is the default reading and the one to reach for. `paid` is the
+    exception it exists to make visible — see below.
+    """
+
+    def current(self):
+        """Lines belonging to the decision in force. What is owed."""
+        return self.filter(decision__is_current=True)
+
+    def paid(self):
+        """Money that has left the bank.
+
+        Deliberately not scoped to the current decision. A payment made under a
+        decision that has since been superseded still happened, and filtering it
+        out would report money as never sent.
+        """
+        return self.filter(status=Award.Status.PAID)
 
 
 class Award(models.Model):
@@ -197,6 +274,8 @@ class Award(models.Model):
         SENT_TO_FINANCE = 'sent_to_finance', 'Sent to Finance'
         PAID = 'paid', 'Paid'
         CANCELLED = 'cancelled', 'Cancelled'
+
+    objects = AwardQuerySet.as_manager()
 
     application = models.ForeignKey(
         Application, on_delete=models.CASCADE, related_name='awards',
@@ -323,8 +402,14 @@ class SupportingDocument(models.Model):
         Application, on_delete=models.CASCADE,
         related_name='documents', null=True, blank=True,
     )
+    # Null for a claim filed by someone with no account. The graduation award
+    # is claimable that way and requires proof of completion, so an upload that
+    # insisted on an owner made that form impossible to submit: the control
+    # rendered, the request was refused, and the required answer could never be
+    # satisfied.
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='documents',
+        null=True, blank=True,
     )
     # Matches the schema field key it satisfies (e.g. 'doc_transcripts').
     field_key = models.CharField(max_length=64, blank=True)
@@ -364,6 +449,14 @@ class EnrollmentVerification(models.Model):
     registrar_name = models.CharField(max_length=255, blank=True)
     responded_at = models.DateTimeField(null=True, blank=True)
 
+    # Everything the registrar answered, keyed by the enrollment_verification
+    # schema. Only the few keys that drive the award are copied onto the
+    # application; the rest — books, other fees, the official's title, their
+    # notes about a partial load — belong to the institution's declaration and
+    # are read from here. Putting them in the student's own answers would mean
+    # the application carried keys its own schema does not define.
+    answers = models.JSONField(default=dict, blank=True)
+
     requested_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
 
@@ -375,73 +468,12 @@ class EnrollmentVerification(models.Model):
         return f"Enrollment verification for application {self.application_id}"
 
 
-class ShareLink(models.Model):
-    """A time-limited, unauthenticated view of one application.
-
-    Was ShareableLink, which carried FKs to both Application and FormSubmission
-    because the two models overlapped.
-    """
-
-    application = models.ForeignKey(
-        Application, on_delete=models.CASCADE, related_name='share_links',
-    )
-    token = models.CharField(max_length=64, unique=True)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
-    revoked_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = 'share_link'
-        indexes = [models.Index(fields=('token',))]
-
-    @property
-    def is_valid(self):
-        return self.revoked_at is None and self.expires_at > timezone.now()
-
-    def __str__(self):
-        return f'Share link for application {self.application_id}'
-
-
-class ActionToken(models.Model):
-    """A single-use link that performs one decision from an email.
-
-    Unifies DirectorActionToken and FinanceConfirmToken, which were the same
-    pattern duplicated for two purposes.
-
-    Consumed exactly once: `used_at` is what stops a forwarded email from being
-    replayed to approve an application twice.
-    """
-
-    class Purpose(models.TextChoices):
-        APPROVE = 'approve', 'Approve application'
-        DECLINE = 'decline', 'Decline application'
-        CONFIRM_PAYMENT = 'confirm_payment', 'Confirm payment issued'
-
-    application = models.ForeignKey(
-        Application, on_delete=models.CASCADE, related_name='action_tokens',
-    )
-    purpose = models.CharField(max_length=24, choices=Purpose.choices)
-    token = models.CharField(max_length=64, unique=True)
-    issued_to = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='+',
-    )
-    issued_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField()
-    used_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        db_table = 'action_token'
-        indexes = [models.Index(fields=('token',))]
-
-    @property
-    def is_usable(self):
-        return self.used_at is None and self.expires_at > timezone.now()
-
-    def __str__(self):
-        return f'{self.get_purpose_display()} token for application {self.application_id}'
+# ShareLink and ActionToken were removed here. Both were carried over from the
+# old system — a time-limited public view of an application, and a single-use
+# link that approved one from an email — and neither was ever created, read or
+# referenced by anything in the rebuilt code. An unissued token table is dead
+# schema with a security-shaped name on it; if either is wanted, it should be
+# designed against the workflow that exists now rather than resurrected.
 
 
 class AuditEntry(models.Model):

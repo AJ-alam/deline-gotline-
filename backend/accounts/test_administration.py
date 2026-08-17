@@ -21,8 +21,7 @@ _counter = itertools.count(1)
 def make_user(role=Role.STUDENT, **kwargs):
     return User.objects.create_user(
         f'u{next(_counter)}@test.com', 'pw12345678',
-        first_name='Test', last_name=f'P{next(_counter)}', role=role, **kwargs,
-    )
+        first_name='Test', last_name=f'P{next(_counter)}', role=role, **kwargs,is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
 class LockoutGuardTests(TestCase):

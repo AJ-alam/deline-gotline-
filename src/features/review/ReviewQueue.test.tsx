@@ -35,6 +35,7 @@ function row(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
     submitted_at: '2026-09-01T00:00:00Z',
     submitted_after_deadline: false,
     residency_flag: '',
+    enrolment: { required: false, status: 'not_required', label: 'Not required' },
     ...overrides,
   };
 }

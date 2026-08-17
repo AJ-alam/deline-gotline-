@@ -18,7 +18,11 @@ from django.test import Client, TestCase, override_settings
 from rest_framework.test import APIClient
 
 from accounts.models import Role, User
-from funding.models import PolicySetting
+from accounts.test_eligibility import ELIGIBLE_BOTH
+from funding.models import Application, PolicySetting
+from funding.test_fixtures import (
+    admission_answers, confirm_enrolment, verification_answers,
+)
 
 _counter = itertools.count(1)
 
@@ -32,26 +36,17 @@ PRODUCTION_TRANSPORT = dict(
     CSRF_COOKIE_SECURE=True,
 )
 
+# Only the PSSSP rates, so the applicant below is deliberately PSSSP-only.
+# An applicant who qualifies for DGGR as well is priced against the DGGR rules
+# too — correctly, since the bursary tops up rather than replaces — and pricing
+# then refuses until those rates exist, naming them. That is its own subject;
+# this file is about the path an application takes.
 RATES = [
     ('psssp_tuition', 'max_per_semester', '7000'),
     ('psssp_living', 'fulltime_no_dependents', '1800'),
-    ('system_config', 'book_allowance', '500'),
 ]
 
-ADMISSION_ANSWERS = {
-    'first_name': 'Smoke', 'last_name': 'Student', 'date_of_birth': '2001-05-04',
-    'email': 'smoke@example.com', 'street_address': '1 Main St', 'city': 'Deline',
-    'province': 'NT', 'institution_name': 'Aurora College', 'program': 'Nursing',
-    'registrar_email': 'reg@aurora.ca', 'semester': 'Fall',
-    'semester_start': '2026-09-01', 'semester_end': '2026-12-31',
-    'course_load': 'Full-time', 'signature': 'Smoke Student',
-    'tuition_requested': '6000',
-    # Deliberately no confirmed_tuition: that is the registrar's figure, asked
-    # for on the enrollment verification, and the schema rejects it here. Tuition
-    # is therefore not awarded until verification arrives, which is the rule.
-    'doc_transcript': 'provided', 'doc_letter_of_intent': 'provided',
-    'doc_status_card': 'provided', 'doc_void_cheque': 'provided',
-}
+ADMISSION_ANSWERS = admission_answers()
 
 
 def seed():
@@ -63,10 +58,11 @@ def seed():
                  verbosity=0)
 
 
-def make_user(role=Role.STUDENT):
+def make_user(role=Role.STUDENT, deline_beneficiary=False):
     return User.objects.create_user(
         f'{role}{next(_counter)}@test.com', 'pw12345678',
-        first_name='Test', last_name='Person', role=role)
+        first_name='Test', last_name='Person', role=role,
+        is_deline_beneficiary=deline_beneficiary, is_indian_act_registered=True)
 
 
 @override_settings(**PRODUCTION_TRANSPORT)
@@ -108,11 +104,12 @@ class ApplicationLifecycleTests(TestCase):
             'confirm_password': 'pw12345678',
             'first_name': 'Smoke', 'last_name': 'Student',
             # Registration is gated on eligibility, enforced server-side.
-            'eligibility': {
-                'indian_act_registered': 'yes', 'deline_beneficiary': 'yes',
-                'receives_sfa': 'no', 'lives_in_nwt': 'yes',
-                'accredited_institution': 'yes', 'programme_twelve_weeks': 'yes',
-            }}, format='json')
+            # The answers come from the eligibility tests rather than being
+            # written out again: a question added there would otherwise leave
+            # this set incomplete, and the failure reads as a broken sign-up
+            # rather than as a stale fixture.
+            'eligibility': dict(ELIGIBLE_BOTH),
+        }, format='json')
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['email'], 'smoke.student@example.com')
 
@@ -136,6 +133,10 @@ class ApplicationLifecycleTests(TestCase):
         application_id = self.client.post('/api/applications/', {
             'type': 'admission', 'stream': 'psssp', 'answers': ADMISSION_ANSWERS},
             format='json').data['id']
+
+        # The registrar confirms before anything can be forwarded: tuition is
+        # funded against their figure, never the student's estimate.
+        confirm_enrolment(Application.objects.get(pk=application_id))
 
         self._as(worker)
         for step in ('reviewed', 'forwarded'):

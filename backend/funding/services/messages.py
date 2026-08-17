@@ -72,9 +72,13 @@ def send_enrolment_request(verification) -> None:
     Tuition is funded against the institution's figure, so until this arrives
     nothing can be awarded for it.
     """
+    from funding.services.verification import student_name
+
     application = verification.application
     answers = application.answers or {}
-    student = f"{answers.get('first_name', '')} {answers.get('last_name', '')}".strip()
+    # Resolved in one place: this used to read first_name/last_name directly and
+    # would have addressed a continuing-funding registrar's email to "A student".
+    student = student_name(application)
     url = _frontend(f'/enrolment/{verification.token}')
 
     body = (
@@ -123,7 +127,37 @@ def send_application_received(application) -> None:
     )
     _notify(student, 'Application received',
             f'Your {application.get_type_display().lower()} has been received.',
-            f'/applications/{application.pk}')
+            f'/applications/{application.pk}', Notification.Kind.RECEIVED)
+
+
+def send_guest_application_received(application) -> None:
+    """The only acknowledgement someone applying without an account gets.
+
+    Every other message here needs `application.student` and returns early
+    without one, so a guest submission would otherwise be met with silence: no
+    email, no portal notice, and no way to check. The address comes from the
+    answers, and the reference number is the only handle they have on it.
+    """
+    email = (application.answers or {}).get('email')
+    if not email:
+        return
+
+    body = (
+        f'<p>We have received your {escape(application.get_type_display().lower())}.</p>'
+        '<p>You applied without a portal account, so please keep this reference '
+        'number — it is how the Education Department will find your '
+        'application.</p>'
+        f'<p style="font-size:20px;font-weight:bold;letter-spacing:0.04em;">'
+        f'DGG-{application.pk:06d}</p>'
+        '<p>Staff will review it and contact you at this address. If you create '
+        'a portal account later, they can attach this application to it.</p>'
+    )
+    enqueue_on_commit(
+        email,
+        f'We received your {application.get_type_display().lower()} '
+        f'(DGG-{application.pk:06d})',
+        _wrap('Application received', body),
+    )
 
 
 def send_decision(application, approved: bool, reason: str = '') -> None:
@@ -149,8 +183,9 @@ def send_decision(application, approved: bool, reason: str = '') -> None:
 
     body += _button(_frontend(f'/applications/{application.pk}'), 'View your application')
     enqueue_on_commit(student.email, subject, _wrap(heading, body))
-    _notify(student, heading,
-            'Your application has been decided.', f'/applications/{application.pk}')
+    _notify(student, heading, 'Your application has been decided.',
+            f'/applications/{application.pk}',
+            Notification.Kind.APPROVED if approved else Notification.Kind.DECLINED)
 
 
 def send_information_requested(application, note: str = '') -> None:
@@ -168,19 +203,111 @@ def send_information_requested(application, note: str = '') -> None:
         student.email, 'More information needed for your application',
         _wrap('More information needed', body),
     )
-    _notify(student, 'More information needed', note or 'Please review your application.',
-            f'/applications/{application.pk}')
+    _notify(student, 'More information needed',
+            note or 'Please review your application.',
+            f'/applications/{application.pk}', Notification.Kind.ACTION_NEEDED)
+
+
+def send_application_amended(application, actor=None, note: str = '') -> None:
+    """The office changed something on a filed application.
+
+    Told to the applicant without being asked for, because it is their
+    application and somebody else has altered what it says. A correction the
+    applicant never hears about is indistinguishable from a record that was
+    never right — and it is the version they would be held to on appeal.
+    """
+    student = application.student
+    if not student:
+        return
+
+    who = getattr(actor, 'full_name', '') or 'The Education Department'
+    body = (
+        f'<p>{escape(who)} has updated your '
+        f'{escape(application.get_type_display())} application.</p>'
+        + (f'<p><strong>What changed:</strong> {escape(note)}</p>' if note else '')
+        + '<p>Please open it and check that everything is correct. Tell the '
+          'office if anything is wrong.</p>'
+        + _button(_frontend(f'/applications/{application.pk}'), 'Open your application')
+    )
+    enqueue_on_commit(
+        student.email, 'Your application has been updated by the office',
+        _wrap('Your application has been updated', body),
+    )
+    _notify(student, 'Your application was updated by the office',
+            note or f'{who} changed some of your answers. Please check them.',
+            f'/applications/{application.pk}', Notification.Kind.AMENDED)
+
+
+def tell_the_office(application, roles, title: str, message: str) -> None:
+    """A notice for the people whose turn it is.
+
+    Only in the portal, and no email: the office works from these screens all
+    day, and a mailbox filling with copies of what the queue already shows is a
+    mailbox that gets filtered. The applicant's messages still go by both,
+    because they are not sitting in the portal waiting.
+
+    Everything up to now told only the applicant. A reviewer had no way to know
+    a student had answered a request except by opening the queue and looking,
+    and a director had no way to know an application was waiting for them at
+    all.
+    """
+    from accounts.models import User
+
+    for person in User.objects.filter(role__in=roles, is_active=True):
+        _notify(person, title, message, f'/applications/{application.pk}',
+                Notification.Kind.ACTION_NEEDED)
+
+
+def send_awaiting_decision(application) -> None:
+    """A director has an application to decide."""
+    from accounts.models import Role
+
+    who = application.student.full_name if application.student else 'A claimant'
+    tell_the_office(
+        application, [Role.DIRECTOR, Role.ADMIN],
+        'An application is waiting for a decision',
+        f'{who}’s {application.get_type_display()} has been forwarded for a decision.')
+
+
+def send_information_provided(application) -> None:
+    """A student has answered what was asked."""
+    from accounts.models import Role
+
+    who = application.student.full_name if application.student else 'A claimant'
+    tell_the_office(
+        application, [Role.SUPPORT_WORKER, Role.ADMIN],
+        'A student has answered your request',
+        f'{who} has updated their {application.get_type_display()} and sent it back.')
+
+
+def send_decided_by_the_office(application, actor, approved: bool) -> None:
+    """An administrator decided without the director.
+
+    The office asked for this: an administrator may approve rather than forward.
+    The director is told after the fact, because a decision made without them is
+    still a decision they answer for.
+    """
+    from accounts.models import Role
+
+    who = application.student.full_name if application.student else 'A claimant'
+    tell_the_office(
+        application, [Role.DIRECTOR],
+        f'{"Approved" if approved else "Declined"} by {getattr(actor, "full_name", "the office")}',
+        f'{who}’s {application.get_type_display()} was '
+        f'{"approved" if approved else "declined"} without being forwarded.')
 
 
 # ── In-portal ───────────────────────────────────────────────────────────────
 
-def _notify(user, title: str, message: str, link: str = '') -> None:
+def _notify(user, title: str, message: str, link: str = '',
+            kind: str = Notification.Kind.GENERAL) -> None:
     """A notice inside the portal, alongside the email.
 
     Never raises: a person's application must not fail because a notice could
     not be written.
     """
     try:
-        Notification.objects.create(user=user, title=title, message=message, link=link)
+        Notification.objects.create(
+            user=user, kind=kind, title=title, message=message, link=link)
     except Exception:
         logger.exception('Could not record a notification for user %s', getattr(user, 'pk', '?'))

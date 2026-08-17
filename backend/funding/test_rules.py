@@ -18,46 +18,48 @@ from funding.models import (
 )
 from funding.rules import conditions
 from funding.rules.effects import EffectError, available_kinds, validate_effect
+from funding.management.commands import seed_demo, seed_rules
 from funding.rules.engine import price
+from funding.schemas import get_schema
+from funding.services import policy_admin
 from funding.services.policy import PolicyBook
 
 User = get_user_model()
 _counter = itertools.count(1)
 
-RATES = [
-    ('psssp_tuition', 'max_per_semester', '7000'),
-    ('psssp_living', 'fulltime_no_dependents', '1800'),
-    ('psssp_living', 'fulltime_with_dependents', '2400'),
-    ('psssp_living', 'parttime_no_dependents', '900'),
-    ('ucepp_tuition', 'max_per_semester', '5000'),
-    ('ucepp_living', 'fulltime_no_dependents', '1500'),
-    ('dggr_tuition', 'fulltime_per_semester', '3000'),
-    ('dggr_living', 'fulltime_no_dependents', '600'),
-    ('dggr_extra_tuition', 'threshold_per_semester', '10000'),
-    ('dggr_extra_tuition', 'max_percent_covered', '80'),
-    ('dggr_extra_tuition', 'max_per_semester', '15000'),
-    ('system_config', 'book_allowance', '500'),
-    ('graduation_bursary', 'certificate', '1000'),
-    ('graduation_bursary', 'bachelors_degree', '4000'),
-    ('academic_scholarship', 'high_achievement_award', '2000'),
-    ('academic_scholarship', 'mid_achievement_award', '1000'),
-    ('hardship_bursary', 'max_per_student', '3000'),
-]
+# The rates the office publishes, not a second copy of them. This file used to
+# carry its own list, so the two drifted: the tests went on asserting a $7,000
+# PSSSP cap and an $80 achievement threshold long after neither was what a
+# database would be seeded with, and every pricing assertion here was really an
+# assertion about a table nothing else read.
+#
+# `rate_of` is how a test names an expected amount, so an expectation is always
+# quoted against the figure actually in force.
+RATES = [(section, key, value) for section, key, value, _label in seed_demo.RATES]
+
+_BY_KEY = {(section, key): Decimal(value) for section, key, value in RATES}
+
+
+def rate_of(section: str, key: str) -> Decimal:
+    """The seeded value of one rate. Fails loudly if it is not seeded at all."""
+    try:
+        return _BY_KEY[(section, key)]
+    except KeyError:
+        raise AssertionError(f'no rate {section}:{key} is seeded')
 
 
 def seed_rates():
     for section, key, value in RATES:
         PolicySetting.objects.update_or_create(
             section=section, key=key,
-            defaults=dict(label=key, value=Decimal(value), unit='$'),
+            defaults=dict(label=key, value=Decimal(value), unit=policy_admin.unit_for(key)),
         )
 
 
 def make_application(**kwargs):
     student = User.objects.create_user(
         email=f'r{next(_counter)}@test.com', password='pw123456',
-        first_name='Test', last_name='Student', role='student',
-    )
+        first_name='Test', last_name='Student', role='student',is_deline_beneficiary=True, is_indian_act_registered=True)
     answers = {
         'course_load': 'full_time',
         'semester_start': '2026-09-01',
@@ -159,54 +161,176 @@ class BaselineRuleSetTests(TestCase):
     def _price(self, app):
         return price(app, self.rule_set, PolicyBook.for_application(app))
 
-    def test_tuition_capped_living_by_month_and_books(self):
+    def test_tuition_capped_and_living_paid_by_the_month(self):
+        """The default application: a $6,000 bill against the PSSSP cap.
+
+        There is no book allowance line to assert any more. The policy funds
+        mandatory books and supplies out of the same per-semester tuition cap as
+        the tuition itself, so a flat amount on top would be paying an award the
+        policy does not describe.
+        """
         decision = self._price(make_application())
         amounts = {o.code: o.amount for o in decision.applied}
-        self.assertEqual(amounts['psssp_tuition'], Decimal('6000'))
-        self.assertEqual(amounts['psssp_living'], Decimal('1800') * 4)
-        self.assertEqual(amounts['book_allowance'], Decimal('500'))
+
+        cap = rate_of('psssp_tuition', 'max_per_semester')
+        self.assertEqual(amounts['psssp_tuition'], min(Decimal('6000'), cap))
+        self.assertEqual(amounts['psssp_living'],
+                         rate_of('psssp_living', 'fulltime_no_dependents') * 4)
+        self.assertNotIn('book_allowance', amounts)
+
+    def test_a_capped_tuition_award_says_what_is_actually_left_owing(self):
+        """The sentence a decision is justified by, and an appeal argues against.
+
+        It used to report the amount *awarded* as the amount outstanding: a bill
+        over the cap told the director that the whole cap remained unfunded,
+        when only the overspill did. Nothing failed — the money was right and
+        only the explanation lied, which is why no test caught it.
+        """
+        cap = rate_of('psssp_tuition', 'max_per_semester')
+        app = make_application(answers={'confirmed_tuition': str(cap + Decimal('431.55'))})
+        outcome = next(o for o in self._price(app).applied if o.code == 'psssp_tuition')
+
+        self.assertEqual(outcome.amount, cap)
+        self.assertIn('431.55', outcome.explanation)
+        self.assertNotIn(f'${cap} of the bill left unfunded', outcome.explanation)
+
+    def test_a_fully_funded_bill_reports_nothing_left_owing(self):
+        cap = rate_of('psssp_tuition', 'max_per_semester')
+        app = make_application(answers={'confirmed_tuition': str(cap)})
+        outcome = next(o for o in self._price(app).applied if o.code == 'psssp_tuition')
+        self.assertEqual(outcome.amount, cap)
+        self.assertIn('$0.00 of the bill left unfunded', outcome.explanation)
 
     def test_streams_stack_without_funding_the_same_dollar(self):
-        app = make_application(answers={'confirmed_tuition': '9000',
+        """A bill bigger than any one stream's cap is split between them.
+
+        Expectations are computed from the rates rather than written out, so
+        this asserts the *allocation* — PSSSP first, DGGR topping up what it
+        left, and never twice on the same dollar — rather than restating three
+        figures that change whenever the office moves a rate.
+        """
+        psssp_cap = rate_of('psssp_tuition', 'max_per_semester')
+        dggr_cap = rate_of('dggr_tuition', 'fulltime_per_semester')
+        bill = psssp_cap + dggr_cap + Decimal('2500')
+
+        app = make_application(answers={'confirmed_tuition': str(bill),
                                         'funding_stream': 'dggr'})
         amounts = {o.code: o.amount for o in self._price(app).applied}
-        self.assertEqual(amounts['psssp_tuition'], Decimal('7000'))
-        self.assertEqual(amounts['dggr_tuition_top_up'], Decimal('2000'))
-        self.assertEqual(amounts['dggr_living'], Decimal('600') * 4)
+
+        self.assertEqual(amounts['psssp_tuition'], psssp_cap)
+        self.assertEqual(amounts['dggr_tuition_top_up'], dggr_cap)
+        self.assertEqual(amounts['dggr_living'],
+                         rate_of('dggr_living', 'fulltime_no_dependents') * 4)
+
+        tuition_paid = sum(
+            amount for code, amount in amounts.items()
+            if code in ('psssp_tuition', 'dggr_tuition_top_up',
+                        'dggr_extra_tuition_relief')
+        )
+        self.assertLessEqual(tuition_paid, bill)
 
     def test_sfa_recipients_receive_nothing_from_cdfn(self):
+        """C-DFN is PSSSP and UCEPP. DGGR is not C-DFN.
+
+        This asserted a total of zero, which was true only because the
+        application carried a single stream: the applicant is a beneficiary, so
+        the DGGR rules were written for them and were skipped anyway. The
+        office's rule is the one the sign-up screening states — SFA blocks the
+        federal programmes and does not touch the bursary — so what must be zero
+        is the C-DFN money, not the award.
+        """
         decision = self._price(make_application(answers={'receives_sfa': True}))
-        self.assertEqual(decision.total, Decimal('0.00'))
+        applied = {o.code: o.amount for o in decision.applied}
+
+        self.assertEqual(
+            [code for code in applied if code.startswith(('psssp', 'ucepp'))], [],
+            'somebody on SFA was funded from a federal programme')
+        self.assertGreater(decision.total, Decimal('0.00'),
+                           'a beneficiary on SFA still qualifies for DGGR')
+
+    def test_a_beneficiary_is_funded_from_every_stream_they_qualify_for(self):
+        """PSSSP pays the tuition and the living allowance; DGGR tops up.
+
+        Both rule sets are written for a student who is registered under the
+        Indian Act *and* an enrolled beneficiary — but the gate compared each
+        rule against `application.stream`, one value, so whichever stream the
+        column held was the only one that could pay. The other pot was closed to
+        somebody the office had already decided qualified for it.
+        """
+        decision = self._price(make_application(answers={'confirmed_tuition': '9000'}))
+        applied = {o.code: o.amount for o in decision.applied}
+
+        self.assertIn('psssp_tuition', applied)
+        self.assertTrue([code for code in applied if code.startswith('dggr')],
+                        f'nothing from DGGR: {sorted(applied)}')
+
+    def test_somebody_who_qualifies_for_one_stream_is_paid_from_one(self):
+        """The counterpart. Widening the gate must not hand a person money from
+        a pot they do not qualify for."""
+        application = make_application()
+        application.student.is_deline_beneficiary = False
+        application.student.save(update_fields=['is_deline_beneficiary'])
+
+        applied = {o.code for o in self._price(application).applied}
+
+        self.assertIn('psssp_tuition', applied)
+        self.assertEqual([code for code in applied if code.startswith('dggr')], [])
 
     def test_extra_relief_is_inclusive_and_bounded_by_the_bill(self):
-        app = make_application(answers={'confirmed_tuition': '20000',
+        """A bill far above every cap. The relief is what the percentage and the
+        cap allow, less the top-up already paid, and never more than is owed."""
+        percent = rate_of('dggr_extra_tuition', 'max_percent_covered')
+        relief_cap = rate_of('dggr_extra_tuition', 'max_per_semester')
+        top_up = rate_of('dggr_tuition', 'fulltime_per_semester')
+        bill = Decimal('20000')
+
+        app = make_application(answers={'confirmed_tuition': str(bill),
                                         'funding_stream': 'dggr'})
         decision = self._price(app)
         amounts = {o.code: o.amount for o in decision.applied}
-        self.assertEqual(amounts['dggr_extra_tuition_relief'], Decimal('10000'))
+
+        inclusive = min(bill * percent / Decimal(100), relief_cap)
+        self.assertEqual(amounts['dggr_extra_tuition_relief'], inclusive - top_up)
+
         tuition = sum(o.amount for o in decision.applied
                       if o.category == Award.Category.TUITION)
-        self.assertEqual(tuition, Decimal('20000'))     # exactly the bill, never more
+        self.assertLessEqual(tuition, bill)     # never more than the bill
+        self.assertEqual(
+            tuition,
+            rate_of('psssp_tuition', 'max_per_semester') + inclusive)
 
     def test_part_time_selects_a_different_living_rate(self):
         app = make_application(answers={'course_load': 'part_time'})
         amounts = {o.code: o.amount for o in self._price(app).applied}
-        self.assertEqual(amounts['psssp_living'], Decimal('900') * 4)
+        self.assertEqual(amounts['psssp_living'],
+                         rate_of('psssp_living', 'parttime_no_dependents') * 4)
+        # And it is genuinely a different rate, not the same one relabelled.
+        self.assertNotEqual(rate_of('psssp_living', 'parttime_no_dependents'),
+                            rate_of('psssp_living', 'fulltime_no_dependents'))
 
     def test_graduation_bursary_follows_the_credential(self):
-        app = make_application(type=ApplicationType.GRADUATION_BURSARY,
-                               stream=FundingStream.DGGR,
-                               answers={'credential': 'bachelors_degree'})
-        amounts = {o.code: o.amount for o in self._price(app).applied}
-        self.assertEqual(amounts['graduation_bursary'], Decimal('4000'))
+        for credential in ('bachelors_degree', 'red_seal', 'md_dds'):
+            with self.subTest(credential=credential):
+                app = make_application(type=ApplicationType.GRADUATION_BURSARY,
+                                       stream=FundingStream.DGGR,
+                                       answers={'credential': credential})
+                amounts = {o.code: o.amount for o in self._price(app).applied}
+                self.assertEqual(amounts['graduation_bursary'],
+                                 rate_of('graduation_bursary', credential))
 
     def test_scholarship_tiers_pick_the_best_band_reached(self):
-        for gpa, expected in (('85', '2000'), ('75', '1000')):
+        high = rate_of('academic_scholarship', 'high_threshold_percent')
+        mid = rate_of('academic_scholarship', 'mid_threshold_percent')
+        bands = (
+            (high + 5, rate_of('academic_scholarship', 'high_achievement_award')),
+            (mid + 5, rate_of('academic_scholarship', 'mid_achievement_award')),
+        )
+        for gpa, expected in bands:
             app = make_application(type=ApplicationType.ACADEMIC_SCHOLARSHIP,
                                    stream=FundingStream.DGGR,
-                                   answers={'gpa_achieved': gpa})
+                                   answers={'gpa_achieved': str(gpa)})
             amounts = {o.code: o.amount for o in self._price(app).applied}
-            self.assertEqual(amounts['academic_scholarship'], Decimal(expected), gpa)
+            self.assertEqual(amounts['academic_scholarship'], expected, gpa)
 
     def test_no_tier_reached_awards_nothing_rather_than_the_cheapest(self):
         app = make_application(type=ApplicationType.ACADEMIC_SCHOLARSHIP,
@@ -219,7 +343,8 @@ class BaselineRuleSetTests(TestCase):
                                stream=FundingStream.DGGR,
                                answers={'amount_requested': '5000'})
         amounts = {o.code: o.amount for o in self._price(app).applied}
-        self.assertEqual(amounts['hardship_bursary'], Decimal('3000'))
+        self.assertEqual(amounts['hardship_bursary'],
+                         rate_of('hardship_bursary', 'max_per_student'))
 
 
 class DecisionTraceTests(TestCase):
@@ -263,7 +388,7 @@ class DecisionTraceTests(TestCase):
             rule_set=self.rule_set, code='broken', description='Malformed',
             category=Award.Category.BURSARY, order=5,
             condition={'field': 'x', 'op': 'nonsense', 'value': 1},
-            effect={'kind': 'flat_rate', 'section': 'system_config', 'key': 'book_allowance'},
+            effect={'kind': 'flat_rate', 'section': 'practicum', 'key': 'allowance'},
         )
         app = make_application()
         decision = price(app, self.rule_set, PolicyBook.for_application(app))
@@ -368,28 +493,51 @@ class RequestCappedAwardTests(TestCase):
         call_command('seed_rules', '--publish', verbosity=0)
 
     def setUp(self):
+        # `seed_rates` is the office's whole list now, so the three that used to
+        # be added by hand here — with figures of their own, which is how the
+        # travel cap came to be tested against $1,200 while the policy says
+        # $2,000 — come from the same place as everything else.
         seed_rates()
-        for section, key, value in [
-            ('travel', 'max_graduation', '1200'),
-            ('practicum', 'max_allowance', '2500'),
-            ('emergency_relief', 'max_per_student', '1500'),
-        ]:
-            PolicySetting.objects.update_or_create(
-                section=section, key=key,
-                defaults=dict(label=key, value=Decimal(value), unit='$'),
-            )
         self.rule_set = RuleSet.objects.get(status=RuleSet.Status.PUBLISHED)
 
     def _price(self, app):
         return price(app, self.rule_set, PolicyBook.for_application(app))
 
     def test_travel_cap_varies_with_the_purpose_of_travel(self):
-        app = make_application(
-            type=ApplicationType.TRAVEL, stream=FundingStream.DGGR,
-            answers={'amount_requested': '2000', 'travel_purpose': 'graduation'},
-        )
-        amounts = {o.code: o.amount for o in self._price(app).applied}
-        self.assertEqual(amounts['travel_assistance'], Decimal('1200'))
+        for purpose in get_schema('travel').field('travel_purpose').choice_values:
+            with self.subTest(purpose=purpose):
+                cap = rate_of('travel', f'max_{purpose}_no_dependents')
+                app = make_application(
+                    type=ApplicationType.TRAVEL, stream=FundingStream.DGGR,
+                    answers={'amount_requested': str(cap + Decimal('1000')),
+                             'travel_purpose': purpose},
+                )
+                amounts = {o.code: o.amount for o in self._price(app).applied}
+                self.assertEqual(amounts['travel_assistance'], cap)
+
+    def test_travel_cap_is_higher_for_a_student_with_dependants(self):
+        """§7(C): $2,000 a trip without dependants, $3,500 with them.
+
+        Keyed on the purpose alone, both students were capped identically and
+        the policy's own distinction had nowhere to live. Asserted as an
+        inequality against the rates rather than against two figures, so it
+        still means something after the office moves either one.
+        """
+        alone = rate_of('travel', 'max_start_of_study_no_dependents')
+        supporting = rate_of('travel', 'max_start_of_study_with_dependents')
+        self.assertGreater(supporting, alone)
+
+        asked = str(supporting + Decimal('1000'))
+        for has_dependents, expected in ((False, alone), (True, supporting)):
+            with self.subTest(has_dependents=has_dependents):
+                app = make_application(
+                    type=ApplicationType.TRAVEL, stream=FundingStream.DGGR,
+                    answers={'amount_requested': asked,
+                             'travel_purpose': 'start_of_study',
+                             'has_dependents': has_dependents},
+                )
+                amounts = {o.code: o.amount for o in self._price(app).applied}
+                self.assertEqual(amounts['travel_assistance'], expected)
 
     def test_a_claim_below_the_cap_is_paid_in_full(self):
         app = make_application(
@@ -399,17 +547,209 @@ class RequestCappedAwardTests(TestCase):
         amounts = {o.code: o.amount for o in self._price(app).applied}
         self.assertEqual(amounts['travel_assistance'], Decimal('400'))
 
-    def test_practicum_and_emergency_relief_are_capped(self):
-        for app_type, code, requested, expected in (
-            (ApplicationType.PRACTICUM, 'practicum_allowance', '9000', '2500'),
-            (ApplicationType.EMERGENCY_RELIEF, 'emergency_relief', '9000', '1500'),
-        ):
-            app = make_application(type=app_type, stream=FundingStream.DGGR,
-                                   answers={'amount_requested': requested})
-            amounts = {o.code: o.amount for o in self._price(app).applied}
-            self.assertEqual(amounts[code], Decimal(expected), app_type)
+    def test_emergency_relief_is_capped(self):
+        app = make_application(type=ApplicationType.EMERGENCY_RELIEF,
+                               stream=FundingStream.DGGR,
+                               answers={'amount_requested': '9000'})
+        amounts = {o.code: o.amount for o in self._price(app).applied}
+        self.assertEqual(amounts['emergency_relief'],
+                         rate_of('emergency_relief', 'max_per_student'))
+
+    def test_the_practicum_award_is_the_published_rate_and_asks_for_nothing(self):
+        """The form collects the employer's report, never a figure.
+
+        Priced as a flat rate for that reason. While it was a `capped_request`
+        against an `amount_requested` the form had stopped collecting, it paid
+        zero on every claim and explained itself as 'No amount requested'.
+        """
+        app = make_application(
+            type=ApplicationType.PRACTICUM, stream=FundingStream.DGGR,
+            answers={'employer_name': 'Deline Health Centre',
+                     'performance_summary': 'No absences.'},
+        )
+        outcomes = {o.code: o for o in self._price(app).applied}
+        self.assertEqual(outcomes['practicum_allowance'].amount,
+                         rate_of('practicum', 'allowance'))
+
+    def test_an_inflated_request_cannot_raise_the_practicum_award(self):
+        """Nothing on the form asks for one, so a posted figure buys nothing."""
+        app = make_application(type=ApplicationType.PRACTICUM,
+                               stream=FundingStream.DGGR,
+                               answers={'amount_requested': '9000'})
+        amounts = {o.code: o.amount for o in self._price(app).applied}
+        self.assertEqual(amounts['practicum_allowance'],
+                         rate_of('practicum', 'allowance'))
 
     def test_an_appeal_is_awarded_nothing(self):
         app = make_application(type=ApplicationType.APPEAL, stream=FundingStream.DGGR,
                                answers={'appeal_reason': 'Circumstances changed'})
         self.assertEqual(self._price(app).total, Decimal('0.00'))
+
+
+class RateReferenceTests(SimpleTestCase):
+    """Every rate a rule reads must be a rate the office actually has.
+
+    A rule naming a rate nobody seeded prices at zero and reports the gap — the
+    engine is careful about it — but the gap is only ever discovered by pricing
+    a real application. `academic_scholarship` published two threshold rates
+    that no rule read, which is the same failure from the other end: policy and
+    rules agreeing only by habit.
+
+    So both directions are checked against `seed_demo`, which is what a fresh
+    database is filled from.
+    """
+
+    def rate_keys_used(self):
+        """Every (section, key) the baseline rules resolve, templates aside."""
+        used = set()
+        for spec in seed_rules.RULES:
+            effect = spec['effect']
+            for section, key in self._pairs(effect):
+                used.add((section, key))
+        return used
+
+    @staticmethod
+    def _pairs(effect):
+        section = effect.get('section')
+        for name in ('key', 'at_least_key', 'percent_key', 'threshold_key'):
+            value = effect.get(name)
+            if section and value:
+                yield section, value
+        for tier in effect.get('tiers', ()):
+            for name in ('key', 'at_least_key'):
+                if tier.get('section') and tier.get(name):
+                    yield tier['section'], tier[name]
+
+    def test_every_rate_a_rule_reads_is_seeded(self):
+        seeded = {(section, key) for section, key, _value, _label in seed_demo.RATES}
+        missing = {
+            (section, key) for section, key in self.rate_keys_used()
+            # A templated key is resolved from an answer at pricing time — see
+            # `max_{travel_purpose}` — so it is checked by its expansions below.
+            if '{' not in key and (section, key) not in seeded
+        }
+        self.assertEqual(missing, set(),
+                         f'rules read rates nothing seeds: {sorted(missing)}')
+
+    def test_every_templated_rate_key_has_a_rate_for_each_answer(self):
+        """`max_{travel_purpose}_{dependants}` is one key in the rule and six
+        rates in the office's list. A combination with no matching rate prices
+        at nothing — which reads as an unconfigured rate rather than as a claim
+        the policy does not fund."""
+        seeded = {(section, key) for section, key, _value, _label in seed_demo.RATES}
+        purposes = get_schema('travel').field('travel_purpose').choice_values
+        for purpose in purposes:
+            for dependants in ('no_dependents', 'with_dependents'):
+                with self.subTest(purpose=purpose, dependants=dependants):
+                    self.assertIn(('travel', f'max_{purpose}_{dependants}'), seeded)
+
+    def test_every_graduation_credential_has_a_rate(self):
+        """The credential *is* the amount: a value with no rate pays nothing."""
+        seeded = {(section, key) for section, key, _value, _label in seed_demo.RATES}
+        for credential in get_schema('graduation_bursary').field('credential').choice_values:
+            with self.subTest(credential=credential):
+                self.assertIn(('graduation_bursary', credential), seeded)
+
+    def test_the_templates_expand_to_rates_that_exist(self):
+        """The keys a rule builds at pricing time rather than naming outright.
+
+        `{load}_{dependants}` is one key in the rule and four rates in the
+        office's list; `{load}_per_semester` is two. An expansion with no rate
+        behind it prices at nothing.
+        """
+        seeded = {(section, key) for section, key, _value, _label in seed_demo.RATES}
+        loads = ('fulltime', 'parttime')
+        dependants = ('no_dependents', 'with_dependents')
+        for section in ('psssp_living', 'ucepp_living', 'dggr_living'):
+            for load in loads:
+                for who in dependants:
+                    with self.subTest(section=section, key=f'{load}_{who}'):
+                        self.assertIn((section, f'{load}_{who}'), seeded)
+        for load in loads:
+            with self.subTest(section='dggr_tuition', key=f'{load}_per_semester'):
+                self.assertIn(('dggr_tuition', f'{load}_per_semester'), seeded)
+
+
+class NoUnreadRateTests(TestCase):
+    """No rate is published to the office that nothing ever reads.
+
+    A rate on the policy screen that no rule consults is a control an
+    administrator can move to no effect — `residency_flag` with a currency
+    symbol in front of it. `academic_scholarship` shipped two of them.
+
+    Worked out by watching, not by parsing: every rate key `PolicyBook` resolves
+    while pricing a representative application of each type, across both course
+    loads, both dependant states and all three streams, is recorded. Reading the
+    rule definitions instead means re-implementing the template expansion, and a
+    second implementation of that is the thing being guarded against.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        call_command('seed_rules', '--publish', '--effective-from', '2020-01-01',
+                     verbosity=0)
+
+    def setUp(self):
+        seed_rates()
+        for section, key, value in (
+            ('academic_scholarship', 'high_threshold_percent', '80'),
+            ('academic_scholarship', 'mid_threshold_percent', '70'),
+        ):
+            PolicySetting.objects.update_or_create(
+                section=section, key=key,
+                defaults=dict(label=key, value=Decimal(value), unit=policy_admin.unit_for(key)))
+        self.rule_set = RuleSet.objects.get(status=RuleSet.Status.PUBLISHED)
+
+    def consulted(self) -> set:
+        """Every (section, key) pricing looks up across the whole matrix."""
+        seen = set()
+        original = PolicyBook.rate
+
+        def watched(book, section, key):
+            seen.add((section, key))
+            return original(book, section, key)
+
+        credentials = get_schema('graduation_bursary').field('credential').choice_values
+        purposes = get_schema('travel').field('travel_purpose').choice_values
+
+        cases = [
+            (ApplicationType.ADMISSION, {}),
+            (ApplicationType.CONTINUING_FUNDING, {}),
+            (ApplicationType.ACADEMIC_SCHOLARSHIP, {'gpa_achieved': '85'}),
+            (ApplicationType.ACADEMIC_SCHOLARSHIP, {'gpa_achieved': '75'}),
+            (ApplicationType.PRACTICUM, {}),
+            (ApplicationType.EMERGENCY_RELIEF, {'amount_requested': '9000'}),
+            (ApplicationType.HARDSHIP_BURSARY, {'amount_requested': '9000'}),
+            (ApplicationType.APPEAL, {}),
+        ]
+        cases += [(ApplicationType.GRADUATION_BURSARY, {'credential': credential})
+                  for credential in credentials]
+        cases += [(ApplicationType.TRAVEL,
+                   {'amount_requested': '5000', 'travel_purpose': purpose})
+                  for purpose in purposes]
+
+        PolicyBook.rate = watched
+        try:
+            for app_type, answers in cases:
+                for stream in FundingStream.values:
+                    for load in ('full_time', 'part_time'):
+                        for dependants in ('0', '2'):
+                            application = make_application(
+                                type=app_type, stream=stream,
+                                answers={'course_load': load,
+                                         'dependent_count': dependants,
+                                         'confirmed_tuition': '20000',
+                                         **answers})
+                            price(application, self.rule_set,
+                                  PolicyBook.for_application(application))
+        finally:
+            PolicyBook.rate = original
+        return seen
+
+    def test_every_seeded_rate_is_read_by_something(self):
+        seeded = {(section, key) for section, key, _value in RATES}
+        unread = seeded - self.consulted()
+        self.assertEqual(
+            unread, set(),
+            'these rates are offered to the office and nothing reads them, so '
+            f'changing them does nothing: {sorted(unread)}')

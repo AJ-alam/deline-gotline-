@@ -21,11 +21,13 @@ import { formatDate } from '../../components/ui/format';
 
 interface VerificationContext {
   student_name: string;
-  date_of_birth: string;
   institution_name: string;
   program: string;
-  semester: string;
   expires_at: string;
+  /** Why the student's date of birth and SIN are not on this form. */
+  note_to_registrar: string;
+  /** The form, already filled in from the student's application. */
+  prefill: Record<string, string | number | boolean>;
 }
 
 type Load =
@@ -152,12 +154,6 @@ export default function EnrollmentVerification() {
             <dt>Name</dt>
             <dd>{application.student_name}</dd>
           </div>
-          {application.date_of_birth && (
-            <div className="answers__row">
-              <dt>Date of birth</dt>
-              <dd>{application.date_of_birth}</dd>
-            </div>
-          )}
           <div className="answers__row">
             <dt>Institution</dt>
             <dd>{application.institution_name}</dd>
@@ -167,11 +163,20 @@ export default function EnrollmentVerification() {
             <dd>{application.program}</dd>
           </div>
         </dl>
+
+        {application.note_to_registrar && (
+          <p className="small muted" style={{ marginTop: 'var(--s-4)' }}>
+            {application.note_to_registrar}
+          </p>
+        )}
       </Card>
 
       <Card>
         <SchemaForm
           schema={schema}
+          // Filled in from the student's application: the institution is asked
+          // to check these against its own records, not to retype them.
+          initial={application.prefill}
           submitLabel="Confirm enrolment"
           busy={busy}
           errors={errors}

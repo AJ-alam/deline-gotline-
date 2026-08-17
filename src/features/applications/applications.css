@@ -1,0 +1,113 @@
+/* A student's applications, and what else they can apply for.
+   The .empty block is shared with the dashboard (features/dashboard). */
+
+/* The page header (.page-head) and filter chips (.filters, .chip) are shared
+   and live in styles/app.css: routes are lazy and carry their own CSS, so
+   another page using them must not depend on this file having been loaded. */
+
+/* ── One application ── */
+
+.app-list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); }
+
+.app-card {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+.app-card:hover {
+  border-color: var(--gold);
+  box-shadow: var(--shadow-2);
+  color: inherit;
+  transform: translateY(-1px);
+}
+
+.app-card__icon {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+.app-card:hover .app-card__icon { background: var(--gold-soft); color: var(--gold); }
+
+.app-card__body { flex: 1; min-width: 0; }
+.app-card__title { display: block; font-weight: 600; }
+.app-card:hover .app-card__title { text-decoration: underline; }
+.app-card__when { display: block; font-size: var(--text-sm); color: var(--text-3); }
+
+.app-card__side {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.app-card__amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.app-card__go { flex: none; color: var(--text-3); }
+.app-card:hover .app-card__go { color: var(--gold); }
+
+/* ── What else can be applied for ── */
+
+.apply-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s-4);
+}
+
+/* Each one says what it is for. Nine similar official names in a bare list is
+   not a choice most people can make. */
+.apply-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.apply-card:hover {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+  color: inherit;
+}
+.apply-card__title { font-weight: 650; }
+.apply-card__summary {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.apply-card__go {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--gold);
+}
+
+@media (max-width: 640px) {
+  .page-head__action { width: 100%; justify-content: center; }
+  .app-card { flex-wrap: wrap; }
+  .app-card__body { min-width: 60%; }
+  .app-card__side { width: 100%; justify-content: flex-start; }
+  .app-card__go { display: none; }
+}

@@ -22,6 +22,7 @@ from funding.models import (
 from funding.services import dashboard, verification, workflow
 from funding.services.decisions import record_decision
 from funding.test_rules import seed_rates
+from funding.test_fixtures import confirm_enrolment
 
 _counter = itertools.count(1)
 
@@ -29,8 +30,7 @@ _counter = itertools.count(1)
 def make_user(role=Role.STUDENT):
     return User.objects.create_user(
         f'd{next(_counter)}@test.com', 'pw12345678',
-        first_name='Test', last_name=f'P{next(_counter)}', role=role,
-    )
+        first_name='Test', last_name=f'P{next(_counter)}', role=role,is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
 def make_application(student=None, status=ApplicationStatus.SUBMITTED, **kwargs):
@@ -40,8 +40,16 @@ def make_application(student=None, status=ApplicationStatus.SUBMITTED, **kwargs)
         answers={'course_load': 'full_time', 'confirmed_tuition': '6000',
                  'semester_start': '2026-09-01', 'semester_end': '2026-12-31'},
     )
+    confirmed = kwargs.pop('enrolment_confirmed', True)
     defaults.update(kwargs)
-    return Application.objects.create(**defaults)
+    application = Application.objects.create(**defaults)
+    # An admission application cannot be forwarded or approved until the
+    # institution confirms; these tests are about what is sent, not about
+    # that gate, so they start past it.
+    if confirmed and application.type in (
+            ApplicationType.ADMISSION, ApplicationType.CONTINUING_FUNDING):
+        confirm_enrolment(application)
+    return application
 
 
 class StaffSummaryTests(TestCase):
@@ -84,7 +92,8 @@ class StaffSummaryTests(TestCase):
         self.assertEqual(queues['awaiting_decision'], 1)
 
     def test_outstanding_enrolment_confirmations_are_counted(self):
-        application = make_application()
+        # Not confirmed: the point of the queue is what is still outstanding.
+        application = make_application(enrolment_confirmed=False)
         verification.issue(application, 'registrar@aurora.ca')
         self.assertEqual(
             dashboard.summary(self.staff)['queues']['awaiting_enrolment_confirmation'], 1)
@@ -103,7 +112,7 @@ class StaffSummaryTests(TestCase):
         summary = dashboard.summary(self.staff)
         self.assertEqual(Decimal(summary['money']['awarded']), awarded)
         self.assertEqual(Decimal(summary['money']['awaiting_payment']), awarded)
-        self.assertEqual(Decimal(summary['money']['sent_to_finance']), Decimal('0.00'))
+        self.assertEqual(Decimal(summary['money']['paid']), Decimal('0.00'))
 
     def test_money_moves_once_a_batch_is_dispatched(self):
         from funding.services import finance
@@ -122,7 +131,7 @@ class StaffSummaryTests(TestCase):
 
         money = dashboard.summary(self.staff)['money']
         self.assertEqual(Decimal(money['awaiting_payment']), Decimal('0.00'))
-        self.assertGreater(Decimal(money['sent_to_finance']), Decimal('0.00'))
+        self.assertGreater(Decimal(money['paid']), Decimal('0.00'))
 
     def test_applications_needing_attention_are_surfaced(self):
         make_application(submitted_after_deadline=True)
@@ -153,6 +162,34 @@ class StudentSummaryTests(TestCase):
         summary = dashboard.summary(self.student)
         self.assertEqual(summary['scope'], 'student')
         self.assertEqual(summary['applications']['total'], 1)
+
+    def test_a_student_who_has_been_paid_is_told_so(self):
+        """The 'paid' figure was $0.00 on every account, always.
+
+        Nothing wrote Award.Status.PAID, so the tile beside a six-figure
+        awarded total read zero — for a student who had already had their money.
+        """
+        from funding.services import finance
+
+        BankAccount.objects.create(
+            user=self.student, account_holder=self.student.full_name,
+            transit_number='12345', institution_number='001',
+            account_number='9876543210')
+        application = make_application(student=self.student)
+        director = make_user(Role.DIRECTOR)
+        workflow.record(application, ApplicationEvent.Action.REVIEWED, director)
+        workflow.record(application, ApplicationEvent.Action.FORWARDED, director)
+        workflow.record(application, ApplicationEvent.Action.APPROVED, director)
+        record_decision(application)
+
+        self.assertEqual(
+            Decimal(dashboard.summary(self.student)['money']['paid']), Decimal('0.00'))
+
+        finance.dispatch(actor=make_user(Role.FINANCE))
+
+        money = dashboard.summary(self.student)['money']
+        self.assertGreater(Decimal(money['paid']), Decimal('0.00'))
+        self.assertEqual(Decimal(money['paid']), Decimal(money['awarded']))
 
     def test_money_counts_only_their_own_awards(self):
         mine = make_application(student=self.student)
@@ -233,3 +270,137 @@ class EndpointTests(TestCase):
 
     def test_anonymous_requests_are_rejected(self):
         self.assertEqual(self.client.get('/api/dashboard/').status_code, 401)
+
+
+class NextStepTests(TestCase):
+    """The one thing a student should do next.
+
+    Three totals and nothing else told someone with no applications nothing at
+    all — the opening screen read as a report on an empty file rather than a way
+    in. These pin what it says instead, in priority order: what the office is
+    waiting on from them beats everything, and an empty file is told where to
+    start.
+    """
+
+    def setUp(self):
+        self.student = make_user()
+
+    def step(self):
+        return dashboard.summary(self.student)['next_step']
+
+    def test_a_student_with_nothing_is_sent_to_the_admission_application(self):
+        self.assertEqual(self.step()['key'], 'apply_admission')
+        self.assertEqual(self.step()['href'], '/apply/admission')
+
+    def test_a_request_for_information_outranks_everything_else(self):
+        make_application(student=self.student,
+                         status=ApplicationStatus.INFO_REQUESTED)
+        self.assertEqual(self.step()['key'], 'provide_information')
+
+    def test_an_application_in_review_is_reported_as_such(self):
+        make_application(student=self.student, status=ApplicationStatus.UNDER_REVIEW)
+        self.assertEqual(self.step()['key'], 'in_review')
+
+    def test_an_outstanding_enrolment_request_is_named_as_the_hold_up(self):
+        """Tuition cannot be awarded until the registrar answers, and a student
+        with no way to see that is left wondering why nothing is happening."""
+        # Opts out of the builder's confirmation: this test is about what an
+        # application looks like while the institution has not answered.
+        application = make_application(student=self.student,
+                                       status=ApplicationStatus.UNDER_REVIEW,
+                                       enrolment_confirmed=False)
+        verification.issue(application, 'registrar@example.com')
+
+        step = self.step()
+        self.assertEqual(step['key'], 'awaiting_enrolment')
+        # Nothing for them to do: it must not read as an action they are failing
+        # to take.
+        self.assertEqual(step['action'], '')
+
+    def test_a_student_whose_work_is_done_is_pointed_at_further_funding(self):
+        make_application(student=self.student, status=ApplicationStatus.APPROVED)
+        self.assertEqual(self.step()['key'], 'apply_more')
+
+    def test_another_students_application_does_not_decide_this_students_step(self):
+        make_application(student=make_user(), status=ApplicationStatus.INFO_REQUESTED)
+        self.assertEqual(self.step()['key'], 'apply_admission')
+
+
+class StudentPayloadTests(TestCase):
+
+    def setUp(self):
+        self.student = make_user()
+
+    def test_recent_applications_are_newest_first_and_capped(self):
+        for _ in range(7):
+            make_application(student=self.student)
+
+        recent = dashboard.summary(self.student)['recent']
+
+        self.assertEqual(len(recent), 5)
+        submitted = [row['submitted_at'] for row in recent]
+        self.assertEqual(submitted, sorted(submitted, reverse=True))
+
+    def test_recent_holds_only_this_students_applications(self):
+        make_application(student=make_user())
+        self.assertEqual(dashboard.summary(self.student)['recent'], [])
+
+    def test_the_student_reference_is_carried_for_the_header(self):
+        self.student.beneficiary_number = 'B-2001'
+        self.student.save(update_fields=['beneficiary_number'])
+        self.assertEqual(
+            dashboard.summary(self.student)['student']['reference'], 'B-2001')
+
+    def test_no_deadlines_set_yields_an_empty_list_rather_than_invented_dates(self):
+        self.assertEqual(dashboard.summary(self.student)['deadlines'], [])
+
+
+class StudentDashboardCostTests(TestCase):
+    """The student screen gained a next step, recent activity and deadlines.
+
+    Each of those is a chance to reintroduce the behaviour this whole rewrite
+    removed: a dashboard whose cost grows with how much data exists. The screen
+    it replaces pulled every application with every answer and counted them in
+    the browser.
+    """
+
+    def setUp(self):
+        self.student = make_user()
+
+    def test_the_cost_does_not_grow_with_the_number_of_applications(self):
+        for _ in range(3):
+            make_application(student=self.student)
+        with CaptureQueriesContext(connection) as few:
+            dashboard.summary(self.student)
+
+        for _ in range(40):
+            make_application(student=self.student)
+        with CaptureQueriesContext(connection) as many:
+            dashboard.summary(self.student)
+
+        self.assertEqual(
+            len(many), len(few),
+            f'{len(few)} queries for 3 applications, {len(many)} for 43',
+        )
+
+    def test_the_whole_screen_is_a_handful_of_queries(self):
+        for _ in range(5):
+            make_application(student=self.student)
+        with CaptureQueriesContext(connection) as queries:
+            dashboard.summary(self.student)
+        self.assertLessEqual(len(queries), 9, [q['sql'] for q in queries])
+
+    def test_recent_activity_does_not_query_once_per_row(self):
+        """A serializer reaching for a related object per row is the N+1 this
+        replaced."""
+        for _ in range(5):
+            make_application(student=self.student)
+        with CaptureQueriesContext(connection) as five:
+            dashboard.summary(self.student)['recent']
+
+        for _ in range(5):
+            make_application(student=self.student)
+        with CaptureQueriesContext(connection) as ten:
+            dashboard.summary(self.student)['recent']
+
+        self.assertEqual(len(ten), len(five))

@@ -17,6 +17,7 @@ from django.db import transaction
 
 from funding.models import (
     Application, ApplicationEvent, ApplicationStatus, ApplicationType,
+    EnrollmentVerification,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,19 @@ RESULTING_STATUS = {
 ALLOWED_ACTIONS = {
     ApplicationStatus.DRAFT: {Action.SUBMITTED},
     ApplicationStatus.SUBMITTED: {Action.REVIEWED, Action.INFO_REQUESTED, Action.DECLINED},
+    # A reviewed application can be forwarded to the director, or decided here
+    # and now. §13 puts the final decision with the Director of Education, and
+    # an administrator holds that authority — `decides_applications` is what the
+    # endpoint checks, and a support worker is refused by it.
+    #
+    # Deciding used to require FORWARDED first, which is not a shortcut being
+    # closed but a lie being told: the forward notifies the director that an
+    # application is *waiting for them*, and the administrator then approved it
+    # a second later. The director read one notice asking them to act on
+    # something already decided, followed by another saying it had been. They
+    # are still told either way — see `_announce`.
     ApplicationStatus.UNDER_REVIEW: {
-        Action.INFO_REQUESTED, Action.FORWARDED, Action.DECLINED,
+        Action.INFO_REQUESTED, Action.FORWARDED, Action.APPROVED, Action.DECLINED,
     },
     ApplicationStatus.INFO_REQUESTED: {Action.INFO_PROVIDED, Action.DECLINED},
     ApplicationStatus.AWAITING_DECISION: {
@@ -52,6 +64,27 @@ ALLOWED_ACTIONS = {
     ApplicationStatus.DECLINED: set(),
     ApplicationStatus.SENT_TO_FINANCE: set(),
 }
+
+
+class EnrolmentNotConfirmed(Exception):
+    """The institution has not confirmed this enrolment yet.
+
+    Tuition is funded against the registrar's figure, never the student's
+    estimate. Approving before that figure exists means approving an amount
+    nobody has verified, so the application cannot leave review until the
+    enrolment verification comes back.
+    """
+
+    def __init__(self, application):
+        self.application = application
+        verification = getattr(application, 'enrollment_verification', None)
+        state = verification.status if verification else 'not requested'
+        super().__init__(
+            'The institution has not confirmed this enrolment yet '
+            f'(enrolment verification: {state}). Tuition is funded against the '
+            'registrar’s figure, so this application cannot be forwarded or '
+            'decided until the verification is returned.'
+        )
 
 
 class InvalidTransition(Exception):
@@ -84,8 +117,43 @@ def derive_status(events) -> str:
     return status
 
 
+# Types whose award depends on the institution confirming enrolment and the
+# tuition actually billed.
+NEEDS_ENROLMENT_CONFIRMATION = (
+    ApplicationType.ADMISSION,
+    ApplicationType.CONTINUING_FUNDING,
+)
+
+
 def can(application, action) -> bool:
     return action in ALLOWED_ACTIONS.get(application.status, set())
+
+
+# Actions that commit the office to an amount, and so cannot be taken before
+# the institution has confirmed what it is charging.
+NEEDS_CONFIRMED_ENROLMENT = {Action.FORWARDED, Action.APPROVED}
+
+
+def enrolment_is_confirmed(application, action) -> bool:
+    """Whether this action is allowed to proceed on the enrolment evidence.
+
+    Declining is deliberately not gated: an application that will never be
+    approved should not be held open waiting on a registrar who may never
+    answer. Nor are types that do not fund tuition — a graduation bursary has
+    no institution to ask.
+    """
+    if action not in NEEDS_CONFIRMED_ENROLMENT:
+        return True
+    if application.type not in NEEDS_ENROLMENT_CONFIRMATION:
+        return True
+
+    verification = EnrollmentVerification.objects.filter(
+        application=application).first()
+    return bool(
+        verification
+        and verification.status == EnrollmentVerification.Status.COMPLETED
+        and verification.confirmed_enrolled
+    )
 
 
 @transaction.atomic
@@ -102,6 +170,8 @@ def record(application, action, actor=None, note='') -> ApplicationEvent:
     locked = Application.objects.select_for_update().get(pk=application.pk)
     if not can(locked, action):
         raise InvalidTransition(locked, action)
+    if not enrolment_is_confirmed(locked, action):
+        raise EnrolmentNotConfirmed(locked)
 
     event = ApplicationEvent.objects.create(
         application=locked, action=action, actor=actor, note=note,
@@ -110,15 +180,26 @@ def record(application, action, actor=None, note='') -> ApplicationEvent:
     locked.status = RESULTING_STATUS[action]
     locked.save(update_fields=['status', 'updated_at'])
 
+    # Which term this is for, and whether it made the cut-off. Decided here
+    # because this is the one point every submission passes through, and decided
+    # now rather than on read so that editing a deadline later cannot make an
+    # application that was on time retroactively late.
+    if action == Action.SUBMITTED:
+        from funding.services import deadlines
+        deadlines.stamp(locked)
+
     # Keep the caller's instance consistent with what was written.
     application.status = locked.status
+    application.semester = locked.semester
+    application.academic_year = locked.academic_year
+    application.submitted_after_deadline = locked.submitted_after_deadline
 
-    _announce(locked, action, note)
+    _announce(locked, action, note, actor)
     return event
 
 
-def _announce(application, action, note: str) -> None:
-    """Tell the applicant what happened.
+def _announce(application, action, note: str, actor=None) -> None:
+    """Tell the applicant what happened — and the office whose turn it is.
 
     Queued on commit inside the same transaction as the event, so a message can
     never describe a transition that did not persist.
@@ -126,7 +207,12 @@ def _announce(application, action, note: str) -> None:
     from funding.services import messages
 
     if action == Action.SUBMITTED:
-        messages.send_application_received(application)
+        # An application with no account behind it still has someone waiting on
+        # it; the student messages all require `student` and would say nothing.
+        if application.student_id:
+            messages.send_application_received(application)
+        else:
+            messages.send_guest_application_received(application)
         _request_enrolment_confirmation(application)
     elif action == Action.INFO_REQUESTED:
         messages.send_information_requested(application, note)
@@ -134,14 +220,20 @@ def _announce(application, action, note: str) -> None:
         messages.send_decision(application, approved=True)
     elif action == Action.DECLINED:
         messages.send_decision(application, approved=False, reason=note)
+    elif action == Action.FORWARDED:
+        # Nothing told a director an application was waiting for them. The
+        # queue showed it; knowing to look at the queue was the whole problem.
+        messages.send_awaiting_decision(application)
+    elif action == Action.INFO_PROVIDED:
+        messages.send_information_provided(application)
 
-
-# Types whose award depends on the institution confirming enrolment and the
-# tuition actually billed.
-NEEDS_ENROLMENT_CONFIRMATION = (
-    ApplicationType.ADMISSION,
-    ApplicationType.CONTINUING_FUNDING,
-)
+    # An administrator may decide instead of forwarding. The director does not
+    # make that decision but still answers for it, so they are told.
+    from accounts.models import Role
+    if (action in (Action.APPROVED, Action.DECLINED)
+            and getattr(actor, 'role', None) == Role.ADMIN):
+        messages.send_decided_by_the_office(
+            application, actor, approved=action == Action.APPROVED)
 
 
 def _request_enrolment_confirmation(application) -> None:
@@ -155,7 +247,7 @@ def _request_enrolment_confirmation(application) -> None:
 
     if application.type not in NEEDS_ENROLMENT_CONFIRMATION:
         return
-    registrar_email = (application.answers or {}).get('registrar_email')
+    registrar_email = registrar_email_for(application)
     if not registrar_email:
         return
 
@@ -166,6 +258,69 @@ def _request_enrolment_confirmation(application) -> None:
             'Could not request enrolment confirmation for application %s: %s',
             application.pk, exc,
         )
+
+
+def registrar_email_for(application) -> str:
+    """Where to send the enrolment verification for this application.
+
+    Public because the preview endpoint has to answer the same question: a
+    student is shown what their registrar will receive *before* submitting, and
+    a preview addressed to nobody would be a preview of the wrong thing.
+
+    The continuing-funding renewal does not ask for a registrar's address: the
+    student gave one on the application that got them funded in the first place,
+    and retyping it every semester is how a typo reaches an institution. So it
+    falls back to the most recent earlier application by the same student that
+    carries one.
+
+    Without this the renewal would submit, promise the student that their
+    registrar had been contacted, and silently contact nobody — tuition is
+    funded against the registrar's figure, so nothing could ever be awarded
+    for it.
+    """
+    own = str((application.answers or {}).get('registrar_email') or '').strip()
+    if own:
+        return own
+    if not application.student_id:
+        return ''
+
+    earlier = (
+        Application.objects
+        .filter(student_id=application.student_id, submitted_at__isnull=False)
+        # An unsaved draft — which is what the preview endpoint builds — has no
+        # pk, and excluding pk=None would exclude nothing while looking as
+        # though it excluded something.
+        .exclude(pk=application.pk if application.pk else 0)
+        .order_by('-submitted_at', '-id')
+        .values_list('answers', flat=True)
+    )
+    for answers in earlier:
+        carried = str((answers or {}).get('registrar_email') or '').strip()
+        if carried:
+            return carried
+    return ''
+
+
+def record_amendment(application, actor, note: str = '') -> ApplicationEvent:
+    """The office correcting a filed application, on the applicant's behalf.
+
+    Separate from `record` because it is not a transition: an amendment leaves
+    the application exactly where it sits in the queue. Routing it through
+    `record` would need AMENDED in RESULTING_STATUS, and every status a
+    correction touched would be rewritten to whatever that mapping said — a
+    decided application quietly reopened by a typo fix.
+
+    It is still an event, so the history says who changed what and when, and the
+    applicant is told. An office that can rewrite an application silently is an
+    office nobody can appeal against.
+    """
+    event = ApplicationEvent.objects.create(
+        application=application, action=Action.AMENDED, actor=actor, note=note,
+    )
+
+    from funding.services import messages
+    messages.send_application_amended(application, actor=actor, note=note)
+    return event
 
 
 def status_is_consistent(application) -> bool:

@@ -18,7 +18,7 @@ import api, {
   type RuleSetSummary,
 } from '../../api/client';
 import { Alert, Badge, Button, Card, Field, Input } from '../../components/ui';
-import { formatDate, formatMoney } from '../../components/ui/format';
+import { formatDate, formatRate } from '../../components/ui/format';
 
 /** Sections are stored as machine keys; this is only how they read on screen. */
 function sectionTitle(section: string): string {
@@ -88,7 +88,8 @@ function RateRow({
             {history.length === 0 && <li>No changes recorded.</li>}
             {history.map((change, index) => (
               <li key={index}>
-                {formatMoney(change.previous_value)} → {formatMoney(change.new_value)},
+                {formatRate(change.previous_value, rate.unit)} →{' '}
+                {formatRate(change.new_value, rate.unit)},
                 effective {formatDate(change.effective_date)}
                 {change.changed_by ? ` · ${change.changed_by}` : ''}
               </li>
@@ -122,7 +123,7 @@ function RateRow({
             </Field>
           </div>
         ) : (
-          formatMoney(rate.value)
+          formatRate(rate.value, rate.unit)
         )}
       </td>
       <td>
@@ -203,7 +204,7 @@ export default function PolicyRates() {
   return (
     <main className="page stack stack--loose">
       <header className="stack stack--tight">
-        <h1>Funding rates</h1>
+        <h1>Policy rates</h1>
         <p className="muted">
           Every award is computed from these. A change is recorded with who made it
           and when it takes effect, and never alters a decision already made.

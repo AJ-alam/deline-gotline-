@@ -23,10 +23,10 @@ export const APPLICATION_TYPE_LABELS: Record<ApplicationType, string> = {
   continuing_funding: "Continuing Funding",
   appeal: "Appeal / Reconsideration",
   travel: "Travel & Emergency Assistance",
-  practicum: "Practicum Placement Allowance",
+  practicum: "Summer Student / Practicum Award",
   graduation_bursary: "Graduation Bursary",
   emergency_relief: "Emergency Relief",
-  hardship_bursary: "Hardship Bursary",
+  hardship_bursary: "Emergency Hardship Bursary (Last Resort)",
   academic_scholarship: "Academic Scholarship",
 };
 
@@ -41,8 +41,12 @@ export type FieldType =
   | 'percent'
   | 'choice'
   | 'boolean'
+  | 'confirm'
   | 'file'
-  | 'signature';
+  | 'files'
+  | 'table'
+  | 'signature'
+  | 'sin';
 
 /** One question, as the API describes it. */
 export interface SchemaField {
@@ -52,34 +56,50 @@ export interface SchemaField {
   required: boolean;
   help_text: string;
   section: string;
+  /** Worked out by the server from the other answers. Never rendered
+   *  as an input, and any value sent for one is discarded. */
+  computed: boolean;
+  /** Split off at submission and never returned, so a form opened on a
+   *  stored application has no value for it. Blank means unchanged —
+   *  required, it would hold Save disabled on every edit. */
+  private: boolean;
+  /** The most rows or files this accepts. 0 means no limit. */
+  max_items: number;
+  /** Opens on today's date — the day a declaration is being signed.
+   *  Filled by the client, so a guest submission gets it too, and it
+   *  stays editable like any other answer. */
+  defaults_to_today: boolean;
   choices: Array<{ value: string; label: string }>;
+  /** A table field's columns. Empty for every other type. */
+  columns: SchemaField[];
 }
 
 export interface ApplicationSchema {
   slug: ApplicationType;
   label: string;
+  /** One line saying what this application is for. */
+  summary: string;
+  /** False where only the portal itself may create one — the
+   *  enrolment verification is the registrar's form, reached from an
+   *  emailed link. Filter the "apply" list on this. */
+  apply_in_portal: boolean;
   sections: string[];
   fields: SchemaField[];
 }
 
 /** Answers for Academic Scholarship. */
 export interface AcademicScholarshipAnswers {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone?: string;
+  full_name: string;
   beneficiary_number?: string;
   institution_name: string;
-  program: string;
-  semester: 'fall' | 'winter' | 'spring' | 'summer';
-  academic_year?: string;
-  gpa_achieved: string;  // Determines which achievement band applies.
-  account_holder?: string;
-  transit_number?: string;
-  institution_number?: string;
-  account_number?: string;
+  semester: 'fall' | 'winter' | 'spring' | 'summer';  // The completed term these results are from.
+  academic_year: string;  // For example 2026-2027.
+  gpa_achieved: string;  // As a percentage — for example 85. This decides which achievement band applies.
+  transcripts_status: 'uploading_now' | 'already_on_file' | 'sent_by_institution';  // Attach a copy either way — the band is awarded against the transcript, not against the figure typed above.
+  doc_transcript: string;  // Must show your full name and the name of the institution.
+  declaration_confirmed: boolean;  // I confirm that the information provided is accurate. I understand that eligibility for the scholarship is subject to enrollment verification and meeting the DGG Education Policy requirements.
   signature: string;
-  doc_transcript: string;
+  signed_on: string;
 }
 
 /** Answers for Admission Application. */
@@ -88,191 +108,236 @@ export interface AdmissionAnswers {
   last_name: string;
   preferred_name?: string;
   date_of_birth: string;
+  gender?: 'female' | 'male' | 'other' | 'prefer_not_to_say';
   email: string;
-  phone?: string;
+  phone: string;
+  sin: string;  // Required for federal reporting. Stored encrypted, never shown in full again, and never sent to your institution.
   beneficiary_number?: string;
-  street_address: string;
+  street_address: string;  // Street address or PO box.
   city: string;
   province: string;
-  postal_code?: string;
-  institution_name: string;
+  postal_code: string;
+  current_address?: string;  // Your in-school address. Leave blank if the same as above.
+  institution_name: string;  // Full name of the college, university or trade school.
   institution_location?: string;
-  program: string;
-  program_start?: string;
-  program_end?: string;
-  registrar_email: string;  // Enrollment is confirmed with the institution before tuition is awarded.
+  program: string;  // For example "Nursing Degree" or "Carpentry Level 1".
+  credential_level?: 'certificate' | 'diploma' | 'degree' | 'masters' | 'doctorate' | 'other';
+  learning_style?: 'in_person' | 'online_hybrid';
+  student_number?: string;  // If your institution has assigned you one.
+  program_start: string;
+  program_end: string;
+  program_year?: number;  // Which year you are entering.
+  program_length_years?: number;
+  registrar_email: string;  // The enrolment verification is generated from this application and emailed here for your institution to confirm.
+  institution_phone?: string;
   semester: 'fall' | 'winter' | 'spring' | 'summer';
   semester_start: string;
   semester_end: string;
   course_load: 'full_time' | 'part_time';  // Full-time and part-time draw different living allowance rates.
-  tuition_requested?: string;
+  tuition_requested: string;  // As quoted by your institution. The final figure is the one your registrar confirms.
   has_dependents?: boolean;
   dependent_count?: number;
   receives_sfa?: boolean;  // SFA recipients are not eligible for C-DFN tuition or living allowance.
-  account_holder?: string;
-  transit_number?: string;
-  institution_number?: string;
-  account_number?: string;
-  signature: string;
-  doc_transcript: string;
-  doc_letter_of_intent: string;
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
+  doc_transcript: string;  // Recent high school or post-secondary.
+  doc_letter_of_intent: string;  // Explanation of your program goals.
+  doc_reference_letter?: string;  // From a non-family reference.
   doc_status_card: string;
   doc_void_cheque: string;
-  doc_reference_letter?: string;
+  doc_extra?: string;  // Acceptance letter, tuition invoice, and so on.
+  signature: string;  // Type your full legal name. You declare that everything given here is true, and authorise DGG to contact your institution to verify your enrolment.
 }
 
 /** Answers for Appeal / Reconsideration. */
 export interface AppealAnswers {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone?: string;
-  beneficiary_number?: string;
-  original_decision: string;  // Which decision, and roughly when it was received.
-  appeal_reason: string;
-  additional_information?: string;
+  full_name: string;
+  student_number: string;  // Your number at the institution, not your beneficiary number.
+  institution_name: string;
+  semester: 'fall' | 'winter' | 'spring' | 'summer';
+  academic_year: string;  // For example 2026-2027.
+  appeal_reason: string;  // Explain why you believe the original decision was incorrect and what outcome you are requesting.
+  policy_reference?: string;  // Optional. The section of the DGG Education Policy you are relying on, if you know it.
+  doc_supporting?: string[];  // Transcripts, letters, medical notes — attach as many as you need. PDF or photo.
+  declaration_confirmed: boolean;  // I confirm that the information provided is accurate and complete. I understand that appeal decisions are discretionary and subject to the DGG Education Policy.
   signature: string;
-  doc_supporting?: string;
+  signed_on: string;
 }
 
 /** Answers for Continuing Funding. */
 export interface ContinuingFundingAnswers {
-  first_name: string;
-  last_name: string;
+  full_name: string;
+  beneficiary_number: string;  // Your DGG citizenship ID
   email: string;
-  phone?: string;
-  beneficiary_number?: string;
-  date_of_birth?: string;
   institution_name: string;
   program: string;
-  current_gpa?: string;
-  registrar_email?: string;
-  semester: 'fall' | 'winter' | 'spring' | 'summer';
-  semester_start: string;
-  semester_end: string;
   course_load: 'full_time' | 'part_time';
-  tuition_requested?: string;
-  has_dependents?: boolean;
-  dependent_count?: number;
-  receives_sfa?: boolean;
-  account_holder?: string;
-  transit_number?: string;
-  institution_number?: string;
-  account_number?: string;
-  signature: string;
+  dependent_count: number;
+  semester: 'fall' | 'winter' | 'spring' | 'summer';  // Which term this renewal is for.
+  receives_sfa: boolean;  // This decides which funding stream pays your award, so it is asked every semester.
   doc_transcript: string;
-  doc_status_card?: string;
+  doc_enrollment_confirmation: string;
+  declaration_confirmed: boolean;  // I declare that all information given on this application is true and complete.
+  signature: string;
 }
 
 /** Answers for Emergency Relief. */
 export interface EmergencyReliefAnswers {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone?: string;
+  full_name: string;
+  email: string;  // Where the decision on this request is sent.
+  phone: string;  // A number you can be reached on today.
   beneficiary_number?: string;
   emergency_type: 'medical' | 'bereavement' | 'housing' | 'travel' | 'other';
-  emergency_description: string;
-  amount_requested: string;
+  emergency_description: string;  // What has happened, and how it is affecting your studies.
+  amount_requested: string;  // What you need. It is paid up to the published maximum.
+  doc_supporting?: string[];  // A note, a letter, a receipt — attach as many as you have. Not required, and never a reason to delay asking.
   account_holder?: string;
-  transit_number?: string;
-  institution_number?: string;
-  account_number?: string;
+  transit_number?: string;  // Five digits.
+  institution_number?: string;  // Three digits.
+  account_number?: string;  // Seven to twelve digits.
+  declaration_confirmed: boolean;  // I declare that the information given here is true and complete, and that the amount requested is for the emergency described.
   signature: string;
-  doc_supporting?: string;
+  signed_on: string;
 }
 
 /** Answers for Enrollment Verification. */
 export interface EnrollmentVerificationAnswers {
   student_name: string;
   student_number?: string;
+  student_phone?: string;
+  student_email?: string;
   institution_name: string;
   program: string;
   is_enrolled: boolean;
   course_load: 'full_time' | 'part_time';
+  credential_level?: 'certificate' | 'diploma' | 'degree' | 'masters' | 'doctorate' | 'other';
+  semester?: 'fall' | 'winter' | 'spring' | 'summer';
+  program_year?: number;  // Year ___ of a ___ year program.
+  program_length_years?: number;
   semester_start: string;
   semester_end: string;
   confirmed_tuition: string;  // Tuition is funded against this amount, not the estimate given by the student.
+  books_amount?: string;
+  other_fees_amount?: string;
+  other_fees_explanation?: string;  // Required if any other fees are entered.
+  institution_email?: string;
+  institution_phone?: string;
   registrar_name: string;
-  registrar_title?: string;
+  registrar_title: string;
   signature: string;
+  completed_on: string;
+  registrar_notes?: string;  // Discrepancies, inaccuracies, partial loads, anything the office should know.
 }
 
 /** Answers for Graduation Bursary. */
 export interface GraduationBursaryAnswers {
-  first_name: string;
-  last_name: string;
-  email: string;
+  full_name: string;
+  date_of_birth: string;
+  treaty_number: string;
+  sin?: string;  // Optional. Stored encrypted and never shown in full.
+  phone: string;
+  email: string;  // Where your reference number and the decision are sent.
   beneficiary_number?: string;
+  city: string;
+  province: string;
+  postal_code: string;
   institution_name: string;
   program: string;
-  credential: 'high_school_diploma' | 'certificate' | 'trades_certificate' | 'trades_journeyperson' | 'diploma' | 'pilot_licence' | 'bachelors_degree' | 'masters_degree' | 'doctorate';  // Determines the bursary amount.
   graduation_date: string;
+  credential: 'high_school_diploma' | 'certificate' | 'trades_certificate' | 'trades_journeyperson' | 'diploma' | 'pilot_licence' | 'red_seal' | 'bachelors_degree' | 'masters_degree' | 'doctorate' | 'juris_doctor' | 'md_dds';  // This decides the amount awarded.
+  doc_proof_of_completion: string;  // A parchment, a transcript, or a letter from the institution. PDF or photo.
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
+  release_to_other?: boolean;  // Tick only if the award should be paid to someone other than you. The office will contact you to arrange it.
+  release_recipient?: string;  // Their full name, and how they are connected to you.
+  declaration_confirmed: boolean;  // I declare that the information provided is true and complete. I understand that any false information will result in the suspension of my graduation award.
   signature: string;
-  doc_proof_of_completion: string;
+  signed_on: string;
 }
 
-/** Answers for Hardship Bursary. */
+/** Answers for Emergency Hardship Bursary (Last Resort). */
 export interface HardshipBursaryAnswers {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone?: string;
-  beneficiary_number?: string;
-  hardship_reason: string;
-  supporting_details?: string;
-  amount_requested: string;
-  account_holder?: string;
-  transit_number?: string;
-  institution_number?: string;
-  account_number?: string;
-  signature: string;
-  doc_supporting?: string;
-}
-
-/** Answers for Practicum Placement Allowance. */
-export interface PracticumAnswers {
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone?: string;
+  full_name: string;
   beneficiary_number?: string;
   institution_name: string;
-  program: string;
-  placement_location: string;
+  active_and_compliant: boolean;
+  hardship_reason: string;  // What happened, when, and the immediate impact.
+  other_supports_attempted: string;  // For example food banks, family support, campus emergency funds. How have you tried to resolve this already?
+  fund_breakdown: Array<{ purpose: string; amount: string }>;  // One line per thing the money is for.
+  amount_requested?: string;  // The breakdown added up. Paid up to the published maximum, which the office sets.
+  declaration_confirmed: boolean;  // I confirm that the information provided is accurate and complete. I understand that hardship support is discretionary and considered a last resort.
+  signature: string;
+  signed_on: string;
+}
+
+/** Answers for Summer Student / Practicum Award. */
+export interface PracticumAnswers {
+  employer_name: string;
+  supervisor_title: string;  // e.g. Director of Operations.
+  full_name: string;
+  email: string;  // Where the decision on this claim is sent.
   placement_start: string;
   placement_end: string;
-  weeks_completed?: number;
-  supervisor_name?: string;
-  supervisor_email?: string;
-  amount_requested?: string;
+  roles_and_responsibilities: string;  // The key tasks the student was responsible for.
+  performance_summary: string;  // The student's performance, attendance and contributions.
   account_holder?: string;
-  transit_number?: string;
-  institution_number?: string;
-  account_number?: string;
-  signature: string;
-  doc_placement_letter: string;
+  transit_number?: string;  // Five digits.
+  institution_number?: string;  // Three digits.
+  account_number?: string;  // Seven to twelve digits.
+  employer_declaration: boolean;  // The employer confirms that the information provided is accurate and complete. Award is contingent on regular attendance and satisfactory performance.
+  supervisor_signature: string;  // The supervisor's full legal name.
+  report_completed_on: string;
 }
 
 /** Answers for Travel & Emergency Assistance. */
 export interface TravelAnswers {
   first_name: string;
   last_name: string;
+  date_of_birth: string;
+  treaty_number: string;  // Your registration number under the treaty.
+  beneficiary_number?: string;
   email: string;
   phone?: string;
-  beneficiary_number?: string;
-  travel_purpose: 'start_of_study' | 'end_of_study' | 'graduation' | 'compassionate';
-  travel_date: string;
-  travel_from: string;
-  travel_to: string;
-  amount_requested: string;
+  travel_purpose: 'start_of_study' | 'end_of_study' | 'graduation';  // This decides the maximum that can be reimbursed.
+  travel_from: string;  // Town or city, and territory or province.
+  travel_to: string;  // Town or city, and territory or province.
+  departure_date: string;
+  return_date?: string;
+  travel_mode: 'air' | 'land' | 'air_and_land';
+  total_km?: number;  // Only if any part of the journey was by road.
+  expenses: Array<{ description: string; amount: string; receipt_attached?: boolean }>;  // One line per expense. Every line needs a receipt.
+  amount_requested?: string;  // The expense lines added up.
+  doc_receipts: string[];  // Attach every receipt — select them all at once, or add them one at a time. PDF or photo.
   account_holder?: string;
-  transit_number?: string;
-  institution_number?: string;
-  account_number?: string;
+  transit_number?: string;  // Five digits.
+  institution_number?: string;  // Three digits.
+  account_number?: string;  // Seven to twelve digits.
+  declaration_confirmed: boolean;  // I declare that the expenses incurred have been used for the purpose of traveling to and from my post-secondary institution. Any false information will result in the denial of reimbursement.
   signature: string;
-  doc_receipts: string;  // Travel is reimbursed against receipts.
 }
+
+/** The sections each form declares, in order.
+ *
+ * Emitted so the client can be checked against them. Steps are built
+ * by naming sections (see features/applications/Apply.tsx), and a
+ * section a step does not name is not rendered at all — the questions
+ * simply vanish from the form while everything still passes. */
+export const APPLICATION_SECTIONS: Record<ApplicationType, string[]> = {
+  academic_scholarship: ["Program information", "Achievements", "Declaration"],
+  admission: ["Applicant", "Address", "Study", "Registrar", "Funding", "Payment", "Documents", "Declaration"],
+  appeal: ["Student and academic context", "Reason for appeal", "Supporting evidence", "Declaration"],
+  continuing_funding: ["Review your information", "Upload required documents", "Declaration"],
+  emergency_relief: ["Your details", "The emergency", "Supporting documents", "Payment", "Declaration"],
+  enrollment_verification: ["Student", "Enrollment", "Costs", "Institution", "Declaration"],
+  graduation_bursary: ["Student information", "Current mailing address", "Graduation details", "Documents", "Payment", "Release of funds", "Declaration"],
+  hardship_bursary: ["Student information", "The emergency", "Fund breakdown", "Declaration"],
+  practicum: ["Employer information", "Student information", "Performance and roles", "Payment", "Declaration"],
+  travel: ["Student", "Travel", "Expenses", "Receipts", "Payment", "Declaration"],
+};
 
 /** Answer shape for a given application type. */
 export interface AnswersByType {

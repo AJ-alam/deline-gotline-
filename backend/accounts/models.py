@@ -101,6 +101,28 @@ class User(AbstractBaseUser, PermissionsMixin):
     treaty_number = models.CharField(max_length=64, blank=True)
     is_deline_beneficiary = models.BooleanField(null=True, blank=True)
     is_indian_act_registered = models.BooleanField(null=True, blank=True)
+    # Deliberately no receives_sfa column. SFA status changes every term, so it
+    # belongs to an application rather than to a person; the forms whose award
+    # depends on it ask it directly. See funding.services.streams.
+
+    # What the sign-up screening decided, kept rather than recomputed.
+    #
+    # Two of the screening answers cannot be reconstructed from the columns
+    # above — whether the programme is an upgrading programme, which is the only
+    # thing separating PSSSP from UCEPP, and whether the person is already
+    # funded by another organisation or another land claim agreement. Deriving
+    # the streams from `is_indian_act_registered` and `is_deline_beneficiary`
+    # alone therefore could not produce UCEPP at all and could not honour either
+    # exclusion, which is why UCEPP had rates, rules and no route in.
+    eligible_streams = models.JSONField(
+        default=list, blank=True,
+        help_text="FundingStream values this person qualified for at sign-up.",
+    )
+    eligibility_answers = models.JSONField(
+        default=dict, blank=True,
+        help_text='The screening answers the streams above were decided from.',
+    )
+    eligibility_assessed_at = models.DateTimeField(null=True, blank=True)
 
     # ── Access ──
     role = models.CharField(max_length=16, choices=Role.choices, default=Role.STUDENT)

@@ -19,6 +19,7 @@ from funding.services.decisions import (
     preview, record_decision,
 )
 from funding.test_rules import RATES, seed_rates
+from funding.test_fixtures import confirm_enrolment
 
 User = get_user_model()
 _counter = itertools.count(1)
@@ -27,8 +28,7 @@ _counter = itertools.count(1)
 def make_application(**kwargs):
     student = User.objects.create_user(
         email=f'd{next(_counter)}@test.com', password='pw123456',
-        first_name='Test', last_name='Student', role='student',
-    )
+        first_name='Test', last_name='Student', role='student',is_deline_beneficiary=True, is_indian_act_registered=True)
     answers = {
         'course_load': 'full_time',
         'semester_start': '2026-09-01',

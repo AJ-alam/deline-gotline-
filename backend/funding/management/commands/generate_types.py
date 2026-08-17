@@ -15,6 +15,7 @@ build fails, at the moment the rename happens.
 import difflib
 from pathlib import Path
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from funding.models import ApplicationType
@@ -36,6 +37,13 @@ TS_TYPE = {
     FieldType.PERCENT: 'string',
     FieldType.INTEGER: 'number',
     FieldType.BOOLEAN: 'boolean',
+    # Only ever true — the server refuses an unconfirmed declaration — but it
+    # travels as a boolean like any other tick.
+    FieldType.CONFIRM: 'boolean',
+    # Sent as a string, never returned: the server keeps it out of answers.
+    FieldType.SIN: 'string',
+    # The document references, one per attached file.
+    FieldType.FILES: 'string[]',
 }
 
 
@@ -46,6 +54,14 @@ def pascal(slug: str) -> str:
 def field_type(field) -> str:
     if field.type is FieldType.CHOICE:
         return ' | '.join(f"'{value}'" for value in field.choice_values)
+    # A table's rows are typed from its own columns, so a column renamed in the
+    # schema breaks the frontend build exactly as a field does.
+    if field.type is FieldType.TABLE:
+        cells = '; '.join(
+            f'{column.key}{"" if column.required else "?"}: {field_type(column)}'
+            for column in field.columns
+        )
+        return f'Array<{{ {cells} }}>'
     return TS_TYPE[field.type]
 
 
@@ -89,12 +105,33 @@ def render() -> str:
         '  required: boolean;',
         '  help_text: string;',
         '  section: string;',
+        '  /** Worked out by the server from the other answers. Never rendered',
+        '   *  as an input, and any value sent for one is discarded. */',
+        '  computed: boolean;',
+        '  /** Split off at submission and never returned, so a form opened on a',
+        '   *  stored application has no value for it. Blank means unchanged —',
+        '   *  required, it would hold Save disabled on every edit. */',
+        '  private: boolean;',
+        '  /** The most rows or files this accepts. 0 means no limit. */',
+        '  max_items: number;',
+        "  /** Opens on today's date — the day a declaration is being signed.",
+        '   *  Filled by the client, so a guest submission gets it too, and it',
+        '   *  stays editable like any other answer. */',
+        '  defaults_to_today: boolean;',
         '  choices: Array<{ value: string; label: string }>;',
+        "  /** A table field's columns. Empty for every other type. */",
+        '  columns: SchemaField[];',
         '}',
         '',
         'export interface ApplicationSchema {',
         '  slug: ApplicationType;',
         '  label: string;',
+        '  /** One line saying what this application is for. */',
+        '  summary: string;',
+        '  /** False where only the portal itself may create one — the',
+        '   *  enrolment verification is the registrar\'s form, reached from an',
+        '   *  emailed link. Filter the "apply" list on this. */',
+        '  apply_in_portal: boolean;',
         '  sections: string[];',
         '  fields: SchemaField[];',
         '}',
@@ -112,6 +149,20 @@ def render() -> str:
             comment = f'  // {field.help_text}' if field.help_text else ''
             lines.append(f'  {field.key}{optional}: {field_type(field)};{comment}')
         lines += ['}', '']
+
+    lines += [
+        '/** The sections each form declares, in order.',
+        ' *',
+        ' * Emitted so the client can be checked against them. Steps are built',
+        ' * by naming sections (see features/applications/Apply.tsx), and a',
+        ' * section a step does not name is not rendered at all — the questions',
+        ' * simply vanish from the form while everything still passes. */',
+        'export const APPLICATION_SECTIONS: Record<ApplicationType, string[]> = {',
+    ]
+    for schema in all_schemas():
+        sections = ', '.join(f'{name!r}' for name in schema.sections).replace("'", '"')
+        lines.append(f'  {schema.slug}: [{sections}],')
+    lines += ['};', '']
 
     lines += ['/** Answer shape for a given application type. */',
               'export interface AnswersByType {']
@@ -136,8 +187,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        # The command runs from backend/; the frontend lives one level up.
-        target = (Path.cwd().parent / OUTPUT).resolve()
+        # Anchored to the project, not to the working directory. Resolving
+        # against cwd meant running this from the repository root wrote the
+        # file to the repository's *parent* and reported success, so the
+        # committed types silently never changed.
+        target = (Path(settings.BASE_DIR).parent / OUTPUT).resolve()
         generated = render()
 
         if options['check']:

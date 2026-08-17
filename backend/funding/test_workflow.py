@@ -12,6 +12,7 @@ from funding.services.workflow import (
     ALLOWED_ACTIONS, InvalidTransition, can, derive_status, record,
     status_is_consistent,
 )
+from funding.test_fixtures import confirm_enrolment
 
 Action = ApplicationEvent.Action
 User = get_user_model()
@@ -21,22 +22,28 @@ _counter = itertools.count(1)
 def make_application(**kwargs):
     student = User.objects.create_user(
         email=f'w{next(_counter)}@test.com', password='pw123456',
-        first_name='Test', last_name='Student', role='student',
-    )
+        first_name='Test', last_name='Student', role='student',is_deline_beneficiary=True, is_indian_act_registered=True)
     defaults = dict(
         type=ApplicationType.ADMISSION, stream=FundingStream.PSSSP,
         schema_slug='admission', answers={},
         status=ApplicationStatus.SUBMITTED,
     )
+    confirmed = kwargs.pop('enrolment_confirmed', True)
     defaults.update(kwargs)
-    return Application.objects.create(student=student, **defaults)
+    application = Application.objects.create(student=student, **defaults)
+    # These tests are about transition mechanics, not about the enrolment gate.
+    # An admission application cannot be forwarded until the institution has
+    # confirmed, so unless a test is specifically about that, it starts past it.
+    if confirmed and application.type in (
+            ApplicationType.ADMISSION, ApplicationType.CONTINUING_FUNDING):
+        confirm_enrolment(application)
+    return application
 
 
 def make_staff(role='support_worker'):
     return User.objects.create_user(
         email=f'staff{next(_counter)}@test.com', password='pw123456',
-        first_name='Test', last_name='Staff', role=role,
-    )
+        first_name='Test', last_name='Staff', role=role,is_deline_beneficiary=True, is_indian_act_registered=True)
 
 
 class TransitionTests(TestCase):
@@ -62,8 +69,37 @@ class TransitionTests(TestCase):
             app.refresh_from_db()
             self.assertEqual(app.status, expected, action)
 
+    def test_an_application_can_be_decided_without_being_forwarded(self):
+        """The office's own path: reviewed, then approved on the spot.
+
+        Requiring a forward first was not a safeguard — the endpoint decides who
+        may approve, and it asks `decides_applications`, which a support worker
+        fails. What the forward actually did was notify the director that an
+        application was *waiting for them*, immediately before it was decided
+        without them.
+        """
+        app = make_application()
+        record(app, Action.REVIEWED, self.staff)
+        record(app, Action.APPROVED, self.staff)
+        app.refresh_from_db()
+        self.assertEqual(app.status, ApplicationStatus.APPROVED)
+        self.assertFalse(
+            app.events.filter(action=Action.FORWARDED).exists(),
+            'nothing should have been forwarded')
+
+    def test_declining_needs_no_forward_either(self):
+        app = make_application()
+        record(app, Action.REVIEWED, self.staff)
+        record(app, Action.DECLINED, self.staff, note='Not an approved programme.')
+        app.refresh_from_db()
+        self.assertEqual(app.status, ApplicationStatus.DECLINED)
+
     def test_an_invalid_transition_is_refused(self):
-        """Approving straight from submitted skips review entirely."""
+        """Approving straight from submitted skips review entirely.
+
+        Deciding an application nobody has looked at is the one shortcut that
+        does matter: §13 puts a support worker's review before the decision.
+        """
         app = make_application()
         with self.assertRaises(InvalidTransition):
             record(app, Action.APPROVED, self.staff)
