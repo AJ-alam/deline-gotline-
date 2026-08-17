@@ -15,35 +15,22 @@ import { API_BASE_URL } from './config';
 import type {
   AnswersFor,
   ApplicationSchema,
+  ApplicationStatus,
   ApplicationType,
+  FundingStream,
   SchemaField,
+  TransitionAction,
 } from './schema.generated';
 
-export type { ApplicationSchema, ApplicationType, AnswersFor, SchemaField };
+export type {
+  ApplicationSchema, ApplicationType, AnswersFor, SchemaField,
+  // Backend enums, emitted rather than restated. Written out here by hand they
+  // drifted from the workflow: the server began accepting an approval straight
+  // from review and the client went on believing it could not.
+  ApplicationStatus, TransitionAction, FundingStream,
+};
 
 // ── Wire types ───────────────────────────────────────────────────────────────
-
-export type ApplicationStatus =
-  | 'draft'
-  | 'submitted'
-  | 'under_review'
-  | 'info_requested'
-  | 'awaiting_decision'
-  | 'approved'
-  | 'declined'
-  | 'sent_to_finance';
-
-export type TransitionAction =
-  | 'submitted'
-  | 'reviewed'
-  | 'info_requested'
-  | 'info_provided'
-  | 'forwarded'
-  | 'approved'
-  | 'declined'
-  | 'sent_to_finance';
-
-export type FundingStream = 'psssp' | 'ucepp' | 'dggr';
 
 /**
  * What can be applied for without an account.

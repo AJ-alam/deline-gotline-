@@ -10,8 +10,9 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import Role, User
-from funding.test_fixtures import confirm_enrolment
-from funding.models import Application, ApplicationStatus, ApplicationType, FundingStream
+from funding.models import (
+    Application, ApplicationEvent, ApplicationStatus, ApplicationType, FundingStream,
+)
 from funding.test_fixtures import (
     admission_answers, confirm_enrolment, verification_answers,
 )
@@ -226,6 +227,36 @@ class PricingEndpointTests(APITestCase):
         self.client.force_authenticate(self.worker)
         response = self.client.post(f'/api/applications/{self.application.id}/price/')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_a_declined_application_cannot_be_priced(self):
+        """There is no money on a refusal to work out.
+
+        An appeal is filed as its own application, so nothing needs to re-price
+        this one — and writing a figure onto it is how a declined application
+        came to carry an award in the first place.
+        """
+        from funding.services import workflow
+        workflow.record(self.application, ApplicationEvent.Action.SUBMITTED, self.student)
+        workflow.record(self.application, ApplicationEvent.Action.REVIEWED, self.worker)
+        workflow.record(self.application, ApplicationEvent.Action.DECLINED,
+                        self.worker, note='Not an approved programme.')
+
+        self.client.force_authenticate(self.director)
+        response = self.client.post(f'/api/applications/{self.application.id}/price/')
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertFalse(self.application.decisions.exists())
+
+    def test_an_approved_application_can_still_be_re_priced(self):
+        """A correction has to be able to reach an award before it is paid."""
+        from funding.services import workflow
+        workflow.record(self.application, ApplicationEvent.Action.SUBMITTED, self.student)
+        workflow.record(self.application, ApplicationEvent.Action.REVIEWED, self.worker)
+        workflow.record(self.application, ApplicationEvent.Action.APPROVED, self.director)
+
+        self.client.force_authenticate(self.director)
+        response = self.client.post(f'/api/applications/{self.application.id}/price/')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_missing_policy_is_reported_with_the_rates_that_are_absent(self):
         from funding.models import PolicySetting

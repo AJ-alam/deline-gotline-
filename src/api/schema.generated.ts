@@ -339,6 +339,53 @@ export const APPLICATION_SECTIONS: Record<ApplicationType, string[]> = {
   travel: ["Student", "Travel", "Expenses", "Receipts", "Payment", "Declaration"],
 };
 
+/** Where an application can be in its life. */
+export type ApplicationStatus =
+  | 'draft'
+  | 'submitted'
+  | 'under_review'
+  | 'info_requested'
+  | 'awaiting_decision'
+  | 'approved'
+  | 'declined'
+  | 'sent_to_finance';
+
+/** What can be recorded against an application.
+ *
+ * `amended` is deliberately absent: the office correcting an
+ * application is not a step through review, and it is posted to a
+ * different endpoint. */
+export type TransitionAction =
+  | 'submitted'
+  | 'reviewed'
+  | 'info_requested'
+  | 'info_provided'
+  | 'forwarded'
+  | 'approved'
+  | 'declined'
+  | 'sent_to_finance';
+
+/** Which actions may follow a given status.
+ *
+ * What the workflow permits next. *Who* may take one of them is a
+ * separate question, and only the server answers it. */
+export const NEXT_ACTIONS: Record<ApplicationStatus, TransitionAction[]> = {
+  draft: ["submitted"],
+  submitted: ["declined", "info_requested", "reviewed"],
+  under_review: ["approved", "declined", "forwarded", "info_requested"],
+  info_requested: ["declined", "info_provided"],
+  awaiting_decision: ["approved", "declined", "info_requested"],
+  approved: ["sent_to_finance"],
+  declined: [],
+  sent_to_finance: [],
+};
+
+/** Which pot the money comes from. */
+export type FundingStream =
+  | 'psssp'
+  | 'ucepp'
+  | 'dggr';
+
 /** Answer shape for a given application type. */
 export interface AnswersByType {
   academic_scholarship: AcademicScholarshipAnswers;

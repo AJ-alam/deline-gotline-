@@ -70,6 +70,15 @@ class ApplicationStatus(models.TextChoices):
 # and not an award, however much the two look alike in the database.
 AWARDED_STATUSES = (ApplicationStatus.APPROVED, ApplicationStatus.SENT_TO_FINANCE)
 
+# An application somebody has decided. Its answers are the record the decision
+# was made from, and nothing that would change what it says or ask anybody a
+# question about it belongs here any more.
+DECIDED_STATUSES = (
+    ApplicationStatus.APPROVED,
+    ApplicationStatus.DECLINED,
+    ApplicationStatus.SENT_TO_FINANCE,
+)
+
 
 class Application(models.Model):
     """A student's request for funding.

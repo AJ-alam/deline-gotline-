@@ -19,28 +19,16 @@ import api, {
   type SchemaField,
   type TransitionAction,
 } from '../../api/client';
+// Emitted from funding.services.workflow.ALLOWED_ACTIONS. This screen used to
+// carry its own copy, which is how the office's ability to approve a reviewed
+// application without forwarding it reached the server and never reached a
+// button.
+import { NEXT_ACTIONS } from '../../api/schema.generated';
 import { Alert, Badge, Button, Card, Field, Input, Textarea } from '../../components/ui';
 import { formatDate, formatMoney, statusTone } from '../../components/ui/format';
 import AmendForm from './AmendForm';
 import AwardEditor from './AwardEditor';
 import ReviseForm from './ReviseForm';
-
-/** Which actions make sense next, mirrored from the backend transition table. */
-const NEXT_ACTIONS: Record<string, TransitionAction[]> = {
-  submitted: ['reviewed', 'info_requested', 'declined'],
-  under_review: ['forwarded', 'info_requested', 'declined'],
-  info_requested: ['info_provided', 'declined'],
-  awaiting_decision: ['approved', 'declined', 'info_requested'],
-  // Nothing to offer on an approved application. 'Send to finance' looked like
-  // it paid someone and did not — it only recorded the transition, which the
-  // payment run records for itself when the batch actually goes out. Pressing
-  // it left the award unpaid while moving the application past the point the
-  // run selected on, so the money went quiet.
-  approved: [],
-  declined: [],
-  sent_to_finance: [],
-  draft: [],
-};
 
 const ACTION_LABELS: Record<TransitionAction, string> = {
   submitted: 'Submit',

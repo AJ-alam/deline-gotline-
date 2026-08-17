@@ -26,7 +26,8 @@ from funding.api.serializers import (
 )
 from accounts.models import Role, User
 from funding.models import (
-    Application, ApplicationEvent, ApplicationStatus, AuditEntry, Award,
+    DECIDED_STATUSES, Application, ApplicationEvent, ApplicationStatus,
+    AuditEntry, Award,
 )
 from funding.schemas import ValidationError as SchemaValidationError, get_schema
 from funding.services import banking as banking_service
@@ -40,11 +41,7 @@ from funding.services import workflow
 # An application whose answers are the record a decision was made from. The
 # office may correct a form still in the queue; it may not rewrite one that has
 # been decided, because the award is defended by the answers that were priced.
-AMENDMENT_CLOSED = (
-    ApplicationStatus.APPROVED,
-    ApplicationStatus.DECLINED,
-    ApplicationStatus.SENT_TO_FINANCE,
-)
+AMENDMENT_CLOSED = DECIDED_STATUSES
 
 
 def _changed_keys(before: dict, after: dict) -> list[str]:
@@ -301,6 +298,14 @@ class ApplicationViewSet(viewsets.ModelViewSet):
                 {'detail': 'This kind of application does not need an enrolment '
                            'confirmation.'},
                 status=status.HTTP_400_BAD_REQUEST)
+        # This sends a real email to a real institution. Asking a registrar to
+        # confirm an enrolment for an application the office has already decided
+        # wastes their time and tells them something untrue about where it is.
+        if application.status in DECIDED_STATUSES:
+            return Response(
+                {'detail': 'This application has been decided. The institution '
+                           'will not be asked to confirm anything further.'},
+                status=status.HTTP_409_CONFLICT)
 
         registrar_email = (request.data.get('registrar_email') or '').strip()
         if not registrar_email:
@@ -426,6 +431,14 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         if not request.user.decides_applications:
             return Response({'detail': DecidesApplications.message},
                             status=status.HTTP_403_FORBIDDEN)
+        # An approved application may still be re-priced — that is how a
+        # correction reaches an award before it is paid. A declined one has no
+        # money to price, and pricing it wrote a figure onto a refusal.
+        if application.status == ApplicationStatus.DECLINED:
+            return Response(
+                {'detail': 'This application was declined. There is nothing to '
+                           'price; an appeal is filed as its own application.'},
+                status=status.HTTP_409_CONFLICT)
         try:
             decision = decision_service.record_decision(application, actor=request.user)
         except workflow.EnrolmentNotConfirmed as exc:
@@ -514,6 +527,15 @@ class ApplicationViewSet(viewsets.ModelViewSet):
             return Response(
                 {'detail': 'Only an administrator may set an award by hand.'},
                 status=status.HTTP_403_FORBIDDEN)
+        #  has always refused a decided application; this did not, so the
+        # office could set a funding breakdown on one it had refused. Approved
+        # stays editable until the money is paid, which is what the editor is
+        # for; declined has nothing to break down.
+        if application.status == ApplicationStatus.DECLINED:
+            return Response(
+                {'detail': 'This application was declined. An award cannot be '
+                           'set on it.'},
+                status=status.HTTP_409_CONFLICT)
 
         lines = request.data.get('lines')
         if not isinstance(lines, list):

@@ -158,6 +158,33 @@ class ReissuingTests(TestCase):
 
         self.assertEqual(response.status_code, 409)
 
+    def test_a_decided_application_asks_the_institution_nothing_further(self):
+        """This sends a real email to a real institution.
+
+        Asking a registrar to confirm an enrolment for an application the office
+        has already decided wastes their time and tells them something untrue
+        about where it is. A declined application accepted the request and sent
+        it; found by probing every staff action against one rather than by
+        reading the view.
+        """
+        from notifications.models import OutboundEmail
+
+        workflow.record(self.application, ApplicationEvent.Action.REVIEWED,
+                        self.worker)
+        workflow.record(self.application, ApplicationEvent.Action.DECLINED,
+                        self.worker, note='Not an approved programme.')
+        before = OutboundEmail.objects.count()
+
+        self.client.force_authenticate(self.worker)
+        response = self.client.post(
+            f'/api/applications/{self.application.pk}/request-enrolment/',
+            {'registrar_email': 'registrar@aurora.test'}, format='json')
+
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertIn('decided', str(response.data).lower())
+        self.assertEqual(OutboundEmail.objects.count(), before,
+                         'nothing should have been queued to the institution')
+
     def test_a_form_with_no_institution_is_refused(self):
         self.client.force_authenticate(self.student)
         graduation = self.client.post('/api/applications/', {

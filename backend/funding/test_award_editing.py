@@ -80,6 +80,35 @@ class ManualAwardTests(TestCase):
         self.application.refresh_from_db()
         self.assertEqual(self.application.awarded_total, Decimal('7200.00'))
 
+    def test_an_award_cannot_be_set_on_a_declined_application(self):
+        """`amend` has always refused a decided application; this did not.
+
+        So an administrator could set a funding breakdown on an application the
+        office had refused — a decision, with lines, against a refusal. Found by
+        probing every staff action against a declined application rather than by
+        reading the view, which is also how the two beside it turned up.
+        """
+        staff = make_user(Role.SUPPORT_WORKER, 'w2@award.test')
+        workflow.record(self.application, ApplicationEvent.Action.REVIEWED, staff)
+        workflow.record(self.application, ApplicationEvent.Action.DECLINED, staff,
+                        note='Not an approved programme.')
+
+        response = self.set_award()
+
+        self.assertEqual(response.status_code, 409, response.data)
+        self.assertIn('declined', str(response.data).lower())
+        self.assertFalse(self.application.decisions.exists())
+
+    def test_an_approved_application_can_still_have_its_breakdown_corrected(self):
+        """The guard must not close the case the editor exists for: a fee the
+        rules have no rate for, found after approval and before payment."""
+        staff = make_user(Role.SUPPORT_WORKER, 'w3@award.test')
+        workflow.record(self.application, ApplicationEvent.Action.REVIEWED, staff)
+        workflow.record(self.application, ApplicationEvent.Action.APPROVED,
+                        make_user(Role.DIRECTOR, 'd2@award.test'))
+
+        self.assertEqual(self.set_award().status_code, 201)
+
     def test_a_line_the_rules_have_no_concept_of_can_be_added(self):
         """The point of it. Nothing in the rule set awards travel on an
         admission application; the office does, sometimes."""

@@ -18,8 +18,11 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from funding.models import ApplicationType
+from funding.models import (
+    ApplicationEvent, ApplicationStatus, ApplicationType, FundingStream,
+)
 from funding.schemas import FieldType, all_schemas
+from funding.services.workflow import ALLOWED_ACTIONS, RESULTING_STATUS
 
 OUTPUT = Path('src/api/schema.generated.ts')
 
@@ -163,6 +166,54 @@ def render() -> str:
         sections = ', '.join(f'{name!r}' for name in schema.sections).replace("'", '"')
         lines.append(f'  {schema.slug}: [{sections}],')
     lines += ['};', '']
+
+    # ── The workflow, as the client needs to know it ──
+    #
+    # These three were written out by hand in api/client.ts and
+    # features/applications/ApplicationDetail.tsx. They are backend enums, and
+    # they drifted exactly as a display string once did: the office gained the
+    # ability to approve a reviewed application without forwarding it first,
+    # the server accepted it, and the button was never added — so the feature
+    # existed over HTTP and not in a browser.
+    lines += ['/** Where an application can be in its life. */',
+              'export type ApplicationStatus =']
+    for value in ApplicationStatus.values:
+        lines.append(f"  | '{value}'")
+    lines[-1] += ';'
+    lines.append('')
+
+    lines += ['/** What can be recorded against an application.',
+              ' *',
+              ' * `amended` is deliberately absent: the office correcting an',
+              ' * application is not a step through review, and it is posted to a',
+              " * different endpoint. */",
+              'export type TransitionAction =']
+    for action in ApplicationEvent.Action.values:
+        if action in RESULTING_STATUS:
+            lines.append(f"  | '{action}'")
+    lines[-1] += ';'
+    lines.append('')
+
+    lines += [
+        '/** Which actions may follow a given status.',
+        ' *',
+        ' * What the workflow permits next. *Who* may take one of them is a',
+        ' * separate question, and only the server answers it. */',
+        'export const NEXT_ACTIONS: Record<ApplicationStatus, TransitionAction[]> = {',
+    ]
+    for status in ApplicationStatus.values:
+        allowed = ', '.join(
+            f'{str(action)!r}' for action in sorted(ALLOWED_ACTIONS.get(status, set()))
+        ).replace("'", '"')
+        lines.append(f'  {status}: [{allowed}],')
+    lines += ['};', '']
+
+    lines += ['/** Which pot the money comes from. */',
+              'export type FundingStream =']
+    for value in FundingStream.values:
+        lines.append(f"  | '{value}'")
+    lines[-1] += ';'
+    lines.append('')
 
     lines += ['/** Answer shape for a given application type. */',
               'export interface AnswersByType {']

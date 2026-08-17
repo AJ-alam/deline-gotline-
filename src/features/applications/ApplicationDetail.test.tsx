@@ -354,6 +354,49 @@ describe('documents the office can open', () => {
   });
 });
 
+describe('the actions the office is offered', () => {
+  /**
+   * The screen used to carry its own copy of the workflow table. The server
+   * gained the ability to approve a reviewed application without forwarding it
+   * to the director first — the office asked for exactly that — and the copy
+   * here was never updated, so the feature existed over HTTP and not in a
+   * browser. The table is generated from the backend now.
+   */
+  it('offers an administrator Approve on a reviewed application', async () => {
+    show({ status: 'under_review' }, 'admin');
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Forward to Director' })).toBeInTheDocument();
+  });
+
+  it('offers a director the same', async () => {
+    show({ status: 'under_review' }, 'director');
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
+
+  it('does not offer a support worker anything that decides', async () => {
+    show({ status: 'under_review' }, 'support_worker');
+    await screen.findByRole('button', { name: 'Forward to Director' });
+    for (const deciding of ['Approve', 'Decline']) {
+      expect(screen.queryByRole('button', { name: deciding })).not.toBeInTheDocument();
+    }
+  });
+
+  it('offers nothing at all once an application is decided', async () => {
+    for (const status of ['approved', 'declined', 'sent_to_finance'] as const) {
+      show({ status }, 'admin');
+      await screen.findByRole('heading', { name: 'Admission Application' })
+        .catch(() => undefined);
+      for (const gone of ['Approve', 'Decline', 'Mark reviewed', 'Forward to Director']) {
+        expect(
+          screen.queryByRole('button', { name: gone }),
+          `${status} offered ${gone}`,
+        ).not.toBeInTheDocument();
+      }
+      cleanup();
+    }
+  });
+});
+
 describe('asking the applicant for something', () => {
   /**
    * The server has carried a note on this transition since the path existed:
