@@ -208,6 +208,113 @@ class StaffSummaryTests(TestCase):
         self.assertEqual(Decimal(summary['money']['awarded']), Decimal('0.00'))
 
 
+class StreamSplitTests(TestCase):
+    """How the office's applications divide across the three funding streams.
+
+    Counts, not money: an award line carries no stream, and the rules gate on
+    every stream an applicant qualifies for, so no sum of awards belongs to one
+    pot. These pin that, and pin the split adding up.
+    """
+
+    def setUp(self):
+        seed_rates()
+        self.staff = make_user(Role.SUPPORT_WORKER)
+
+    def split(self):
+        return {row['stream']: row for row in dashboard.summary(self.staff)['streams']}
+
+    def test_applications_are_counted_by_stream(self):
+        make_application(stream=FundingStream.PSSSP)
+        make_application(stream=FundingStream.PSSSP)
+        make_application(stream=FundingStream.DGGR, type=ApplicationType.GRADUATION_BURSARY,
+                         schema_slug='graduation_bursary')
+
+        split = self.split()
+        self.assertEqual(split['psssp']['total'], 2)
+        self.assertEqual(split['dggr']['total'], 1)
+
+    def test_every_stream_appears_even_when_none_are_in_it(self):
+        """UCEPP is assigned by nothing, so its row is always zero — and a split
+        that omits the empty pots is a list of what happens to exist."""
+        split = self.split()
+        for stream in FundingStream.values:
+            self.assertIn(stream, split)
+            self.assertEqual(split[stream]['total'], 0)
+            self.assertEqual(split[stream]['open'], 0)
+
+    def test_the_streams_carry_the_office_s_own_words_for_them(self):
+        self.assertEqual(self.split()['psssp']['label'], 'C-DFN PSSSP')
+
+    def test_open_counts_only_what_can_still_be_acted_on(self):
+        make_application(stream=FundingStream.PSSSP, status=ApplicationStatus.SUBMITTED)
+        make_application(stream=FundingStream.PSSSP, status=ApplicationStatus.APPROVED)
+        make_application(stream=FundingStream.PSSSP, status=ApplicationStatus.DECLINED)
+
+        row = self.split()['psssp']
+        self.assertEqual(row['total'], 3)
+        self.assertEqual(row['open'], 1)
+
+    def test_the_split_adds_up_to_the_total_beside_it(self):
+        """The two figures sit on one screen. A split that does not reconcile
+        with the total above it is the disagreement `awarded_total` once had
+        with the dashboard."""
+        make_application(stream=FundingStream.PSSSP)
+        make_application(stream=FundingStream.DGGR, type=ApplicationType.GRADUATION_BURSARY,
+                         schema_slug='graduation_bursary')
+        make_application(stream=FundingStream.UCEPP)
+
+        summary = dashboard.summary(self.staff)
+        self.assertEqual(
+            sum(row['total'] for row in summary['streams']),
+            summary['applications']['total'],
+        )
+        self.assertEqual(
+            sum(row['open'] for row in summary['streams']),
+            summary['applications']['open'],
+        )
+
+    def test_a_stream_nobody_offered_is_carried_rather_than_dropped(self):
+        """`stream` is a CharField with choices and no database constraint. A
+        value outside the set silently vanishing would leave the split short of
+        the total, which is a dashboard quietly losing applications."""
+        make_application(stream=FundingStream.PSSSP)
+        Application.objects.filter(stream=FundingStream.PSSSP).update(stream='ncep')
+
+        summary = dashboard.summary(self.staff)
+        rows = {row['stream']: row for row in summary['streams']}
+        self.assertEqual(rows['ncep']['total'], 1)
+        self.assertEqual(rows['ncep']['label'], 'ncep')
+        self.assertEqual(sum(row['total'] for row in summary['streams']),
+                         summary['applications']['total'])
+
+    def test_every_staff_role_is_shown_the_split(self):
+        """Finance and the Director reach the same dashboard. Testing the one
+        role that happened to be to hand is how a screen ends up correct for a
+        support worker and absent for everybody else."""
+        make_application()
+        for role in (Role.SUPPORT_WORKER, Role.DIRECTOR, Role.FINANCE, Role.ADMIN):
+            with self.subTest(role=role):
+                summary = dashboard.summary(make_user(role))
+                self.assertIn('streams', summary)
+                self.assertEqual(
+                    sum(row['total'] for row in summary['streams']),
+                    summary['applications']['total'])
+
+    def test_an_empty_office_shows_three_streams_at_nought(self):
+        """An empty database is what made several faults on this project
+        visible; with accumulated data every stream always had something in
+        it."""
+        summary = dashboard.summary(self.staff)
+        self.assertEqual(len(summary['streams']), 3)
+        self.assertTrue(all(row['total'] == 0 and row['open'] == 0
+                            for row in summary['streams']), summary['streams'])
+
+    def test_a_student_is_not_shown_the_office_split(self):
+        student = make_user()
+        make_application(student=student)
+        self.assertNotIn('streams', dashboard.summary(student))
+
+
 class StudentSummaryTests(TestCase):
 
     def setUp(self):
@@ -362,6 +469,51 @@ class CostTests(TestCase):
         with CaptureQueriesContext(connection) as queries:
             dashboard.summary(self.staff)
         self.assertLessEqual(len(queries), 5, [q['sql'] for q in queries])
+
+    def test_the_grouping_returns_a_row_per_pair_and_not_a_row_per_application(self):
+        """The query-count tests cannot see this one.
+
+        `_grouped` is folded in Python, so a grouping that returned one row per
+        application would still add up to the right answer, in one query, and
+        every other test here would pass — while the dashboard's cost grew with
+        the office's data, which is the single property it exists to have.
+        `Application.Meta.ordering` is the way that happens: Django used to fold
+        it into the GROUP BY of a values().annotate().
+        """
+        pairs = [
+            (ApplicationStatus.SUBMITTED, FundingStream.PSSSP),
+            (ApplicationStatus.APPROVED, FundingStream.PSSSP),
+            (ApplicationStatus.SUBMITTED, FundingStream.DGGR),
+        ]
+        for status, stream in pairs:
+            for _ in range(7):
+                make_application(status=status, stream=stream)
+
+        rows = dashboard._grouped(Application.objects.all())
+        self.assertEqual(len(rows), len(pairs), rows)
+        self.assertEqual(sum(row['n'] for row in rows), 21)
+
+    def test_the_split_costs_the_same_however_the_streams_are_spread(self):
+        """The existing cost test adds applications that are all alike, so the
+        grouping it measures returns one row either way."""
+        spread = [
+            (ApplicationStatus.SUBMITTED, FundingStream.PSSSP),
+            (ApplicationStatus.UNDER_REVIEW, FundingStream.DGGR),
+            (ApplicationStatus.APPROVED, FundingStream.UCEPP),
+            (ApplicationStatus.DECLINED, FundingStream.DGGR),
+        ]
+        for status, stream in spread:
+            make_application(status=status, stream=stream)
+        with CaptureQueriesContext(connection) as few:
+            dashboard.summary(self.staff)
+
+        for status, stream in spread * 10:
+            make_application(status=status, stream=stream)
+        with CaptureQueriesContext(connection) as many:
+            dashboard.summary(self.staff)
+
+        self.assertEqual(len(many), len(few),
+                         f'cost grew from {len(few)} to {len(many)} queries')
 
 
 class EndpointTests(TestCase):

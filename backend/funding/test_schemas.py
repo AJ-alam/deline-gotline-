@@ -352,3 +352,76 @@ class ApplyInPortalTests(TestCase):
         self.assertFalse(by_slug['enrollment_verification']['apply_in_portal'])
         self.assertTrue(by_slug['admission']['apply_in_portal'])
         self.assertIn('Start here', by_slug['admission']['summary'])
+
+
+class ContactRulesTests(SimpleTestCase):
+    """How the portal may insist on being able to reach somebody.
+
+    The office's rule: an email address is required, a phone number is not.
+    Email is how every notice this portal sends arrives, so it is the one
+    contact detail an application cannot do without; a phone number is a second
+    way of being reached, and requiring it turns a preference into a refusal.
+
+    Asserted across every schema rather than against the two forms that were
+    wrong. A test naming those two passes the day a third is written — which is
+    exactly how `doc_supporting` came to be a single file on three forms and
+    plural on the rest.
+    """
+
+    # The one form that may insist, and why. Emergency relief is same-day
+    # hardship: the office may need to reach somebody today, and an email
+    # address is not a way to do that. Recorded here so that requiring a phone
+    # number anywhere else is a test failure rather than a habit.
+    MAY_REQUIRE_PHONE = {'emergency_relief'}
+
+    def applicant_fields(self, schema, field_type):
+        """The applicant's own contact details.
+
+        Not the institution's or the registrar's: `registrar_email` is where the
+        enrolment request is sent, so it is required for a reason that has
+        nothing to do with reaching the applicant.
+        """
+        return [
+            field for field in schema.fields
+            if field.type is field_type
+            and not field.key.startswith(('institution_', 'registrar_', 'employer_',
+                                          'supervisor_'))
+        ]
+
+    def test_no_form_requires_a_phone_number_but_emergency_relief(self):
+        offenders = {
+            schema.slug: [f.key for f in self.applicant_fields(schema, FieldType.PHONE)
+                          if f.required]
+            for schema in all_schemas()
+            if schema.slug not in self.MAY_REQUIRE_PHONE
+        }
+        offenders = {slug: keys for slug, keys in offenders.items() if keys}
+        self.assertEqual(offenders, {}, f'these forms still require a phone: {offenders}')
+
+    def test_emergency_relief_still_requires_one(self):
+        """The exception is an exception, not an oversight that drifted back.
+
+        A rule with an exception nothing asserts is a rule that quietly loses
+        its exception the next time somebody applies it flat.
+        """
+        self.assertTrue(get_schema('emergency_relief').field('phone').required)
+
+    def test_every_form_that_asks_for_an_email_requires_it(self):
+        weak = {
+            schema.slug: [f.key for f in self.applicant_fields(schema, FieldType.EMAIL)
+                          if not f.required]
+            for schema in all_schemas()
+            # The registrar fills this one in from an emailed link; the student's
+            # details on it are carried over for checking, not collected.
+            if schema.slug != 'enrollment_verification'
+        }
+        weak = {slug: keys for slug, keys in weak.items() if keys}
+        self.assertEqual(weak, {}, f'these forms ask for an email without requiring it: {weak}')
+
+    def test_the_two_forms_that_were_wrong(self):
+        """Named as well as swept, so a failure says which screen changed."""
+        for slug in ('admission', 'graduation_bursary'):
+            with self.subTest(slug=slug):
+                schema = get_schema(slug)
+                self.assertFalse(schema.field('phone').required)
+                self.assertTrue(schema.field('email').required)

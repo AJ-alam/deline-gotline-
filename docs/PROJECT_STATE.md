@@ -5,7 +5,7 @@ system is, what was done to it and why, what works today, and what is still
 open. Where a decision looks odd, the reason is given: most of them were made
 because the obvious alternative had already caused a bug.
 
-Last updated: 17 August 2026.
+Last updated: 23 August 2026.
 
 ---
 
@@ -84,7 +84,7 @@ src/
   app/          shell, routes, icons
   components/   ui primitives and the one schema-driven form renderer
   features/     auth, dashboard, applications, review, enrolment, finance,
-                policy, people, notifications, forms
+                policy, people, profile, notifications, forms
 ```
 
 **The rule that keeps it honest:** business rules live in `services/` and
@@ -96,7 +96,7 @@ because a rule leaked into a component or a serializer.
 
 ## 4. What works today
 
-Verified by 853 backend tests, 229 frontend tests, and the live audit scripts in
+Verified by 973 backend tests, 253 frontend tests, and the live audit scripts in
 `backend/scripts/` that drive the running server over HTTP.
 
 - **Registration** gated on the six-question eligibility screening, enforced
@@ -142,6 +142,39 @@ Verified by 853 backend tests, 229 frontend tests, and the live audit scripts in
 - **Email** through Hostinger SMTP, verified delivering to a real inbox.
 - **Bank details** are asked for on the forms that need them and stored on the
   `BankAccount` record the payment run reads, never in `answers` (§5).
+- **The annual report to the head department.** The office's own mock-up, built
+  from the data: enrolment by semester split into university and college with
+  trades and upgrading as subsets, graduate awards by residency and credential,
+  the institutions and programmes attended, and a financial summary that
+  reconciles — gross, repaid, net. Read by Finance, the Director and an
+  administrator; downloadable as a PDF on the office letterhead. An
+  administrator enters the costs the system cannot see.
+- **The funding programme breakdown, and the programme filter.** Which of
+  the three programmes paid for what, and a filter that narrows the whole
+  screen — and the export with it — to one of them. **Counts and money are
+  attributed differently, on purpose:** an application has one primary
+  stream, but pricing draws on every stream the applicant qualifies for, so
+  a DGGR top-up on a PSSSP application is spent from both. Money therefore
+  follows the *rule* that paid it, which is exact for the seven tuition and
+  living rules because each names one stream. The bursary, travel and
+  scholarship rules name none; that money is reported under **Not tied to
+  one programme** rather than pushed into a programme that did not pay it.
+  The breakdown reconciles to the report net, and `report_audit.py` checks
+  that it still does against a real database.
+- **Approval letters.** The office supplied three templates — DGG-CDFN (PSSSP),
+  DGG-UCEPP and DGGR-SFSP — and an approved application produces the letters it
+  earns, in full: as a page in the portal, as a **PDF** to download or forward,
+  and in the body of the approval email with the PDF attached. The letterhead is
+  the office's own artwork.
+- **A student profile** (`/profile`) holding four kinds of fact, saved
+  separately: their own details; the six screening answers, which re-run the
+  office's rule and re-decide the funding streams; where they study, which
+  pre-fills every later form; and where they are paid, which goes to the same
+  `BankAccount` record the payment run reads. The point of all of it is the next
+  application: what is on the profile arrives already filled in, and every box
+  stays editable. It also closes the renewal gap in §6 — a student whose
+  admission was on paper can now put their registrar's address on file, so the
+  enrolment request has somewhere to go.
 
 ---
 
@@ -175,9 +208,303 @@ sign-up and withdraws the C-DFN streams if this term's SFA answer says so.
 submission is measured against; pricing draws on everything the applicant
 qualifies for, via `rules/engine._streams_for`.
 
+**The stream split counts applications and never money.** The office's home
+screen divides the applications across the three pots. It could not divide the
+money the same way: an `Award` line carries no stream, and it could not honestly
+be given one, because `rules.engine._streams_for` gates a rule against *every*
+stream the applicant qualifies for and DGGR tops up rather than replaces — so a
+PSSSP application routinely carries DGGR money. Summing awards by
+`Application.stream` would publish "DGGR $12,000" on a screen where that reads
+as what DGGR paid. The primary stream is a fact about the application; it is not
+an attribution of the money. Every stream has a row even at nought — a split
+that omits the empty pots is a list of what happens to exist, and UCEPP being
+nought is itself worth seeing, since nothing assigns it. A stored value outside
+the three is carried under its own name rather than dropped, so the rows always
+add up to the total beside them — and that row is deliberately *not* a link: the
+queue filters on the choice set and answers 400 to anything else, so a link
+would drop its filter and open every application in the office under a tile
+reading four. The tiles are tested by clicking them and watching what the queue
+asks the server, not by asserting an `href` exists, which is how a link that
+opened a 401 page on every document survived 809 tests.
+
+**The report never guesses what an institution is.** University against
+college, and trades against upgrading, are asked of the *registrar* on the
+enrolment verification — they are the institution and they know. Neither is
+required: the registrar's answer governs tuition, and a confirmation that could
+not be submitted because of a reporting question would hold up an award. An
+enrolment nobody classified is counted and reported as **not classified**, with
+the screen saying how many. The alternative was matching words in a typed
+institution name, and "Northern Lights College" grants degrees — a report figure
+decided by a display string, going to a funder.
+
+**The enrolment total counts enrolments, not people.** The office's own table
+adds its seasons — 20 + 5 + 40 + 30 = 95 — and its summary calls that "95
+semester enrolments". Counting distinct students instead produced a total
+*smaller* than the column above it, which on a report to a funder reads as an
+arithmetic mistake. A student who studied in two semesters had two enrolments
+and appears in both. The headcount behind them is still wanted, so it is
+reported beside the table as `distinct_students` rather than hidden inside it.
+
+**Trades and upgrading are subsets, not extra columns.** The office's own note
+on its table. A total that added them reports more students than attended, and
+the seeded data cannot show it because those columns are nought on every
+enrolment confirmed before the question existed — so the guard is a unit test
+that classifies applications itself, not the live audit.
+
+**Every money figure on the report is gross, repaid and net.** The office asked
+for something that reconciles against a financial statement, and a report that
+only counts money leaving overstates the year. `AwardRepayment` records what
+came back against the award it came from — never editing `Award.amount`, which
+is what was decided and what an approval letter has already told the student
+they were granted. The award is the record; the repayment sits beside it.
+
+**A hand-entered cost is never mixed into a computed total.** Staff wages are
+real and nothing here could know them, so the Director enters them —
+`ReportedCost`, one figure per label per fiscal year, carrying who entered it.
+The report shows direct funding, entered costs and the grand total as three
+separate figures. Entering the same label again for the same year *corrects* it
+rather than adding a second line: two staff-wage rows make a grand total that
+depends on which the reader adds up. DRF's own unique-together validator had to
+be turned off for that, because it refused the correction outright.
+
+**An approval letter belongs to a programme, not to an application.** One
+approval routinely earns two: DGGR tops up rather than replaces, so a student
+funded under PSSSP with a DGGR top-up is owed the CDFN letter *and* the DGGR
+letter — which is what the DGGR letter's own wording is for, "students who are
+already in receipt of primary funding". Keying the letter on
+`Application.stream` would have sent one letter naming a total that two
+programmes paid. Which programme funded a line is read from the rule that
+produced it, *in the rule set that priced it* — `psssp_living` names psssp — so
+a letter reprinted next year still says what it said. A line nothing can
+attribute (a hand-set award, whose rule code is `manual_N`) goes on the
+application's primary stream, because dropping it would produce letters adding
+up to less than the award. Only the six tuition and living rules name a single
+stream; the bursary and travel rules name none, which is the same fact that
+keeps the dashboard's stream split to counts.
+
+**The letter follows the award, not the approval email.** It rides along with
+the approval email in the ordinary case — price, then approve. Nothing in
+`workflow.ALLOWED_ACTIONS` requires that order, though: the office may approve
+and price afterwards, and on that path there was no award to describe when the
+email went out and nothing ever sent one, so the student got no letter at all,
+in silence. `record_decision` now sends it when a pricing lands on an
+application already approved. The same call covers a re-pricing and a hand-set
+breakdown: the figures on the letter the student is holding have changed, and a
+superseded letter nobody corrects names money the office is no longer paying.
+Pricing an application *nobody* has approved still sends nothing — a pricing is
+not a promise.
+
+**The letters are semester funding only.** All three templates are built around
+program costs and a monthly allowance "for the [term]". A travel claim or a
+graduation bursary has neither, and the office has supplied no template for
+them, so those approvals produce no letter rather than a "Semester Stipend"
+table listing somebody's graduation cheque. The endpoint answers 409 saying so.
+
+**Every figure in a letter is the award's own, and every rate is read.** Nothing
+in the letter service recomputes an amount — a letter disagreeing with the award
+it describes would be the `awarded_total`/dashboard fault again, in a document
+the office signs. The caps quoted in the CDFN footnote and the UCEPP amount cell
+are `psssp_tuition.max_per_semester` and `ucepp_tuition.max_per_semester`, read
+from the policy rates: a figure typed into the letter as well is a second copy
+that can disagree, which is how a "$500 limit" on a screen came to sit beside a
+$3,000 seeded rate. A missing rate drops the sentence rather than printing
+$0.00 — a letter telling a student the cap on their funding is nothing.
+
+**"Monthly Allowance" says the rate and the months.** The rule is
+`rate_per_month`: the rate is monthly, the award line stored is `rate × months`,
+so the cell could hold either figure and the word "Monthly" above a semester
+total is exactly this project's recurring fault. It prints
+"$1,700.00/month × 4 months" against the semester amount, and the office chose
+that. The figures come from `Award.detail`, written by the effect as data —
+reading them back out of the rule's explanation *sentence* would put a display
+string in charge of what a letter says somebody is paid. A line priced before
+that column existed, or set by hand, shows the amount alone rather than
+inventing a rate.
+
+**The three templates differ, and the differences are honoured.** The UCEPP
+letter carries no total row; only the DGGR letter carries a date; CDFN and UCEPP
+titles end "for the" and take the term, while the DGGR title is already a
+sentence and does not — appending it read as "Top-Up Funds Fall 2026-2027". The
+identifier is "Treaty #:" on two and "Beneficiary #:" on the third, printed
+blank where the account has none, because the office writes it on by hand and a
+letter with no line for it cannot be completed. Every one of these was wrong in
+the first build and found by rendering a real letter in a browser beside the
+office's PDF.
+
+**The PDF is a renderer, not a second letter.** `services/letter_pdf` lays out
+whatever `letters_for` returns and decides nothing about what a letter says. It
+draws on the canvas directly rather than through platypus because the letter is
+a fixed sequence of blocks under a letterhead, not a stream of content to flow.
+reportlab and Pillow were already pinned dependencies; `pypdf` was added for the
+tests, which read the finished document back rather than trusting it.
+
+**A residency contradiction is flagged, in one direction only.** The office
+reported it: a student said they do not live in the Northwest Territories and
+then gave an address in the Northwest Territories, and nothing said so.
+`residency_flag` had existed since the first migration with two readers — the
+application screen and the dashboard's "needs a look" count — and **no writer at
+all**, so the count could only ever be zero. It was listed as open because
+implementing it needed a residency policy nobody had stated; the office has now
+stated one, and `funding.services.residency` implements exactly that and no
+more.
+
+Only the reported direction. "Not yet — I am moving there" is one of the three
+answers the screening offers, and somebody moving to the NWT who gives an NWT
+address is describing the move rather than contradicting themselves; a blank
+answer is not a denial either. The reverse — saying yes and giving an address
+elsewhere — is deliberately **not** flagged: a student may be studying away or
+give a parent's address, and a flag that fires on ordinary circumstances is a
+queue nobody can clear, which is how this flag came to be ignored in the first
+place. The province is matched whole rather than as a substring, because "nt"
+sits inside Ontario, Kent and Vermont; the postal fallback covers X0E/X0G/X1A
+and deliberately excludes X0A–X0C, which are Nunavut.
+
+Re-decided rather than stamped once, unlike lateness: this is a statement about
+the answers the application currently holds, so correcting the address clears
+the flag and correcting it the other way raises one. Stamped at submission, when
+a student provides information, and on an amendment — the last explicitly,
+because an amendment is an event rather than a transition and does not pass
+through `workflow.record`.
+
+**A UCEPP semester is priced by three living-allowance rules at once.** Found
+by rendering the UCEPP letter, which nothing had ever produced. An application
+in the UCEPP stream pays `psssp_living` *and* `ucepp_living` *and* `dggr_living`
+for the same four months — $4,800 + $2,800 + $2,800 on the seeded rates. The
+tuition side is protected, because `remaining_tuition` is shared and decremented
+so no two streams fund the same dollar; **living has no such guard**, and each
+rule pays independently against the months.
+
+This is pre-existing pricing, not a fault in the letters — `_streams_for` gates
+on every stream the applicant qualifies for, and a beneficiary registered under
+the Indian Act qualifies for PSSSP and DGGR whatever their application's stream
+says. It is unreachable today because nothing assigns UCEPP; it becomes
+reachable the moment the office assigns one by hand, which §8 says is the only
+way UCEPP is meant to be used. The letters are what made it visible: three
+letters, one semester, three living allowances, over the Director's signature.
+**Not changed here** — what a student on an upgrading programme should be paid
+is the office's decision, and §8 already lists UCEPP as open.
+
+**The PDF ships its own font, and refuses without one.** reportlab's built-in
+Times is Latin-1 and cannot encode a single one of the nine characters the
+office's wording uses: the first working draft printed "Délı̨nę Got’ı̨nę" as
+"Dél■■n■ Got’■■n■" on the government's own letterhead. The system fonts that do
+cover it are Windows-only and not redistributable, so a Linux deployment would
+have printed the boxes instead, silently. DejaVu Serif is shipped in
+`funding/assets/fonts` under the Bitstream Vera licence, and `_register_fonts`
+refuses — loudly, with the missing code points named — rather than falling back
+to a built-in. Same rule as a missing rate: refuse, do not print nought.
+
+*Text extraction cannot catch this.* With the built-in font the text layer is
+still correct and a parser reads the place name back perfectly while the page
+displays black squares, so the guard is structural: the finished document must
+embed a DejaVu subset, and `letter_pdf.BODY` must not be a base-14 name. The
+first sabotage of this passed, which is how the gap was found.
+
+**The letterhead is one raster, not artwork drawn twice.** The crest and
+wordmark are the office's SVG; the ribbon beside it is drawn to match the
+supplied templates. Both are rasterised into a single 200dpi PNG used by the
+PDF — a second hand-coded copy of the ribbon in reportlab bezier calls would be
+artwork with two definitions, which is the drift this project keeps recording.
+
+**The letters carry a posting address.** The office's templates have a blank
+address block under the date, because these go out on paper as well as by email:
+a letter with nowhere to write an address cannot go in a window envelope. Taken
+from the application's own answers first and the account second — the address on
+the form is the one the applicant gave for *this* application — and omitted
+entirely rather than printed as empty rules when there is nothing on file.
+
+**The letter is HTML the browser prints, and also a PDF.** Three renderers,
+one letter: the portal page, the email body, and `letter_pdf`. None of them
+composes anything — all three lay out the same dict from `letters_for`, so the
+copy in somebody's inbox, the copy they print and the copy the office files
+cannot say different things about what was awarded. The blank forms are still
+printed by the browser rather than generated, because those are driven by the
+schemas and a generator there *would* be a second description; a letter is a
+fixed document the office signs and sends, which is not the same thing.
+
+**An email address is required; a phone number is not.** Email is how every
+notice this portal sends arrives — a decision, a request for more information, a
+guest claim's reference number — so it is the one contact detail an application
+cannot do without, and it is required on every form that asks for it. A phone
+number is a second way of being reached, and requiring it turns a preference
+into a refusal: `admission` and `graduation_bursary` both demanded one, and the
+graduation award is claimed with **no account at all**, so somebody who would
+rather be written to could not file it. Both are optional now.
+`emergency_relief` is the single exception and stays required: it is same-day
+hardship, the office may need to reach somebody today, and an email address is
+not a way to do that. `test_schemas.ContactRulesTests` asserts the rule across
+*every* schema and asserts the exception separately — a rule whose exception
+nothing pins loses it the next time somebody applies the rule flat, and a test
+naming only the two forms that were wrong passes the day a third is written.
+Institution and registrar addresses are outside the rule: `registrar_email` is
+required because it is where the enrolment request is sent, which has nothing to
+do with reaching the applicant.
+
 **SFA status is not stored on the person.** It changes every term. It lives in
 each application's answers, and the forms whose award depends on it ask it
-directly.
+directly. The screening question of the same name is a different thing: it
+decides what the account *qualifies* for, and the profile lets a student
+re-answer it when their circumstances change.
+
+**The enrolment profile pre-fills forms and is read by nothing that prices
+one.** The previous system kept `institution`, `program` and
+`enrollment_status` on the user, and award calculation fell back to them
+whenever an answer was missing — so last year's facts priced this year's
+application and nothing on any screen said so. `EnrolmentProfile` exists on the
+condition that exactly one module reads it: `funding.services.prefill`, plus
+`workflow.registrar_email_for`, which decides who is *asked* to confirm an
+enrolment and not what the answer is worth. `test_profile.ProfileNeverPricesTests`
+prices an application, rewrites the profile underneath it, re-prices, and also
+scans `funding/` for any other reader — because a test that priced one
+application proves one application.
+
+**A student may re-answer the screening; they may not write the outcome.**
+`PUT /api/me/eligibility/` takes the six answers and runs
+`eligibility.assess` — the streams that come back are the office's rule applied
+to them. The two eligibility booleans became read-only on `/api/me/` in the same
+change: `streams.saved_streams` falls back to them, so a student who could PATCH
+`is_indian_act_registered` could hand themselves PSSSP without the screening
+ever running. Every re-answer writes an `AuditEntry`, because these are six
+answers that decide what a person is paid, edited by the person being paid.
+
+**An outcome of "nothing" is saved rather than refused.** It is tempting to
+refuse it — an account with no streams cannot file anything — but the
+circumstance it usually describes is real: a student has started receiving SFA,
+which withdraws both C-DFN streams. Refusing to record that leaves the portal
+funding somebody under a stream they have told us they no longer hold. They are
+shown the screening's own words and pointed at the office.
+
+**An empty box means "nothing on file", whatever kind of box it is.** The
+profile posts every field in a section, filled or not, so a DRF DateField or
+IntegerField meeting `''` refused a save on boxes the student never typed in.
+`BlankMeansNothingOnFile` derives the rule from the field type — a date or a
+count added tomorrow behaves the same way — and both serializers behind the
+screen share it. Names are the deliberate exception: a person must have one.
+
+**A screening answer has to be one the question offered.** `_yes` reads anything
+it does not recognise as a no, so an unoffered value decided a funding stream by
+falling through a comparison. `eligibility.unrecognised_answers` is checked at
+both doors — registration and the profile — because a rule enforced at one of
+two entrances is not enforced.
+
+**An empty `eligible_streams` is only a missing answer when nobody has ever
+answered.** The fallback to the two booleans used to fire on any account with no
+tags, which was safe while the only way to have none was to predate them. Once a
+student could re-answer the screening it was not: somebody who had just told us
+they no longer qualify was handed PSSSP straight back, which is the fault
+`eligible_streams` was added to stop, arriving from the other direction.
+`eligibility_assessed_at` is what now separates "screened, and the answer is
+nothing" from "never screened".
+
+**The banking shapes the forms promise are enforced on the profile and only
+logged on a form.** `schemas.common.banking` has always said "Five digits",
+"Three digits", "Seven to twelve digits" in its help text and nothing checked
+it. `banking.unpayable_reasons` is the one definition, with two deliberately
+different manners: the profile screen refuses, because it exists to get the
+account right and a student looking at the boxes is the cheapest moment to fix a
+transposed digit; `banking.record` only warns, because a submitted application
+must never be lost to a bad account number — `finance.preview` already reports
+an award that cannot be paid.
 
 **The SIN never enters `answers`.** `Application.answers` is returned whole by
 the detail endpoint, printed on the paper form, and used to pre-fill the
@@ -406,8 +733,24 @@ Recorded because each represents a class that can recur.
 | A single-file question could be replaced but not emptied | `Remove` existed on the multi-file control and not on the single-file one, so a student told to take down a document attached to the wrong question could only put a different one in its place. |
 | Attached documents could not be opened, again | The detail screen linked each one with a plain `<a href target="_blank">`. The endpoint is authorised by the bearer token and a browser *navigation* carries no header, so every click — every role, every document — opened the API's 401 page. The link sat directly under the comment describing the first version of this bug. 809 unit tests and 425 audit checks passed throughout because every one of them sends the header, and the frontend test asserted the `href` existed rather than that anything opened. Fetched through the client now, handed to a tab as a blob. Found by clicking it in a browser. |
 | Nothing ever marked an award paid | `Award.Status.PAID` was read in two places and written by none: `dispatch()` stopped at SENT_TO_FINANCE. So `Award.objects.paid()` — which exists precisely so money paid under a superseded decision still counts — returned nothing on every database, and the student's dashboard read **PAID $0.00** beside an awarded total in the millions. Dispatch marks PAID now; the office's tile was counting SENT_TO_FINANCE and is renamed to match. Same class as `residency_flag`: a state with readers and no writer. |
+| Two test faults that made a correct document look wrong | Counting `/Type /Page` in the PDF bytes also matches `/Type /Pages`, the page-tree node, so every page count came back one too high; and `stringWidth` needs the font registered, which normally happens on the first render, so a measurement written before one passed or errored depending on which test ran first. Both were in the tests rather than the product, and both would have been "fixed" by loosening the assertion. |
+| A flag with two readers and no writer, for four months | `residency_flag` was serialised onto every application, counted on the staff dashboard under "needs a look", and written by nothing but a test fixture. The count could only ever be zero, so the one number on that screen that never moved read as "no problems" rather than "not implemented". Reported by the office as a live fault — a student who said they do not live in the NWT and gave an NWT address — which is the same class as `Award.Status.PAID` being read in two places and written by none. |
+| Money that came back vanished when an application was re-priced | A repayment is recorded against an award line. Re-pricing supersedes that line, `Award.objects.awarded()` scopes to the decision in force, and the repayment stopped being counted — the year went back to reporting its gross as its net, silently, and money a student had returned ceased to exist on the report. The same fact `Award.objects.paid()` exists to respect: money that left the bank still left it, and money that came back still came back. Repayments are now gathered against every award of the year's applications, whatever decision they belong to. |
+| A hand-entered cost dated 15 June appeared on no report at all | The report looks for costs filed against 1 April, the serializer accepted any date, and a figure the office had entered simply disappeared. Normalised to the fiscal year the date falls in rather than refused — the office is naming a year, and losing money quietly is worse than being forgiving about how a year is written. |
+| A variable shadowed 400 lines away | The report section of `lifecycle_audit.py` named a local `after`, and `after` already held an application payload read hundreds of lines further down. The audit crashed with a bare `KeyError: 'answers'` in a check that had nothing to do with reporting. Long scripts do not have small scopes. |
+| A sabotage that could not fail, twice over | Two guards on the report looked untested because the *audit* could not move them: trades and upgrading are nought on a database whose enrolments all predate the question, and the repayment arithmetic compared two figures that were both zero. An arithmetic check on a figure that is always nought is the residency count again. The audit now records a repayment against its own award so the figures have somewhere to move, and the subset rule is pinned by a unit test that classifies its own applications. A third sabotage appeared to pass only because the dev server was started `--noreload` and never picked the change up. |
+| The PDF printed the government's own name as black boxes | reportlab's built-in Times is Latin-1 and silently substitutes anything it cannot encode, so "Délı̨nę Got’ı̨nę" came out as "Dél■■n■ Got’■■n■" — on the letterhead of the government whose name it is. Every automated check passed: the *text layer* is correct and a PDF parser reads the characters back perfectly, because what is missing is the glyphs. Found by looking at the rendered page. The guard is structural — the document must embed the shipped font — and the first sabotage of that guard passed too, because it renamed the shipped font rather than reverting to the built-in. |
+| An `.pdf` URL that the router could never match | DRF's router appends a trailing slash, so `approval-letter.pdf` answered 404 — indistinguishable from the application not existing. The path is `approval-letter/pdf/`; the downloaded file takes its name from Content-Disposition regardless. |
+| The approval letter was never sent when the office approved before pricing (now audited both ways round) | The letter travels inside the approval email, and at that moment an application priced afterwards has no award to describe — so `letters_for` refused, the email went out without it, and nothing sent one when the pricing arrived. The student got no letter at all, silently, on a path nothing forbids. Every test and every audit priced first, because that is the order the lifecycle audit walks, so all of them passed. Found by asking what the *other* order does rather than by re-reading the code that assumed one. Same class as the renewal whose enrolment request was skipped in silence. |
+| The print stylesheet hid elements that do not exist | `.app-sidebar`, `.app-header`, `.app-shell__nav` — none of them are in this codebase; the shell uses `.shell__side` and `.shell__bar`. Every printed approval letter would have carried the portal's navigation down its left-hand side. No test can see this: printing is not something the suite exercises, and the CSS was valid. `forms/printable.css` already had the right selectors and was the thing to copy rather than to reinvent. |
+| A `beforeEach` that handed the runner a teardown function | `beforeEach(() => uploadDocument.mockReset())` — a concise arrow body *returns* the mock, and vitest treats a value returned from `beforeEach` as a teardown callback. So the runner itself called the mock after every test, outside any catch. Against a rejecting implementation that is an unhandled rejection, and it failed the very tests that prove rejections are handled. This is what PROJECT_STATE recorded as "upload failure path has no frontend test; vitest reports the rejection as unhandled despite the component catching it" — the component was correct throughout and the gap was in the test file's own setup. Both failure-path tests are written now. |
+| The dashboard's queue tiles linked to a queue that ignored the link | "To review" and "Awaiting decision" have pointed at `/review?status=…` since the screen was written, and `ReviewQueue` held its filters in component state and read the query string nowhere — `useSearchParams` appeared in no file in `src/`. So every one of those links landed on the whole list, filtered by nothing, and with rows in the database it read as a plausible queue that was merely larger than the number that had been clicked. The same class as the global `DjangoFilterBackend` with no `filterset_fields`: a filter silently not applied still answers 200 with everything. Found while adding a third tile that would have linked the same way. The filters live in the URL now, so a queue can also be sent to a colleague. |
 | A percentage published as an amount of money | Every `PolicySetting` was seeded `unit='$'` and the rates screen formatted all of them with `formatMoney`, ignoring `unit` entirely — so an 80% achievement threshold reached administrators as "$80.00", on the one screen where they change what students are paid. `policy_admin.unit_for` derives it from the key; migration 0009 corrects rows already stored. |
 | The name pre-filled as nothing on the first form anybody files | `prefill.FROM_ACCOUNT` mapped `full_name`; `admission` and `travel` ask `first_name` and `last_name`. A key the schema does not define is skipped in silence, so on exactly those two forms a returning student retyped what the portal already held — no error, no log. The date of birth and address were on the account and never offered back on any form. The test asserts across every schema, because a test for either form alone passes. |
+| An empty box read as a malformed one | The profile posts every field in a section, so a student who has never given their date of birth posts `date_of_birth: ''` — and a DRF DateField reads that as a malformed date, an IntegerField as a malformed number. Every student, on their first Save, was told their date of birth was wrong on a box they had left alone, and could not save the section at all. Registration collects no date of birth, so this was the common path rather than an edge of one. The same fault sat on the enrolment section's dates and counts. Invisible from the inside because a CharField takes `''` silently: the tests that cleared a field cleared a text one. `BlankMeansNothingOnFile` now derives the rule from the field type and is shared by both serializers, and the tests assert across *every* editable field rather than against one. Same class as "a required SIN made every edit impossible". |
+| A screening answer nobody offered was read as "no" | `eligibility._yes` treats anything it does not recognise as a negative, silently. So `receives_sfa: 'maybe'` — or a number, which a DRF CharField will quietly stringify into `'5'` — decided a funding stream by falling through a comparison, and looked from the outside exactly like somebody answering no. Identity-by-display-string in miniature: a value nobody offered, meaning something nobody chose. Both doors that take these answers now check them against the choices the question actually offered. Found by asserting that a non-string is refused, which it was not. |
+| An empty stream list read as "never screened" | The fallback to `is_indian_act_registered` / `is_deline_beneficiary` fired whenever `eligible_streams` was empty — correct while the only accounts with no tags were ones that predated them. The profile made emptiness a *current answer*: a student who re-answered the screening to say they now receive SFA, and is not a beneficiary, qualifies for nothing — and was handed PSSSP straight back by the fallback. Found by a test asserting the consequence ("an account with no streams cannot file an application") rather than the write, which passed on its own. `eligibility_assessed_at` now separates the two cases. |
+| A DRF response whose body is `None` | `GET /api/me/banking/` returned a bare `None` for "no account on file": 200, no content type, and a client that cannot parse it. "Nothing on file" is the common case for a new student, so the one answer the endpoint gives most often arrived as a transport error. Caught by a test calling `.json()` on it, which is what the client does. |
 | Two sabotages of this round's work were **not** caught by the tests written for them | Both concerned discarding a client-supplied computed total. The tests passed with the guard removed, because a second mechanism — deriving over the top, and an empty initial value — happened to produce the right answer anyway. Written as they were, they asserted the outcome and not the defence. Both now exercise the path where only the guard stands: a total that does not parse, and a total that arrives pre-filled. |
 
 ---
@@ -446,14 +789,19 @@ server, then:
 
 ```bash
 cd backend
-./venv/Scripts/python.exe scripts/journey_audit.py       # 118 checks: one
+./venv/Scripts/python.exe scripts/journey_audit.py       # 144 checks: one
         # student from sign-up to payment — the tags the screening saves, a
         # clean approval, the more-information loop run twice (an answer, then
         # a document), the breakdown across every stream they qualify for, the
         # office rewriting it and adding rows, an amendment on their behalf,
         # forwarding versus deciding, and every application type
-./venv/Scripts/python.exe scripts/lifecycle_audit.py     # 92 checks: sign-up
-        # through review, decision, award, payment run, notices, permissions
+./venv/Scripts/python.exe scripts/lifecycle_audit.py     # 205 checks: sign-up
+        # through review, decision, award, payment run, notices, permissions,
+        # the stream split against the queue each of its tiles links to, and
+        # the approval letters — who may read them, whether they add up to the
+        # award they describe, and a second application worked in the other
+        # order: approved before it is priced, which is the path on which the
+        # letter was once never sent at all
 ./venv/Scripts/python.exe scripts/continuing_audit.py    # 34 checks: the
         # continuing-funding form, its prefill, banking routing and exposure
 ./venv/Scripts/python.exe scripts/information_audit.py   # 30 checks: a
@@ -480,10 +828,23 @@ cd backend
 ./venv/Scripts/python.exe scripts/travel_audit.py       # 55 checks: the travel
         # claim — the expense table and multi-file receipts as they survive the
         # round trip, and the total the server derives from the lines
-./venv/Scripts/python.exe scripts/amendment_audit.py    # 53 checks: the office
+./venv/Scripts/python.exe scripts/amendment_audit.py    # 56 checks: the office
         # correcting a filed application and the applicant answering back —
         # who may edit, what the applicant is told, and documents added,
         # replaced and removed
+./venv/Scripts/python.exe scripts/profile_audit.py      # 96 checks: the student
+        # profile — a newly registered student with nothing on file, filling it
+        # in, a form opening pre-filled from it, a renewal whose enrolment
+        # request reaches the registrar address the profile holds, re-answering
+        # the screening and the next application's stream following, banking
+        # reaching finance, and none of it reachable by anybody else
+./venv/Scripts/python.exe scripts/report_audit.py       # 67 checks: the
+        # annual report — who may read money, the programme breakdown
+        # reconciling against the financial table two different ways, the
+        # three filtered reports counting every application exactly once,
+        # a mistyped programme refused rather than reported as an empty
+        # year, and a narrowed export that says on its face and in its
+        # filename that it is not the whole year
 ./venv/Scripts/python.exe scripts/surface_audit.py      # 336 checks: what the
         # ten form audits never touch — registration, the eligibility
         # screening, token refresh, `attach/`, `enrolment-preview`, the
@@ -491,12 +852,17 @@ cd backend
         # against every role
 ```
 
+`lifecycle_audit.py` reads the outbox and the verification rows through the ORM
+as well as over HTTP, so `--base` alone is not enough to point it at a second
+database: set `DATABASE_URL` to the same one, or its ORM half goes on reading
+`db.sqlite3` and reports a registrar link that was never queued *there*.
+
 Each defaults to `127.0.0.1:8000`. Eight of them used to default to a different
 hardcoded port each — 8011, 8013, 8015, 8020, 8021, 8050 — so following the
 instruction above produced a ConnectionError against a server that was running
 perfectly well.
 
-All thirteen pass in full — 943 checks, from an empty database. The isolation check in `lifecycle_audit.py`
+All fifteen pass in full — 1,237 checks, counted by running them. The isolation check in `lifecycle_audit.py`
 used to report that it could not run, every time, because `seed_demo` created a
 single student: it now seeds a second one and the audit files an application as
 them, so "a student cannot open an application that is not theirs" is tried in
@@ -513,9 +879,10 @@ from a session scratchpad and are gone; what they covered is folded into
 
 **Needs a decision from the office:**
 
-- `residency_flag` is read in two places and written by nothing. The staff
-  dashboard's "residency mismatch" count can only ever be zero. Implementing it
-  needs a residency policy nobody has stated. Remove or implement.
+- ~~`residency_flag` is read in two places and written by nothing.~~ **Closed.**
+  The office stated the rule — declared not resident, address in the NWT — and
+  `funding.services.residency` implements it. The reverse direction is still an
+  open question: see §5 for why it was not assumed.
 - `late_approved_by` / `late_approved_at` — the "director approves a late
   submission" path does not exist, now that the late flag works.
 - **UCEPP is never assigned automatically.** §8 makes it the
@@ -526,7 +893,13 @@ from a session scratchpad and are gone; what they covered is folded into
   on 17 Aug 2026 and **removed again at the owner's request**: the sign-up page
   stays as it is. So UCEPP still has no route in, and §6(A)(e) and §6(C)(d) are
   not enforced. Do not re-add the questions without asking.
-- The "reports" screen has been asked about repeatedly and never scoped.
+- ~~The "reports" screen has been asked about repeatedly and never scoped.~~
+  **Built.** The office supplied a mock-up of the annual report it sends its
+  head department, and `funding.services.reporting` produces it. Two things on
+  their wish list are open: how many students *stayed* enrolled against how many
+  withdrew, which needs a withdrawal to be a thing the system records; and
+  whether the report should count a student's enrolment against the year the
+  semester falls in rather than the year they applied.
 - ~~The hardship bursary's "$500 limit".~~ **Closed.** §9(G) says "up to $500".
   The rate is $500.
 - **The hardship bursary asks for no documents.** Its screen has no upload, so
@@ -576,8 +949,6 @@ from a session scratchpad and are gone; what they covered is folded into
 
 - `POST /applications/{id}/attach/` (link a guest application to an account) has
   six backend tests and **no UI**.
-- Upload failure path has no frontend test; vitest reports the rejection as
-  unhandled despite the component catching it. Noted in the test file.
 - `MEDIA_ROOT` is local disk. Uploads will not survive a Vercel deploy without
   object storage.
 - 108 files are uncommitted as of this writing.

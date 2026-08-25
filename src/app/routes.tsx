@@ -22,12 +22,15 @@ const GuestApply = lazy(() => import('../features/auth/GuestApply'));
 const EnrollmentVerification = lazy(() => import('../features/enrolment/EnrollmentVerification'));
 
 const Dashboard = lazy(() => import('../features/dashboard/Dashboard'));
+const Profile = lazy(() => import('../features/profile/Profile'));
 const Applications = lazy(() => import('../features/applications/Applications'));
 const Apply = lazy(() => import('../features/applications/Apply'));
 const ApplicationDetail = lazy(() => import('../features/applications/ApplicationDetail'));
 const ReviewQueue = lazy(() => import('../features/review/ReviewQueue'));
+const ApprovalLetter = lazy(() => import('../features/letters/ApprovalLetter'));
 const PaymentRun = lazy(() => import('../features/finance/PaymentRun'));
 const PolicyRates = lazy(() => import('../features/policy/PolicyRates'));
+const AnnualReport = lazy(() => import('../features/reports/AnnualReport'));
 const People = lazy(() => import('../features/people/People'));
 const Notifications = lazy(() => import('../features/notifications/Notifications'));
 const Help = lazy(() => import('../features/help/Help'));
@@ -58,12 +61,19 @@ export default function App() {
 
           <Route element={<ProtectedRoute><AppShell /></ProtectedRoute>}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/applications" element={<Applications />} />
             <Route path="/applications/:id" element={<ApplicationDetail />} />
             <Route path="/apply/:type" element={<Apply />} />
             <Route path="/review" element={<ReviewQueue />} />
             <Route path="/review/:id" element={<ApplicationDetail />} />
+            {/* Reached by the student from their application and by the
+                office from the review screen: it is one letter, and the
+                same permission check decides who may read it. */}
+            <Route path="/applications/:id/approval-letter"
+                   element={<ApprovalLetter />} />
             <Route path="/payments" element={<PaymentRun />} />
+            <Route path="/reports" element={<AnnualReport />} />
             <Route path="/policy" element={<PolicyRates />} />
             <Route path="/people" element={<People />} />
             <Route path="/notifications" element={<Notifications />} />

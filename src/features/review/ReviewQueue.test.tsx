@@ -44,9 +44,9 @@ function page(rows: ApplicationSummary[], count = rows.length): Page<Application
   return { count, next: null, previous: null, results: rows };
 }
 
-function renderQueue() {
+function renderQueue(url = '/review') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[url]}>
       <ReviewQueue />
     </MemoryRouter>,
   );
@@ -125,6 +125,63 @@ describe('ReviewQueue', () => {
 
     expect(await screen.findByText('Late')).toBeInTheDocument();
     expect(screen.getByText('Residency')).toBeInTheDocument();
+  });
+
+  it('arrives filtered when the dashboard links in filtered', async () => {
+    // The dashboard's queue tiles link to /review?status=submitted. While the
+    // filters were component state every one of those links landed on the whole
+    // list, filtered by nothing, with no sign the filter had been dropped.
+    applications.mockResolvedValue(page([row()]));
+    renderQueue('/review?status=submitted');
+
+    await waitFor(() =>
+      expect(applications).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'submitted' }),
+      ),
+    );
+    expect(screen.getByLabelText('Status')).toHaveValue('submitted');
+  });
+
+  it('arrives filtered to a funding stream the same way', async () => {
+    applications.mockResolvedValue(page([row()]));
+    renderQueue('/review?stream=dggr');
+
+    await waitFor(() =>
+      expect(applications).toHaveBeenLastCalledWith(
+        expect.objectContaining({ stream: 'dggr' }),
+      ),
+    );
+    expect(screen.getByLabelText('Funding stream')).toHaveValue('dggr');
+  });
+
+  it('filters by stream on the server rather than in the browser', async () => {
+    applications.mockResolvedValue(page([row()]));
+    renderQueue();
+    await screen.findByText('Jane Doe');
+
+    fireEvent.change(screen.getByLabelText('Funding stream'), {
+      target: { value: 'psssp' },
+    });
+
+    await waitFor(() =>
+      expect(applications).toHaveBeenLastCalledWith(
+        expect.objectContaining({ stream: 'psssp' }),
+      ),
+    );
+  });
+
+  it('ignores a filter value nobody offered rather than passing it on', async () => {
+    // The server filters on a choice field, so a junk value is a 400 and the
+    // queue reports itself as unloadable. Reading an unoffered value as though
+    // somebody had chosen it is the fault that let a screening answer nobody
+    // offered decide a funding stream.
+    applications.mockResolvedValue(page([row()]));
+    renderQueue('/review?stream=not-a-stream&status=invented');
+
+    await screen.findByText('Jane Doe');
+    const sent = applications.mock.calls[0][0];
+    expect(sent).not.toHaveProperty('stream');
+    expect(sent).not.toHaveProperty('status');
   });
 
   it('says so plainly when nothing matches', async () => {

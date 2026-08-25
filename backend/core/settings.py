@@ -202,6 +202,13 @@ SUPPORT_PHONE = config('SUPPORT_PHONE', default='(867) 589-3515')
 SUPPORT_ADDRESS = config('SUPPORT_ADDRESS',
                          default='P.O. Box 156, Délı̨nę, NT X0E 0G0')
 
+# Who signs an approval letter. The office's templates carry one Director's name
+# typed into the document; a person who leaves the post should not need a code
+# change to stop signing the office's letters.
+DIRECTOR_NAME = config('DIRECTOR_NAME', default='Wajiha Shah')
+DIRECTOR_TITLE = config('DIRECTOR_TITLE', default='Director of Education')
+DIRECTOR_EMAIL = config('DIRECTOR_EMAIL', default='director.education@gov.deline.ca')
+
 # CORS configuration
 CORS_ALLOWED_ORIGINS = [
     FRONTEND_URL,

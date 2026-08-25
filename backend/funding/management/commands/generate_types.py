@@ -231,6 +231,15 @@ def render() -> str:
     lines[-1] += ';'
     lines.append('')
 
+    # Emitted rather than written out in the component that filters by stream:
+    # a label typed in the client is a second name for the same thing, and this
+    # system has already been bitten by a display string deciding what a stream
+    # was.
+    lines += ['export const FUNDING_STREAM_LABELS: Record<FundingStream, string> = {']
+    for value, label in FundingStream.choices:
+        lines.append(f"  {value}: {label!r}".replace("'", '"') + ',')
+    lines += ['};', '']
+
     lines += ['/** Answer shape for a given application type. */',
               'export interface AnswersByType {']
     for schema in all_schemas():

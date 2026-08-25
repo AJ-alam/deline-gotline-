@@ -7,6 +7,9 @@ from funding.api.finance_views import DispatchView, PendingAwardsView
 from funding.api.policy_views import (
     PolicySettingDetailView, PolicySettingsView, RuleSetsView,
 )
+from funding.api.report_views import (
+    AnnualReportPdfView, AnnualReportView, ReportedCostsView, RepaymentsView,
+)
 from funding.api.views import (
     ApplicationViewSet, DashboardView, EnrolmentPreviewView,
     EnrollmentVerificationView, GuestApplicationView, PrefillView, SchemaView,
@@ -39,5 +42,12 @@ urlpatterns = [
     path('policy/rates/<int:pk>/', PolicySettingDetailView.as_view(),
          name='policy-rate-detail'),
     path('policy/rule-sets/', RuleSetsView.as_view(), name='policy-rule-sets'),
+    # The department's annual report to its head office, and the two figures
+    # the office enters against it by hand.
+    path('reports/annual/', AnnualReportView.as_view(), name='report-annual'),
+    path('reports/annual/pdf/', AnnualReportPdfView.as_view(),
+         name='report-annual-pdf'),
+    path('reports/costs/', ReportedCostsView.as_view(), name='report-costs'),
+    path('reports/repayments/', RepaymentsView.as_view(), name='report-repayments'),
     path('', include(router.urls)),
 ]

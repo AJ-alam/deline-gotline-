@@ -127,6 +127,31 @@ class EndpointTests(TestCase):
     def test_an_eligible_person_can_register(self):
         self.assertEqual(self._register().status_code, 201)
 
+    def test_an_answer_nobody_offered_is_refused_at_registration(self):
+        """`_yes` reads anything it does not recognise as a no, silently.
+
+        So a screening answer of 'maybe' — or a number, which a CharField will
+        quietly stringify — created an account with a funding stream decided by
+        a comparison falling through. The profile checks this when the same
+        answers are given again; a rule enforced at one of two entrances is not
+        enforced.
+        """
+        for value in ('maybe', 'Y', 5, True):
+            with self.subTest(value=value):
+                response = self._register(
+                    eligibility={**ELIGIBLE_BOTH, 'receives_sfa': value})
+                self.assertEqual(response.status_code, 400, repr(value))
+                self.assertIn('eligibility', response.data)
+                self.assertFalse(
+                    User.objects.filter(email__iexact='new@example.com').exists())
+
+    def test_the_third_choice_the_office_offers_is_accepted(self):
+        """`lives_in_nwt` offers 'moving'. Checking against yes/no alone would
+        refuse an answer the office's own question offers."""
+        self.assertEqual(
+            self._register(eligibility={**ELIGIBLE_BOTH, 'lives_in_nwt': 'moving'})
+            .status_code, 201)
+
     def test_an_ineligible_person_is_refused_with_the_guidance(self):
         response = self._register(eligibility={
             **ELIGIBLE_BOTH, 'indian_act_registered': 'no', 'deline_beneficiary': 'no',

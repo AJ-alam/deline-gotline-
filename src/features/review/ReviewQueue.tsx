@@ -10,14 +10,15 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import api, {
   type ApplicationStatus,
   type ApplicationSummary,
   type ApplicationType,
+  type FundingStream,
 } from '../../api/client';
-import { APPLICATION_TYPE_LABELS } from '../../api/schema.generated';
+import { APPLICATION_TYPE_LABELS, FUNDING_STREAM_LABELS } from '../../api/schema.generated';
 import { Alert, Badge, Button, Card, Field, Select } from '../../components/ui';
 import { formatDate, formatMoney, statusTone } from '../../components/ui/format';
 
@@ -32,13 +33,63 @@ const STATUSES: Array<{ value: ApplicationStatus | ''; label: string }> = [
   { value: 'sent_to_finance', label: 'Sent to finance' },
 ];
 
+/**
+ * A filter value the query string offered, or nothing.
+ *
+ * Anything unrecognised is dropped rather than passed on. The server filters on
+ * a choice field, so a junk value comes back a 400 and the queue reports itself
+ * as unloadable - and reading an unoffered value as though somebody had chosen
+ * it is the fault that let a screening answer nobody offered decide a stream.
+ */
+function offered<T extends string>(value: string | null, allowed: string[]): T | '' {
+  return value && allowed.includes(value) ? (value as T) : '';
+}
+
+const STATUS_VALUES = STATUSES.map((option) => option.value).filter(Boolean) as string[];
+
 export default function ReviewQueue() {
   const [rows, setRows] = useState<ApplicationSummary[] | null>(null);
   const [total, setTotal] = useState(0);
-  const [status, setStatus] = useState<ApplicationStatus | ''>('');
-  const [type, setType] = useState<ApplicationType | ''>('');
-  const [page, setPage] = useState(1);
   const [error, setError] = useState('');
+
+  // The filters live in the URL, not in component state. The dashboard links
+  // into this queue already filtered - "To review" means status=submitted, a
+  // stream tile means that stream - and while the filters were local state
+  // every one of those links arrived at an unfiltered list showing everything,
+  // with nothing to say the filter had been ignored. Same class as the global
+  // DjangoFilterBackend with no filterset_fields: a filter that is silently not
+  // applied still answers 200 with the whole list.
+  const [params, setParams] = useSearchParams();
+  const status = offered<ApplicationStatus>(params.get('status'), STATUS_VALUES);
+  const type = offered<ApplicationType>(
+    params.get('type'), Object.keys(APPLICATION_TYPE_LABELS));
+  const stream = offered<FundingStream>(
+    params.get('stream'), Object.keys(FUNDING_STREAM_LABELS));
+  const page = Math.max(1, Number(params.get('page')) || 1);
+
+  // Replacing rather than pushing. Narrowing a queue is not somewhere to go
+  // back to: pushed, three filter changes put three entries between the
+  // reviewer and the screen they arrived from, and Back stops meaning "leave".
+  const setPage = useCallback((next: number) => {
+    setParams((current) => {
+      const updated = new URLSearchParams(current);
+      if (next <= 1) updated.delete('page');
+      else updated.set('page', String(next));
+      return updated;
+    }, { replace: true });
+  }, [setParams]);
+
+  // Changing a filter returns to the first page: page 4 of one filter is
+  // routinely past the end of another, and an empty page reads as no work.
+  const setFilter = useCallback((key: string, value: string) => {
+    setParams((current) => {
+      const updated = new URLSearchParams(current);
+      if (value) updated.set(key, value);
+      else updated.delete(key);
+      updated.delete('page');
+      return updated;
+    }, { replace: true });
+  }, [setParams]);
 
   const [reloads, setReloads] = useState(0);
 
@@ -54,6 +105,7 @@ export default function ReviewQueue() {
         page,
         ...(status ? { status } : {}),
         ...(type ? { type } : {}),
+        ...(stream ? { stream } : {}),
       })
       .then((result) => {
         if (cancelled) return;
@@ -70,7 +122,7 @@ export default function ReviewQueue() {
     return () => {
       cancelled = true;
     };
-  }, [page, status, type, reloads]);
+  }, [page, status, type, stream, reloads]);
 
   const refresh = useCallback(() => setReloads((n) => n + 1), []);
 
@@ -89,10 +141,7 @@ export default function ReviewQueue() {
             <Select
               id="filter-status"
               value={status}
-              onChange={(e) => {
-                setStatus(e.target.value as ApplicationStatus | '');
-                setPage(1);
-              }}
+              onChange={(e) => setFilter('status', e.target.value)}
             >
               {STATUSES.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -105,13 +154,28 @@ export default function ReviewQueue() {
             <Select
               id="filter-type"
               value={type}
-              onChange={(e) => {
-                setType(e.target.value as ApplicationType | '');
-                setPage(1);
-              }}
+              onChange={(e) => setFilter('type', e.target.value)}
             >
               <option value="">Any type</option>
               {Object.entries(APPLICATION_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {/* The primary stream - the one whose deadline the submission was
+              measured against. Pricing draws on every stream the applicant
+              qualifies for, so this narrows the queue and says nothing about
+              which pot paid. */}
+          <Field id="filter-stream" label="Funding stream">
+            <Select
+              id="filter-stream"
+              value={stream}
+              onChange={(e) => setFilter('stream', e.target.value)}
+            >
+              <option value="">Any stream</option>
+              {Object.entries(FUNDING_STREAM_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
@@ -185,13 +249,13 @@ export default function ReviewQueue() {
           {total} application{total === 1 ? '' : 's'}
         </span>
         <div className="row">
-          <Button size="sm" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>
+          <Button size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
             Previous
           </Button>
           <Button
             size="sm"
             disabled={rows !== null && page * 50 >= total}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setPage(page + 1)}
           >
             Next
           </Button>

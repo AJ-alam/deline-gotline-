@@ -13,7 +13,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.utils import timezone
 
-from funding.models import Award, AwardDecision, RuleSet
+from funding.models import AWARDED_STATUSES, Award, AwardDecision, RuleSet
 from funding.rules.engine import price
 from funding.services.policy import PolicyBook
 
@@ -125,10 +125,22 @@ def record_decision(application, actor=None, rule_set=None, allow_incomplete=Fal
             rule_code=outcome.code,
             category=outcome.category,
             amount=outcome.amount,
+            detail=outcome.detail,
         )
 
     application.awarded_total = decision.total
     application.save(update_fields=['awarded_total', 'updated_at'])
+
+    # The approval letter normally rides along with the approval email. It
+    # cannot when the office approves *before* pricing — there was no award to
+    # describe at that moment — and nothing in the workflow requires the two in
+    # either order. Without this the student got no letter at all, silently, on
+    # a path the office is free to take. Sent here too when an approved
+    # application is re-priced, because the letter they are already holding
+    # names figures that have since been superseded.
+    if application.status in AWARDED_STATUSES:
+        from funding.services import messages
+        messages.send_approval_letter(application)
 
     logger.info(
         'Application %s priced at %s under %s v%s (%d line(s)).',
@@ -256,6 +268,13 @@ def record_manual_decision(application, lines, actor=None, note: str = ''):
 
     application.awarded_total = total
     application.save(update_fields=['awarded_total', 'updated_at'])
+
+    # Same reason as the priced path: the office setting the breakdown by hand
+    # on an approved application changes what the student was told they are
+    # getting, and the letter they are holding names the old figures.
+    if application.status in AWARDED_STATUSES:
+        from funding.services import messages
+        messages.send_approval_letter(application)
 
     logger.info('Application %s awarded %s by hand by %s (%d line(s)).',
                 application.pk, total, who, len(cleaned))

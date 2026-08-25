@@ -1,0 +1,306 @@
+/* Reports — the year at a glance.
+
+   Deliberately not the shape of the formal report. That document is four dense
+   ruled tables because its reader expects them; this screen is read by the
+   office at a glance, so the figures are large and the labels are sentences. */
+
+.rhead__actions { align-items: flex-end; gap: var(--s-4); }
+.rhead__note { max-width: 72ch; margin-top: calc(var(--s-4) * -1); }
+
+.rgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--s-5);
+}
+
+/* ── The headline figure ── */
+
+.rhero { padding: var(--s-2) 0 var(--s-4); }
+.rhero__figure {
+  font-size: 2.6rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+.rhero--small .rhero__figure { font-size: 2rem; }
+.rhero__caption { margin-top: var(--s-2); color: var(--text-2); max-width: 52ch; }
+
+/* ── The reconciliation, read down like a statement ── */
+
+.rledger { list-style: none; margin: 0; padding: 0; }
+.rledger li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.rledger li:last-child { border-bottom: 0; }
+.rledger strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rledger__back strong { color: #9a6b1f; }
+.rledger__sub { color: var(--text-2); }
+.rledger__total {
+  border-top: 2px solid var(--border-strong);
+  padding-top: var(--s-4);
+}
+.rledger__total strong { font-size: var(--text-xl); color: var(--gold); }
+
+/* ── Ranked lists with a proportion bar ── */
+
+.rlist { list-style: none; margin: var(--s-2) 0 0; padding: 0; }
+.rlist li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.rlist li:last-child { border-bottom: 0; }
+.rlist__label { min-width: 0; }
+.rlist__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rlist--entered .rlist__label { font-style: italic; }
+
+.rbar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.rbar__fill { display: block; height: 100%; background: var(--gold); }
+
+/* ── Small split lists ── */
+
+.rsplit { list-style: none; margin: var(--s-3) 0 0; padding: 0; }
+.rsplit li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-4);
+  padding: var(--s-2) 0;
+}
+.rsplit strong { font-variant-numeric: tabular-nums; }
+.rsplit--quiet {
+  margin-top: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+/* ── Institutions ── */
+
+.rinst + .rinst { margin-top: var(--s-5); }
+.rinst__head {
+  margin: var(--s-4) 0 0;
+  font-size: var(--text-base);
+  font-weight: 650;
+}
+
+.rentry {
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 640px) {
+  .rlist li { grid-template-columns: minmax(0, 1fr) auto; }
+  .rlist .rbar { display: none; }
+  .rhero__figure { font-size: 2rem; }
+}
+
+/* ── Chart marks ────────────────────────────────────────────────────────────
+   The specs are fixed: bars capped in thickness with a rounded data-end and a
+   square baseline, hairline recessive gridlines, and a 2px gap in the surface
+   colour doing the separating rather than a stroke around each mark. */
+
+.chart { margin: var(--s-4) 0 0; }
+.chart__svg { width: 100%; height: auto; display: block; }
+
+.chart__tick { font-size: 11px; fill: var(--text-3); }
+.chart__axis { font-size: 12px; fill: var(--text-2); font-weight: 600; }
+.chart__tip { font-size: 11px; fill: var(--text); }
+
+/* Set inside a filled segment, so it takes the one exception to "text never
+   wears the data colour" — white on the fill, never the hue on the surface. */
+.chart__inlabel {
+  font-size: 11px;
+  font-weight: 650;
+  fill: #fff;
+  paint-order: stroke;
+}
+
+/* ── Horizontal bars ── */
+
+.cbars { list-style: none; margin: 0; padding: 0; }
+.cbars__row {
+  display: grid;
+  grid-template-columns: minmax(0, 15rem) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.cbars__row:last-child { border-bottom: 0; }
+.cbars__label { min-width: 0; }
+.cbars__name { display: block; font-weight: 600; }
+.cbars__sub {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cbars__row--muted .cbars__name { font-style: italic; font-weight: 550; }
+
+.cbars__track { height: 14px; }
+.cbars__fill {
+  display: block;
+  height: 100%;
+  /* Rounded at the data end, square at the baseline. */
+  border-radius: 0 4px 4px 0;
+}
+/* A zero draws nothing. `min-width` gave every empty category a visible stub,
+   so "Summer student awards $0" looked like a small amount of money rather
+   than none — a mark where there is no data. */
+.cbars__fill:not([style*="width: 0"]) { min-width: 3px; }
+.cbars__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+/* ── Part-to-whole ── */
+
+.cstack {
+  display: flex;
+  height: 22px;
+  border-radius: 4px;
+  overflow: hidden;
+  /* The gap between segments is the surface showing through. */
+  gap: 2px;
+  background: var(--surface);
+}
+.cstack__seg:first-child { border-radius: 4px 0 0 4px; }
+.cstack__seg:last-child { border-radius: 0 4px 4px 0; }
+
+/* ── Legend ── */
+
+.clegend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3) var(--s-5);
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+.clegend li { display: flex; align-items: center; gap: var(--s-2); }
+.clegend__dot {
+  width: 10px; height: 10px; border-radius: 3px; flex: none;
+}
+.clegend__label { color: var(--text-2); }
+.clegend strong { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 700px) {
+  .cbars__row { grid-template-columns: minmax(0, 1fr) auto; }
+  .cbars__track { display: none; }
+}
+
+/* ── The headline row ───────────────────────────────────────────────────────
+   Four figures the office wants before anything else. Stat tiles rather than
+   four one-bar charts: a single current value is a number, not a plot. */
+
+.rkpi {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+}
+.rkpi__tile {
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.rkpi__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.rkpi__value {
+  margin-top: var(--s-2);
+  font-size: var(--text-2xl);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.rkpi__hint { margin-top: 2px; font-size: var(--text-xs); color: var(--text-3); }
+
+/* ── Filters, one row above the charts ── */
+
+.rfilter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.rfilter__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-right: var(--s-2);
+}
+
+/* ── Programme breakdown ── */
+
+.rprog {
+  display: flex;
+  align-items: center;
+  /* Tighter than the usual card gutter: this pair sits in half a row, and the
+     space is worth more to the labels beside it than between them. */
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.chart--donut { margin: 0; flex: none; }
+.cdonut { width: 152px; height: 152px; display: block; }
+.cdonut__total {
+  font-size: 16px;
+  font-weight: 650;
+  fill: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.rprog__rows { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 260px; }
+.rprog__rows li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.rprog__rows li:last-child { border-bottom: 0; }
+.rprog__name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rprog__value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rprog__note { margin-top: var(--s-4); max-width: 74ch; }
+
+/* A qualifier on a ledger line, under the label rather than beside it —
+   the figures column is tabular and must not be pushed out of line. */
+.rledger__aside { display: block; margin-top: 2px; }

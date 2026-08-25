@@ -7,7 +7,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 
 import api, {
   ApiError,
@@ -458,6 +458,15 @@ export default function ApplicationDetail() {
         title="Award"
         actions={
           <div className="row">
+            {/* Only once there is an approval to congratulate somebody on. The
+                letter is emailed at the moment of the decision; this is where
+                it is read again, and where the office opens the copy the
+                student was sent rather than describing it down the phone. */}
+            {AWARDED_STATUSES.includes(application.status) && application.decision && (
+              <Link className="btn btn--secondary btn--sm" to={`/applications/${application.id}/approval-letter`}>
+                Approval letter
+              </Link>
+            )}
             {(canReview || canDecide) && (
               <Button size="sm" busy={busy === 'preview'} onClick={() => void runPreview()}>
                 Preview

@@ -41,12 +41,41 @@ FROM_ACCOUNT = {
     'postal_code': lambda user: user.postal_code,
 }
 
-# Facts about their studies, carried from the last application that stated one.
+# Facts about their studies, as the student maintains them on their profile.
 #
-# Deliberately absent: `semester` and `receives_sfa`, which are about this term
-# and this term only; the documents, which must be the current semester's; and
-# the declaration and signature, which are the act of applying itself. Filling
-# any of those in would be answering on the student's behalf.
+# Every key here is a column on `accounts.models.EnrolmentProfile` and a field
+# key on at least one schema. The mapping is deliberately name-for-name: a
+# translation layer between the two is a second place for them to disagree, and
+# a profile column that no schema asks for is a box a student fills in for
+# nothing.
+#
+# This is the only place `EnrolmentProfile` is read. See the docstring on the
+# model for why that matters.
+FROM_PROFILE = (
+    'institution_name',
+    'institution_location',
+    'institution_phone',
+    'registrar_email',
+    'student_number',
+    'program',
+    'credential_level',
+    'learning_style',
+    'course_load',
+    'program_start',
+    'program_end',
+    'program_year',
+    'program_length_years',
+    'dependent_count',
+)
+
+# The same facts, carried from the last application that stated one — for
+# everybody who has applied before and never opened the profile screen.
+#
+# Deliberately absent, here and on the profile: `semester` and `receives_sfa`,
+# which are about this term and this term only; the documents, which must be the
+# current semester's; and the declaration and signature, which are the act of
+# applying itself. Filling any of those in would be answering on the student's
+# behalf.
 FROM_EARLIER_APPLICATIONS = (
     'institution_name',
     'program',
@@ -56,6 +85,30 @@ FROM_EARLIER_APPLICATIONS = (
     'student_number',
     'phone',
 )
+
+
+def _from_profile(user, keys: set[str]) -> dict:
+    """The student's own profile, for the keys this schema actually asks.
+
+    Reads the row rather than creating one: pre-filling a form is not a reason
+    to write to the database, and `GET /api/form-prefill/{slug}/` is called on
+    every form open by every applicant.
+    """
+    profile = getattr(user, 'enrolment_profile', None)
+    if profile is None:
+        return {}
+
+    filled = {}
+    for key in FROM_PROFILE:
+        if key not in keys:
+            continue
+        value = getattr(profile, key, None)
+        # 0 dependants is an answer, and `if value` would drop it — the same
+        # class of fault as the frontend's `!answers[key]` treating "No" as
+        # unanswered.
+        if value not in (None, ''):
+            filled[key] = value
+    return filled
 
 
 def for_schema(user, schema) -> dict:
@@ -74,6 +127,14 @@ def for_schema(user, schema) -> dict:
         value = read(user)
         if value:
             filled[key] = value
+
+    # The profile before earlier applications, wherever both could answer. What
+    # a student maintains on purpose beats what is inferred from a form they
+    # filled in last February — that is the whole reason the screen exists, and
+    # a student who corrects their institution there and still sees the old one
+    # on the next form would reasonably conclude the profile does nothing.
+    for key, value in _from_profile(user, keys).items():
+        filled.setdefault(key, value)
 
     wanted = [key for key in FROM_EARLIER_APPLICATIONS if key in keys]
     if not wanted:

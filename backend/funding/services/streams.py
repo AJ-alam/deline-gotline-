@@ -78,11 +78,24 @@ def saved_streams(user) -> list[str]:
     tags existed. The fallback cannot produce UCEPP — nothing on an old account
     records whether the programme was an upgrading one — so those accounts keep
     behaving exactly as they did rather than being guessed into a stream.
+
+    **An empty list is only a missing answer when nobody has ever answered.**
+    The fallback used to fire on any account with no tags, which was safe while
+    the only way to have none was to predate them. It is not safe now that a
+    student can re-answer the screening on their profile: somebody who has
+    started receiving SFA and is not a beneficiary qualifies for nothing, that
+    is a decision rather than a gap, and falling through to
+    `is_indian_act_registered` handed them PSSSP back — the exact fault
+    `eligible_streams` was added to stop, arriving from the other direction. So
+    the assessment date is what separates "screened, and the answer is nothing"
+    from "never screened".
     """
     saved = [str(s).lower() for s in (getattr(user, 'eligible_streams', None) or [])]
     valid = [s for s in saved if s in FundingStream.values]
     if valid:
         return valid
+    if getattr(user, 'eligibility_assessed_at', None) is not None:
+        return []
 
     legacy = []
     if getattr(user, 'is_indian_act_registered', False):

@@ -9,6 +9,7 @@
 import { Link } from 'react-router-dom';
 
 import type { DashboardSummary } from '../../api/client';
+import { FUNDING_STREAM_LABELS } from '../../api/schema.generated';
 import { Badge, Card } from '../../components/ui';
 import { formatMoney, statusTone } from '../../components/ui/format';
 
@@ -51,6 +52,9 @@ function Stat({
 export default function StaffDashboard({ summary }: { summary: DashboardSummary }) {
   const statuses = Object.entries(summary.applications.by_status).filter(([, n]) => n > 0);
   const attention = summary.attention;
+  // Rendered whole or not at all: every stream is present even at zero, so a
+  // short list would mean the server sent nothing, not that a pot is empty.
+  const streams = summary.streams;
 
   return (
     <main className="page stack stack--loose">
@@ -79,6 +83,43 @@ export default function StaffDashboard({ summary }: { summary: DashboardSummary 
               value={formatMoney(summary.money.awaiting_payment)} />
         <Stat label="Paid" value={formatMoney(summary.money.paid)} />
       </div>
+
+      {/* Counts, not money. An award line carries no stream and could not
+          honestly be given one: a rule is gated against every stream the
+          applicant qualifies for, and DGGR tops up rather than replaces, so a
+          PSSSP application routinely carries DGGR money. A figure here labelled
+          DGGR would be read as what DGGR paid, and it is not. */}
+      {streams && (
+        <Card title="By funding stream">
+          <div className="stats">
+            {streams.map((row) => (
+              <Stat
+                key={row.stream}
+                label={row.label}
+                value={String(row.total)}
+                hint={`${row.open} still open`}
+                /* Only where the queue can actually filter on it. `stream` is a
+                   CharField with choices and no database constraint, and the
+                   server filters on the choice set: `?stream=` with a value
+                   outside it is a 400, and the queue would drop the filter and
+                   show every application in the office. A tile reading 4 that
+                   opens a list of 515 is the same lie as the dashboard links
+                   that were being ignored — arriving by a different door. */
+                to={
+                  row.stream in FUNDING_STREAM_LABELS
+                    ? `/review?stream=${row.stream}`
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+          <p className="small muted stream-split__note">
+            Applications, by the stream their deadline is measured against.
+            Pricing draws on every stream an applicant qualifies for, so these
+            are not amounts of money.
+          </p>
+        </Card>
+      )}
 
       {attention && (attention.submitted_late > 0 || attention.residency_mismatch > 0) && (
         <Card title="Needs a look">

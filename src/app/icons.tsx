@@ -22,6 +22,7 @@ export type IconName =
   | 'payments'
   | 'rates'
   | 'people'
+  | 'profile'
   | 'printer'
   | 'signOut'
   | 'help'
@@ -58,6 +59,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
   travel: <><path d="M3 13.5 21 5l-4 8.5 2.5 5.5-3 1-3.5-4.5-4 1.5Z" /></>,
   payments: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6.5 12h.01M17.5 12h.01" /></>,
   rates: <><path d="M4 20V9M10 20V4M16 20v-7M22 20H2" /></>,
+  profile: <><circle cx="12" cy="8" r="3.6" /><path d="M4.5 20c0-3.8 3.4-6.2 7.5-6.2s7.5 2.4 7.5 6.2" /></>,
   people: <><circle cx="9" cy="8" r="3.2" /><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" /><path d="M16 5.2A3.2 3.2 0 0 1 16 11" /><path d="M17.5 14.8c2 .7 3.5 2.5 3.5 5.2" /></>,
   printer: <><path d="M7 9V3h10v6" /><rect x="3" y="9" width="18" height="7" rx="2" /><path d="M7 14h10v7H7z" /></>,
   signOut: <><path d="M14 4H6v16h8" /><path d="M18 12H10" /><path d="m15 9 3 3-3 3" /></>,

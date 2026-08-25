@@ -54,6 +54,13 @@ const GROUPS: Group[] = [
         to: '/review', label: 'Applications', icon: 'applications',
         when: (u) => reviews(u) || decides(u),
       },
+      {
+        // Students only. Staff have no eligibility screening, no enrolment and
+        // no bank account here, and the API refuses all three for them — a
+        // destination that 403s on arrival is worse than one that is absent.
+        to: '/profile', label: 'Your profile', icon: 'profile',
+        hint: 'Details we fill your applications in from', when: isStudent,
+      },
       { to: '/notifications', label: 'Notifications', icon: 'bell', when: () => true },
     ],
   },
@@ -81,6 +88,10 @@ const GROUPS: Group[] = [
     heading: 'Office',
     items: [
       { to: '/payments', label: 'Payments', icon: 'payments', when: pays },
+      // The roles that already see money. A support worker assesses
+      // applications and does not need the year's expenditure.
+      { to: '/reports', label: 'Reports', icon: 'rates',
+        when: (u) => pays(u) || decides(u) },
       { to: '/policy', label: 'Policy rates', icon: 'rates', when: staff },
       { to: '/people', label: 'People', icon: 'people', when: staff },
       { to: '/forms', label: 'Printable forms', icon: 'printer', when: staff },

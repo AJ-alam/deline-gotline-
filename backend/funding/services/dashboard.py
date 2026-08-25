@@ -16,20 +16,74 @@ from django.db.models import Count, Q, Sum
 
 from funding.models import (
     Application, ApplicationStatus, ApplicationType, Award,
-    EnrollmentVerification,
+    EnrollmentVerification, FundingStream,
 )
 from funding.services import deadlines as deadline_service
 
 ZERO = Decimal('0.00')
 
 
-def _counts_by_status(queryset) -> dict[str, int]:
-    """One query for every status count, rather than one query per status."""
-    counted = {
-        row['status']: row['n']
-        for row in queryset.values('status').annotate(n=Count('id'))
-    }
+def _grouped(queryset) -> list[dict]:
+    """Every (status, stream) pair present, with a count.
+
+    One query answers both "how many are in each status" and "how many are in
+    each stream": the pairs are bounded by the two choice sets, not by how many
+    applications exist, so this costs the same on an empty database and on a
+    full one. Counting the two separately would have put the staff summary over
+    the query budget its own test enforces.
+    """
+    return list(queryset.values('status', 'stream').annotate(n=Count('id')))
+
+
+def _counts_by_status(rows) -> dict[str, int]:
+    """Every status, including the ones nothing is in.
+
+    A missing key makes a dashboard show nothing where it should show zero.
+    """
+    counted: dict[str, int] = {}
+    for row in rows:
+        counted[row['status']] = counted.get(row['status'], 0) + row['n']
     return {status: counted.get(status, 0) for status in ApplicationStatus.values}
+
+
+def _split_by_stream(rows) -> list[dict]:
+    """How the applications divide across the three pots.
+
+    Counts, and deliberately no money. An `Award` line carries no stream, and it
+    could not honestly be given one: `rules.engine._streams_for` gates a rule
+    against *every* stream the applicant qualifies for, and DGGR tops up rather
+    than replaces — so a PSSSP application routinely carries DGGR money. Summing
+    awards by `Application.stream` would publish "DGGR $12,000" on a screen
+    where that reads as what DGGR paid, and it is not. The primary stream is a
+    fact about the application; it is not an attribution of the money.
+
+    Every stream appears even at zero — a split that omits the empty pots is a
+    list, not a split, and UCEPP being nought is itself worth seeing, since
+    nothing assigns it automatically. A stored value outside the choice set is
+    carried through under its own name rather than dropped, so the rows always
+    add up to the total beside them.
+    """
+    totals: dict[str, int] = {}
+    open_counts: dict[str, int] = {}
+    open_states = set(ApplicationStatus.open_states())
+    for row in rows:
+        stream = row['stream']
+        totals[stream] = totals.get(stream, 0) + row['n']
+        if row['status'] in open_states:
+            open_counts[stream] = open_counts.get(stream, 0) + row['n']
+
+    labels = dict(FundingStream.choices)
+    known = list(FundingStream.values)
+    unknown = sorted(set(totals) - set(known))
+    return [
+        {
+            'stream': stream,
+            'label': labels.get(stream, stream),
+            'total': totals.get(stream, 0),
+            'open': open_counts.get(stream, 0),
+        }
+        for stream in known + unknown
+    ]
 
 
 def _next_step(user, applications) -> dict:
@@ -128,7 +182,7 @@ def _recent(applications, limit: int = 5) -> list[dict]:
 
 def for_student(user) -> dict:
     applications = Application.objects.filter(student=user)
-    by_status = _counts_by_status(applications)
+    by_status = _counts_by_status(_grouped(applications))
 
     # Scoped to the decision in force *and* to an application that has been
     # approved. Scoping by decision alone was the previous fix and only half of
@@ -183,7 +237,8 @@ def _deadlines() -> list[dict]:
 
 def for_staff(user) -> dict:
     applications = Application.objects.all()
-    by_status = _counts_by_status(applications)
+    grouped = _grouped(applications)
+    by_status = _counts_by_status(grouped)
 
     # The same scoping as the student's, for the same reason: the office's
     # totals were inflated by every re-pricing anybody had ever done, and then
@@ -239,6 +294,8 @@ def for_staff(user) -> dict:
             'submitted_late': flags['late'],
             'residency_mismatch': flags['residency'],
         },
+        # Which pot the work is sitting in. Counts only — see _split_by_stream.
+        'streams': _split_by_stream(grouped),
     }
 
 

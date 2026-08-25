@@ -189,6 +189,74 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.role in (Role.FINANCE, Role.ADMIN)
 
 
+class EnrolmentProfile(models.Model):
+    """What a student keeps on file about their studies, so a form opens filled in.
+
+    This is deliberately *not* on `User`, and deliberately not read by anything
+    that decides money. The comment at the top of this module explains why the
+    old CustomUser held `institution`, `program` and `enrollment_status`: award
+    calculation fell back to `student.enrollment_status` whenever an answer was
+    missing, so last year's facts priced this year's application and nobody
+    could see it happening.
+
+    So the rule here is one sentence, and it is enforced by a test
+    (`test_profile.ProfileNeverPricesTests`):
+
+        **The only reader of this table is `funding.services.prefill`.**
+
+    Nothing in `funding.rules`, `funding.services.streams`, `decisions` or
+    `finance` may consult it. An application's answers remain the record its
+    decision was made from; this only decides what the boxes are pre-filled
+    with before the student confirms or corrects them.
+
+    Which is also why nothing here is required and nothing is validated as
+    though it were an application: a half-filled profile is a half-filled
+    convenience. The schema validates the form, every time, whatever it opened
+    with.
+
+    Per-term facts are absent on purpose — the semester, its dates, the tuition
+    quoted, and whether SFA is being received this term. Carrying those forward
+    is answering on the student's behalf about a term they have not started.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='enrolment_profile',
+    )
+
+    # ── Institution ──
+    institution_name = models.CharField(max_length=255, blank=True)
+    institution_location = models.CharField(max_length=255, blank=True)
+    institution_phone = models.CharField(max_length=32, blank=True)
+    # Where the enrolment verification is emailed. Carried from the last
+    # application today, which is why a student whose admission was on paper had
+    # nothing to carry and their renewal could never be confirmed.
+    registrar_email = models.EmailField(blank=True)
+    student_number = models.CharField(max_length=64, blank=True)
+
+    # ── Programme ──
+    program = models.CharField(max_length=255, blank=True)
+    credential_level = models.CharField(max_length=32, blank=True)
+    learning_style = models.CharField(max_length=32, blank=True)
+    course_load = models.CharField(max_length=32, blank=True)
+    program_start = models.DateField(null=True, blank=True)
+    program_end = models.DateField(null=True, blank=True)
+    program_year = models.PositiveSmallIntegerField(null=True, blank=True)
+    program_length_years = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    # ── Household ──
+    # Stable enough to keep, unlike the semester. Still asked on every form that
+    # prices against it.
+    dependent_count = models.PositiveSmallIntegerField(null=True, blank=True)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'enrolment_profile'
+
+    def __str__(self):
+        return f'{self.user.email}: {self.program or "no programme on file"}'
+
+
 class BankAccount(models.Model):
     """Where a person's money is sent.
 

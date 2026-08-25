@@ -22,6 +22,9 @@ vi.mock('../api/client', async () => {
 });
 
 const { default: SchemaForm } = await import('./SchemaForm');
+// The real class, from the mocked module's own exports — the component checks
+// `err instanceof ApiError`, so a look-alike object would not take that branch.
+const { ApiError } = await import('../api/client');
 
 function field(overrides: Partial<SchemaField> & { key: string }): SchemaField {
   return {
@@ -66,7 +69,14 @@ function show(props: Partial<React.ComponentProps<typeof SchemaForm>> = {}) {
 }
 
 describe('SchemaForm steps', () => {
-  beforeEach(() => uploadDocument.mockReset());
+  beforeEach(() => {
+    // Braces, not a concise arrow body. `mockReset()` returns the mock, and a
+    // value returned from `beforeEach` is treated as a teardown function — so
+    // the runner called the mock after every test with nobody awaiting it.
+    // Against a rejecting implementation that is an unhandled rejection, which
+    // is what made the failure path below untestable.
+    uploadDocument.mockReset();
+  });
 
   it('shows only the current step', () => {
     show();
@@ -148,7 +158,14 @@ describe('SchemaForm steps', () => {
 });
 
 describe('document upload', () => {
-  beforeEach(() => uploadDocument.mockReset());
+  beforeEach(() => {
+    // Braces, not a concise arrow body. `mockReset()` returns the mock, and a
+    // value returned from `beforeEach` is treated as a teardown function — so
+    // the runner called the mock after every test with nobody awaiting it.
+    // Against a rejecting implementation that is an unhandled rejection, which
+    // is what made the failure path below untestable.
+    uploadDocument.mockReset();
+  });
 
   function toDocuments() {
     show();
@@ -179,10 +196,33 @@ describe('document upload', () => {
     expect(await screen.findByText(/transcript\.pdf/)).toBeInTheDocument();
   });
 
-  // Not covered here: the failure path. The component catches the rejection
-  // and renders the message — verified by hand and visible in the DOM — but
-  // vitest reports the rejection as an unhandled error regardless of the
-  // catch, and I would rather leave the gap stated than write a test that
-  // passes by asserting nothing. The messages themselves are covered by
-  // funding.test_documents on the server side.
+  it('says so on the question when the upload fails', async () => {
+    // This used to be a stated gap: the component caught the rejection and
+    // rendered the message, and the runner reported an unhandled rejection
+    // anyway. The cause was the concise `beforeEach` above, which handed the
+    // mock to the runner as a teardown function — so the runner itself called
+    // the rejecting mock, outside any catch. Nothing was wrong with the
+    // component.
+    uploadDocument.mockImplementation(() => Promise.reject(new Error('boom')));
+    toDocuments();
+
+    const file = new File(['%PDF'], 'transcript.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText(/Transcript/), { target: { files: [file] } });
+
+    expect(await screen.findByText(/could not be uploaded/)).toBeInTheDocument();
+  });
+
+  it("reports the server's own reason where it gives one", async () => {
+    // The reason travels as `ApiError.fieldErrors.file` — what the server says
+    // about the file itself. A cap or a rejected type is something the person
+    // can act on; "please try again" invites them to do the same thing again.
+    uploadDocument.mockImplementation(() => Promise.reject(
+      new ApiError(400, 'Bad request', { file: 'That file type is not accepted.' })));
+    toDocuments();
+
+    const file = new File(['x'], 'notes.exe', { type: 'application/octet-stream' });
+    fireEvent.change(screen.getByLabelText(/Transcript/), { target: { files: [file] } });
+
+    expect(await screen.findByText(/not accepted/)).toBeInTheDocument();
+  });
 });

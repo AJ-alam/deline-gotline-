@@ -62,7 +62,11 @@ register(ApplicationSchema(
         Field('date_of_birth', 'Date of birth', FieldType.DATE, required=True, section='Applicant'),
         Field('gender', 'Gender', FieldType.CHOICE, choices=GENDER, section='Applicant'),
         Field('email', 'Email address', FieldType.EMAIL, required=True, section='Applicant'),
-        Field('phone', 'Phone', FieldType.PHONE, required=True, section='Applicant'),
+        # Not required. An email address is how every notice from this portal
+        # reaches somebody, and it is required; a phone number is a second way
+        # of being reached, not a condition of applying for funding.
+        # `emergency_relief` is the deliberate exception — see remaining.py.
+        Field('phone', 'Phone', FieldType.PHONE, section='Applicant'),
         # Kept out of `answers` and out of the registrar's copy. See
         # funding.services.identifiers for how it is stored and who can read it.
         Field('sin', 'Social Insurance Number', FieldType.SIN, required=True,

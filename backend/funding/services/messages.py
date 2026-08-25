@@ -31,7 +31,15 @@ def _frontend(path: str) -> str:
 def _wrap(heading: str, body_html: str) -> str:
     """The one email shell. Table-based, because mail clients are not browsers."""
     return (
-        '<html><body style="margin:0;padding:24px;background:#faf8f4;'
+        # The MIME part already declares utf-8 and a conforming client honours
+        # it. This is for the ones that do not: webmail that lifts the body
+        # into its own document, and anyone who saves or forwards the HTML.
+        # Every message this office sends contains "Délı̨nę", and the letter now
+        # carries a good deal more of its language than that — the failure mode
+        # is the government's own name rendered as gibberish on a letter it
+        # signs. Encoding has already cost this project 143 unsent messages.
+        '<html><head><meta charset="utf-8"></head>'
+        '<body style="margin:0;padding:24px;background:#faf8f4;'
         'font-family:Arial,Helvetica,sans-serif;color:#1a1814;">'
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
         '<tr><td align="center">'
@@ -172,6 +180,13 @@ def send_decision(application, approved: bool, reason: str = '') -> None:
             '<p>The breakdown of your award, and the rule behind each part of it, '
             'is shown on your application.</p>'
         )
+        # The office's own approval letter, in full, rather than a link to it.
+        # A student who cannot sign in is exactly the person who needs to read
+        # what they were awarded — the same reason the help page is public.
+        #
+        # More than one letter where more than one programme funded the
+        # semester: DGGR tops up rather than replaces.
+        body += _approval_letters(application)
     else:
         heading, subject = 'A decision on your application', 'A decision on your funding application'
         body = (
@@ -182,10 +197,104 @@ def send_decision(application, approved: bool, reason: str = '') -> None:
         )
 
     body += _button(_frontend(f'/applications/{application.pk}'), 'View your application')
-    enqueue_on_commit(student.email, subject, _wrap(heading, body))
+    # The letter travels twice: readable in the message, and attached as a PDF
+    # the student can file, print or forward. Attached only where there is one.
+    enqueue_on_commit(student.email, subject, _wrap(heading, body),
+                      attachment=_letter_pdf(application) if approved else None)
     _notify(student, heading, 'Your application has been decided.',
             f'/applications/{application.pk}',
             Notification.Kind.APPROVED if approved else Notification.Kind.DECLINED)
+
+
+def _approval_letters(application) -> str:
+    """The approval letters for this application, rendered for email.
+
+    Never lets a letter stop a decision being announced: an application whose
+    award is a one-off has no letter, and a fault in rendering one must not
+    swallow the notice that somebody was approved.
+    """
+    from funding.services import approval_letter
+
+    try:
+        letters = approval_letter.letters_for(application)
+    except approval_letter.LetterUnavailable:
+        return ''
+    except Exception:  # pragma: no cover - defensive
+        logger.exception('Could not build the approval letter for application %s.',
+                         application.pk)
+        return ''
+
+    return ''.join(
+        '<hr style="border:0;border-top:1px solid #e2dbcd;margin:28px 0;">'
+        f'<p style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;'
+        f'color:#7a7264;margin:0 0 14px;">{escape(letter["programme_code"])}</p>'
+        + approval_letter.render_email(letter)
+        for letter in letters
+    )
+
+
+def _letter_pdf(application) -> tuple[str, bytes, str] | None:
+    """The approval letter as a PDF, ready to attach.
+
+    Returns None rather than raising: the office asked for the letter to be
+    shareable, and a fault in producing the attachment must not swallow the
+    notice that somebody was approved. The letter is in the body of the message
+    either way, so the student is never left with nothing.
+    """
+    from funding.services import approval_letter, letter_pdf
+
+    try:
+        letters = approval_letter.letters_for(application)
+    except approval_letter.LetterUnavailable:
+        return None
+    except Exception:  # pragma: no cover - defensive
+        logger.exception('Could not build the approval letter for application %s.',
+                         application.pk)
+        return None
+
+    try:
+        return (letter_pdf.filename_for(application.pk),
+                letter_pdf.render(letters), 'application/pdf')
+    except Exception:
+        # Including a missing or unusable font, which refuses loudly rather
+        # than printing the office's own name as boxes.
+        logger.exception('Could not render the approval letter PDF for '
+                         'application %s.', application.pk)
+        return None
+
+
+def send_approval_letter(application) -> None:
+    """The approval letter on its own, for an award priced after the approval.
+
+    The letter normally travels inside the approval email. It cannot when the
+    office approves *before* pricing — there is no award to describe yet, and
+    nothing in the workflow requires the two in that order. That left the
+    student with no letter at all, ever, in silence.
+
+    Also sent when an approved application is re-priced: the figures on the
+    letter they are holding have changed, and a superseded letter nobody
+    corrects is worse than a second one.
+    """
+    student = application.student
+    if not student:
+        return
+
+    body = _approval_letters(application)
+    if not body:
+        return
+
+    heading = 'Your approval letter'
+    body = (
+        '<p>Your approval letter is below. It sets out what you have been '
+        'awarded for this semester.</p>'
+        '<p>If you have had a letter from us for this application already, '
+        'this one replaces it.</p>'
+    ) + body
+    enqueue_on_commit(student.email, 'Your DGG approval letter', _wrap(heading, body),
+                      attachment=_letter_pdf(application))
+    _notify(student, heading, 'Your approval letter is ready.',
+            f'/applications/{application.pk}/approval-letter',
+            Notification.Kind.APPROVED)
 
 
 def send_information_requested(application, note: str = '') -> None:

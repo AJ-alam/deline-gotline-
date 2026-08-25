@@ -11,7 +11,7 @@ explaining it. An award nobody can explain is an award nobody can defend.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 ZERO = Decimal('0.00')
@@ -27,6 +27,17 @@ class EffectError(Exception):
 class Outcome:
     amount: Decimal
     explanation: str
+    # What the sentence above says, in figures a screen can use.
+    #
+    # `explanation` is prose written for a reviewer defending an amount on
+    # appeal. The approval letter needs the same facts as numbers — "$1,700.00
+    # a month for 4 months" is a row in a table the office sends out — and
+    # reading them back out of the sentence would make a display string decide
+    # what a letter says a student is paid. That mistake is the reason this
+    # system was rebuilt.
+    #
+    # Empty for every effect with nothing structured to add.
+    detail: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -115,6 +126,7 @@ class RatePerMonth(Effect):
         return Outcome(
             rate * months,
             f'${rate}/month x {months} month(s)',
+            detail={'monthly_rate': str(rate), 'months': months},
         )
 
 

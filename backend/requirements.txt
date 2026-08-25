@@ -14,4 +14,9 @@ python-dotenv==1.0.1
 supabase==2.15.3
 reportlab==4.3.1
 openpyxl==3.1.5
+# Reads a generated PDF back in the tests, so the approval letter is checked by
+# what a reader actually gets out of it rather than by grepping the bytes — the
+# fonts are embedded as subsets, so a byte search finds nothing in a correct
+# document.
+pypdf==6.1.1
 

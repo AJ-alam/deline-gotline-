@@ -103,6 +103,37 @@ def missing_answers(answers: dict) -> list[str]:
     return [q['key'] for q in QUESTIONS if not str(answers.get(q['key'], '')).strip()]
 
 
+def _choices_for(question: dict) -> set[str]:
+    return {value for value, _label in question.get('choices', (('yes', 'Yes'), ('no', 'No')))}
+
+
+def unrecognised_answers(answers: dict) -> dict[str, str]:
+    """Answers that are not one of the choices the question offered.
+
+    `_yes` reads anything it does not recognise as a no, silently. So
+    `receives_sfa: 'maybe'` — or a client that posts a number, which a
+    CharField will quietly stringify — decided a funding stream by falling
+    through a comparison, and looked from the outside exactly like somebody
+    answering no.
+
+    That is identity-by-display-string again in miniature: a value nobody
+    offered, meaning something nobody chose. Both doors that take these answers
+    check this, because a rule enforced at one of two entrances is not enforced.
+    """
+    problems = {}
+    for question in QUESTIONS:
+        key = question['key']
+        if key not in answers:
+            continue
+        given = str(answers[key]).strip().lower()
+        allowed = _choices_for(question)
+        if given and given not in allowed:
+            problems[key] = (
+                f'{answers[key]!r} is not one of the answers to this question. '
+                f'Expected one of: {", ".join(sorted(allowed))}.')
+    return problems
+
+
 def streams_for(answers: dict) -> list[str]:
     """Every stream these answers qualify for, best first.
 

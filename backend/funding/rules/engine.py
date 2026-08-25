@@ -26,6 +26,9 @@ class RuleOutcome:
     applied: bool
     amount: Decimal
     explanation: str
+    # The figures behind `explanation`, where an effect has any. See
+    # rules.effects.Outcome.detail.
+    detail: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -66,6 +69,8 @@ class Decision:
                     'applied': o.applied,
                     'amount': str(o.amount),
                     'reason': o.explanation,
+                    # The same facts as figures, where the effect has them.
+                    'detail': o.detail,
                 }
                 for o in self.outcomes
             ],
@@ -185,7 +190,7 @@ def _apply_rule(rule, application, context) -> RuleOutcome:
     result: Outcome = effect.apply(rule.effect, context)
     return RuleOutcome(
         rule.code, rule.description, rule.category, True,
-        result.amount, result.explanation,
+        result.amount, result.explanation, result.detail,
     )
 
 

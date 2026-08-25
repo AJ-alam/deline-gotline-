@@ -66,6 +66,20 @@ class OutboundEmail(models.Model):
     body_html = models.TextField()
     body_text = models.TextField(blank=True)
 
+    # One attachment, held as bytes on the row.
+    #
+    # Kept with the message rather than on disk or in object storage because
+    # the queue is drained by a separate process, possibly on another machine:
+    # a path written here would be a path that process cannot open, and the
+    # attachment would go missing with the message still reporting itself sent.
+    # `MEDIA_ROOT` is local disk on this deployment, which is the same fault.
+    #
+    # These are approval letters — tens of kilobytes. Anything that needs to be
+    # larger does not belong in an email queue.
+    attachment = models.BinaryField(null=True, blank=True, editable=False)
+    attachment_name = models.CharField(max_length=255, blank=True)
+    attachment_type = models.CharField(max_length=100, blank=True)
+
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     attempts = models.PositiveSmallIntegerField(default=0)
     last_error = models.TextField(blank=True)

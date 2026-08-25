@@ -72,7 +72,10 @@ register(ApplicationSchema(
         Field('sin', 'Social Insurance Number', FieldType.SIN,
               help_text='Optional. Stored encrypted and never shown in full.',
               section=STUDENT),
-        Field('phone', 'Phone', FieldType.PHONE, required=True, section=STUDENT),
+        # Not required, and it matters most here: this award is claimed with no
+        # account at all, so a required phone number is a claim that cannot be
+        # filed by somebody who would rather be written to.
+        Field('phone', 'Phone', FieldType.PHONE, section=STUDENT),
         Field('email', 'Email', FieldType.EMAIL, required=True,
               help_text='Where your reference number and the decision are sent.',
               section=STUDENT),

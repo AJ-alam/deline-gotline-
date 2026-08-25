@@ -7,7 +7,7 @@ be filing, not structure.
 
 from . import ApplicationSchema, Choice, Field, FieldType, register
 from .admission import COURSE_LOAD, CREDENTIAL_LEVEL, SEMESTER
-from .common import applicant, banking, signature, total_of
+from .common import banking, signature, total_of
 
 # Section names double as the headings a step is built from, so they read as
 # instructions rather than as filing categories.
@@ -517,6 +517,24 @@ register(ApplicationSchema(
 # Completed by the institution's registrar, not the student. It confirms the
 # facts the funding calculation depends on, which is why tuition is not awarded
 # until it arrives.
+# What the department reports against. The office's annual report splits
+# students into university and college, and its own note says trades and
+# upgrading are *subsets* of that split rather than alternatives to it — which
+# is why these are two questions and not one.
+INSTITUTION_TYPE = (
+    Choice('university', 'University'),
+    Choice('college', 'College or polytechnic'),
+    Choice('trades_school', 'Trades school'),
+    Choice('other', 'Other'),
+)
+
+PROGRAM_TYPE = (
+    Choice('post_secondary', 'Post-secondary education'),
+    Choice('trades', 'Trades'),
+    Choice('upgrading', 'Upgrading'),
+)
+
+
 register(ApplicationSchema(
     slug='enrollment_verification',
     summary=(
@@ -546,6 +564,23 @@ register(ApplicationSchema(
               choices=COURSE_LOAD, section='Enrollment'),
         Field('credential_level', 'Working towards', FieldType.CHOICE,
               choices=CREDENTIAL_LEVEL, section='Enrollment'),
+        # The two classifications the department's annual report is built on.
+        # Asked of the registrar rather than the student, and rather than being
+        # guessed from the institution's name: "Northern Lights College" grants
+        # degrees, and a report figure decided by matching words in a typed name
+        # is a display string deciding what the office tells its funder — the
+        # fault this system was rebuilt to remove.
+        #
+        # Not required. The registrar's answer governs tuition, and a
+        # confirmation that cannot be submitted because of a reporting question
+        # would hold up an award; an enrolment nobody classified is reported as
+        # unclassified rather than refused.
+        Field('institution_type', 'Type of institution', FieldType.CHOICE,
+              choices=INSTITUTION_TYPE, section='Enrollment',
+              help_text='Used for the department\'s annual reporting.'),
+        Field('program_type', 'This program qualifies as', FieldType.CHOICE,
+              choices=PROGRAM_TYPE, section='Enrollment',
+              help_text='Used for the department\'s annual reporting.'),
         Field('semester', 'Semester enrolled', FieldType.CHOICE, choices=SEMESTER,
               section='Enrollment'),
         Field('program_year', 'Year of program', FieldType.INTEGER,

@@ -348,6 +348,15 @@ class Award(models.Model):
     )
     category = models.CharField(max_length=24, choices=Category.choices)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    # How this amount was arrived at, in figures rather than prose — a monthly
+    # allowance keeps `{'monthly_rate': '1700.00', 'months': 4}`. The approval
+    # letter prints the rate and the count, and deriving them by reading the
+    # rule's explanation sentence would put a display string back in charge of
+    # what a student is told they are paid.
+    #
+    # Empty on every line priced before this existed, and on hand-set awards:
+    # a letter shows the amount alone rather than inventing a breakdown.
+    detail = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
 
     reference = models.CharField(max_length=64, unique=True, null=True, blank=True)
@@ -758,3 +767,86 @@ class AwardDecision(models.Model):
 
     def __str__(self):
         return f'Decision for application {self.application_id}: ${self.total}'
+
+
+class AwardRepayment(models.Model):
+    """Money that came back after it went out.
+
+    A student withdraws mid-semester and repays part of an allowance; a
+    cheque is returned. The office's annual report has to reconcile against a
+    financial statement, and a figure that only ever counts money leaving
+    cannot: it reports the year's cost as higher than it was.
+
+    Recorded against the award it came back from rather than as a lump on the
+    year, so the report can say which programme and which semester it belongs
+    to — the same reason awards are lines and not a total.
+
+    **The award itself is never edited.** `Award.amount` is what was decided
+    and paid, and a decision is a record; rewriting it would change what an
+    approval letter already sent says the student was granted. The repayment
+    sits beside it, and every total that wants a net figure subtracts.
+    """
+
+    award = models.ForeignKey(
+        Award, on_delete=models.CASCADE, related_name='repayments',
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    reason = models.CharField(
+        max_length=255,
+        help_text='Why the money came back — withdrew, overpaid, returned.',
+    )
+    repaid_on = models.DateField()
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'award_repayment'
+        ordering = ('-repaid_on', '-id')
+        indexes = [models.Index(fields=('award', '-repaid_on'))]
+
+    def __str__(self):
+        return f'${self.amount} returned on award {self.award_id}'
+
+
+class ReportedCost(models.Model):
+    """A cost the office enters by hand for the annual report.
+
+    The department reports on more than it pays students: 'Administration —
+    Staff Wages/Benefits' is a real line on the report to the head department
+    and nothing in this system could ever know it. The Director enters it.
+
+    Kept as its own row per fiscal year rather than a setting, because it is a
+    figure for a particular year that somebody is accountable for — it carries
+    who entered it and when, and last year's figure is still readable after
+    this year's is entered.
+    """
+
+    # The report runs April to March, as its own title says.
+    fiscal_year_start = models.DateField(
+        help_text='1 April of the year the report covers.',
+    )
+    label = models.CharField(max_length=120)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    note = models.TextField(blank=True)
+
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'reported_cost'
+        ordering = ('fiscal_year_start', 'label')
+        constraints = [
+            # One figure per label per year. Two rows for staff wages in one
+            # year is a grand total that depends on which the reader adds up.
+            models.UniqueConstraint(fields=('fiscal_year_start', 'label'),
+                                    name='uniq_reported_cost'),
+        ]
+
+    def __str__(self):
+        return f'{self.label} {self.fiscal_year_start:%Y}: ${self.amount}'

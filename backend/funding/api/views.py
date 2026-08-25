@@ -11,6 +11,7 @@ import json
 
 from django.db import transaction
 from django.db.models import Prefetch
+from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -31,9 +32,12 @@ from funding.models import (
 )
 from funding.schemas import ValidationError as SchemaValidationError, get_schema
 from funding.services import banking as banking_service
+from funding.services import approval_letter as letter_service
+from funding.services import letter_pdf as letter_pdf_service
 from funding.services import dashboard as dashboard_service
 from funding.services import decisions as decision_service
 from funding.services import prefill as prefill_service
+from funding.services import residency as residency_service
 from funding.services import verification as verification_service
 from funding.services import workflow
 
@@ -398,6 +402,12 @@ class ApplicationViewSet(viewsets.ModelViewSet):
                     identifiers.store(application, key, str(private[key]))
             banking.record(application, private)
 
+            # An amendment is an event rather than a transition, so it does not
+            # pass through `workflow.record` where this is otherwise stamped.
+            # The office correcting an address is exactly the case that should
+            # clear a residency flag — or raise one.
+            residency_service.stamp(application)
+
             AuditEntry.objects.create(
                 actor=request.user, actor_role=request.user.role,
                 action='application.amended', application=application,
@@ -423,6 +433,56 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         except decision_service.NoRuleSetInForce as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
         return Response(result.as_trace())
+
+    @action(detail=True, methods=['get'], url_path='approval-letter')
+    def approval_letter(self, request, pk=None):
+        """The office's approval letters for this application.
+
+        A list, not one letter: DGGR tops up rather than replaces, so an
+        approval funded under PSSSP with a DGGR top-up earns both programmes'
+        letters. Readable by the student it belongs to and by the office —
+        `IsStaffOrOwner` allows the owner a safe method — because the letter is
+        addressed to the student.
+        """
+        application = self.get_object()
+        try:
+            return Response(letter_service.letters_for(application))
+        except letter_service.LetterUnavailable as exc:
+            # 409 rather than 404: the application exists and the reason is
+            # something the office can act on — approve it, or price it.
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    # `approval-letter/pdf`, not `approval-letter.pdf`: the router appends a
+    # trailing slash, so a dotted path never matches and answers 404 — which is
+    # indistinguishable from the application not existing. The downloaded file
+    # takes its name from Content-Disposition regardless of the URL.
+    @action(detail=True, methods=['get'], url_path='approval-letter/pdf')
+    def approval_letter_pdf(self, request, pk=None):
+        """The same letters, as a PDF to keep, print or forward.
+
+        Read by the same permission as the JSON: it is one letter in two
+        shapes, and a second rule about who may read it is a second rule that
+        can disagree.
+        """
+        application = self.get_object()
+        try:
+            letters = letter_service.letters_for(application)
+            content = letter_pdf_service.render(letters)
+        except letter_service.LetterUnavailable as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+        except letter_pdf_service.LetterFontMissing as exc:
+            # Refusing rather than shipping a letter with the office's own name
+            # rendered as boxes. 503: the deployment is missing an asset, which
+            # is not something the person asking can fix.
+            return Response({'detail': str(exc)},
+                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        response = HttpResponse(content, content_type='application/pdf')
+        # `inline` so a browser opens it rather than dropping it in Downloads —
+        # most people want to look at it, and Save is one click away either way.
+        response['Content-Disposition'] = (
+            f'inline; filename="{letter_pdf_service.filename_for(application.pk)}"')
+        return response
 
     @action(detail=True, methods=['post'])
     def price(self, request, pk=None):

@@ -51,6 +51,43 @@ def is_complete(values: dict) -> bool:
     return all(values.get(key) for key in REQUIRED)
 
 
+# What the forms have always told people to enter — `schemas.common.banking`
+# says "Five digits", "Three digits", "Seven to twelve digits" in its help text.
+# Nothing checked it, so the help text was a suggestion.
+SHAPES = {
+    'transit_number': (5, 5, 'The transit number is five digits.'),
+    'institution_number': (3, 3, 'The institution number is three digits.'),
+    'account_number': (7, 12, 'The account number is seven to twelve digits.'),
+}
+
+
+def unpayable_reasons(values: dict) -> dict[str, str]:
+    """Why these details could not be paid, keyed by field. Empty when they can.
+
+    One definition, two callers with deliberately different manners. The profile
+    screen refuses and shows these messages: it exists to get the account right,
+    and a student staring at the form is the cheapest moment to correct a
+    transposed digit. `record()` below only logs them, because a submitted
+    application must never be lost to a bad account number — an award that
+    cannot be paid is already reported by `finance.preview`, which is where a
+    missing or wrong account belongs.
+    """
+    problems: dict[str, str] = {}
+
+    for key in REQUIRED:
+        if not str(values.get(key) or '').strip():
+            problems[key] = 'This is needed before you can be paid.'
+
+    for key, (low, high, message) in SHAPES.items():
+        digits = str(values.get(key) or '').strip()
+        if not digits or key in problems:
+            continue
+        if not digits.isdigit() or not (low <= len(digits) <= high):
+            problems[key] = message
+
+    return problems
+
+
 def record(application, answers: dict) -> None:
     """Route the banking answers off an application being created.
 
@@ -68,6 +105,16 @@ def record(application, answers: dict) -> None:
             application.pk,
         )
         return
+
+    # Recorded anyway. A submitted application must not be lost to a transposed
+    # digit, and `finance.preview` is where an account that cannot be paid is
+    # reported to the people who pay it.
+    doubts = unpayable_reasons(values)
+    if doubts:
+        logger.warning(
+            'Application %s carried bank details that may not be payable: %s',
+            application.pk, '; '.join(sorted(doubts.values())),
+        )
 
     if application.student_id:
         set_current(application.student, values)

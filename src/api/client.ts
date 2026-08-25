@@ -275,6 +275,151 @@ export interface DispatchResult {
   blocked: number;
 }
 
+/**
+ * One programme's approval letter, exactly as the office sends it.
+ *
+ * Every string here is the server's, including the office's own wording. The
+ * same letter goes out by email, so a component that composed its own version
+ * would be a second document able to disagree with the first about what
+ * somebody was awarded.
+ *
+ * An approval can earn more than one: DGGR tops up rather than replaces, so a
+ * semester funded under PSSSP with a DGGR top-up produces both programmes'
+ * letters.
+ */
+export interface ApprovalLetter {
+  application_id: number;
+  stream: string;
+  /** 'DGG-CDFN' | 'DGG-UCEPP' | 'DGGR-SFSP' — the office's name for the template. */
+  programme_code: string;
+  title: string;
+  term: string;
+  date: string;
+  identifier: { label: string; value: string };
+  recipient: string;
+  opening: string;
+  breakdown_lead: string;
+  semester: string;
+  rows: Array<{
+    label: string;
+    amount: string;
+    /** "$1,700.00/month × 4 months", or the UCEPP cap. Empty where unknown. */
+    note: string;
+  }>;
+  /** Empty on the UCEPP letter — the office's template carries no total row. */
+  total_label: string;
+  total: string;
+  /** Empty when the rate behind it is unset, rather than printing $0.00. */
+  footnote: string;
+  paragraphs: string[];
+  closing: string;
+  signatory: { name: string; title: string; organisation: string; email: string };
+  office: { address: string; phone: string; website: string };
+}
+
+/**
+ * The department's annual report to its head office.
+ *
+ * Every money figure comes as gross, repaid and net: the office reconciles
+ * this against a financial statement, and a report that only counts money
+ * leaving overstates the year.
+ */
+export interface AnnualReport {
+  fiscal_year: { starts: string; ends: string; label: string };
+  enrolment: {
+    rows: EnrolmentRow[];
+    total: EnrolmentRow;
+    note: string;
+    /** The headcount behind those enrolments — the total counts enrolments. */
+    distinct_students: number;
+    /** Enrolments the registrar did not classify. Counted, never guessed. */
+    unclassified: number;
+  };
+  graduate_awards: { rows: GraduateRow[]; total: GraduateRow };
+  /** Which funding programme paid for what. */
+  programmes: {
+    rows: Array<{
+      stream: string; label: string; applications: number; students: number;
+      gross: string; repaid: string; net: string;
+    }>;
+    note: string;
+  };
+  /** The programme this report was narrowed to, or empty for all of them. */
+  filter: { stream: string };
+  /** What each student received, by their beneficiary number. */
+  students: {
+    rows: Array<{
+      student_number: string; name: string; applications: number;
+      gross: string; repaid: string; net: string;
+    }>;
+    students: number;
+    /** People, not rows: two students on one number are one row. */
+    distinct_students: number;
+    sharing_a_number: number;
+    unidentified: number;
+  };
+  institutions: {
+    sections: Array<{
+      institution_type: string;
+      label: string;
+      students: number;
+      rows: Array<{ name: string; programs: string[]; students: number }>;
+    }>;
+  };
+  financial: {
+    categories: Array<{ key: string; label: string }>;
+    rows: FinancialRow[];
+    total: FinancialRow;
+    /** Hand-entered costs, kept apart from what the system computed. */
+    entered: Array<{
+      label: string; amount: string; note: string;
+      recorded_by: string; updated_at: string;
+    }>;
+    entered_total: string;
+    grand_total: string;
+  };
+  highlights: Record<string, string | number>;
+}
+
+export interface EnrolmentRow {
+  season: string;
+  university: number;
+  college: number;
+  trades_school: number;
+  unclassified: number;
+  total: number;
+  trades: number;
+  upgrading: number;
+}
+
+export interface GraduateRow {
+  residency: string;
+  university: number;
+  college: number;
+  high_school: number;
+  trades: number;
+  other: number;
+  total: number;
+}
+
+export interface FinancialRow {
+  season: string;
+  categories: Record<string, { gross: string; repaid: string; net: string }>;
+  gross: string;
+  repaid: string;
+  net: string;
+}
+
+export interface ReportedCost {
+  id: number;
+  fiscal_year_start: string;
+  label: string;
+  amount: string;
+  note: string;
+  recorded_by_name: string;
+  updated_at: string;
+}
+
 export interface DashboardSummary {
   scope: 'student' | 'staff';
   applications: {
@@ -290,6 +435,16 @@ export interface DashboardSummary {
     awaiting_enrolment_confirmation: number;
   };
   attention?: { submitted_late: number; residency_mismatch: number };
+  /**
+   * Staff only. How the applications divide across the three pots.
+   *
+   * Counts, and no money: an `Award` line carries no stream and could not
+   * honestly be given one — the rules gate against every stream an applicant
+   * qualifies for, and DGGR tops up rather than replaces, so a PSSSP
+   * application routinely carries DGGR money. `stream` may hold a value outside
+   * `FundingStream` if one was ever stored, so the row carries its own label.
+   */
+  streams?: Array<{ stream: string; label: string; total: number; open: number }>;
   /** Student only. */
   waiting_on_you?: number;
   student?: { name: string; reference: string };
@@ -408,12 +563,80 @@ export interface CurrentUser {
   email: string;
   first_name: string;
   last_name: string;
+  preferred_name: string;
   full_name: string;
   display_name: string;
+  date_of_birth: string | null;
+  pronouns: string;
+  phone: string;
+  alternate_phone: string;
+  street_address: string;
+  city: string;
+  province: string;
+  postal_code: string;
   role: 'student' | 'support_worker' | 'director' | 'finance' | 'admin';
   role_label: string;
   beneficiary_number: string;
+  treaty_number: string;
+  /**
+   * What the screening decided this person qualifies for. Read-only here and
+   * on the server: it is the office's decision about a person, changed only by
+   * re-answering the six questions.
+   */
+  eligible_streams: string[];
+  eligibility_assessed_at: string | null;
   bank_account: { account_number: string; account_holder: string } | null;
+}
+
+/** The study facts a student keeps on file, so their next form opens filled in. */
+export interface EnrolmentProfile {
+  institution_name: string;
+  institution_location: string;
+  institution_phone: string;
+  registrar_email: string;
+  student_number: string;
+  program: string;
+  credential_level: string;
+  learning_style: string;
+  course_load: string;
+  program_start: string | null;
+  program_end: string | null;
+  program_year: number | null;
+  program_length_years: number | null;
+  dependent_count: number | null;
+  updated_at: string;
+}
+
+/** The screening questions, this student's answers, and what they decided. */
+export interface ScreeningState {
+  questions: EligibilityQuestion[];
+  answers: Record<string, string>;
+  streams: string[];
+  assessed_at: string | null;
+}
+
+export interface ScreeningResult extends ScreeningState {
+  outcome: EligibilityOutcome;
+  user: CurrentUser;
+}
+
+/** The four values that say where somebody is paid. Sent, never returned. */
+export interface BankingInput {
+  account_holder: string;
+  transit_number: string;
+  institution_number: string;
+  account_number: string;
+}
+
+export interface BankAccountSummary {
+  id: number;
+  account_holder: string;
+  transit_number: string;
+  institution_number: string;
+  /** Masked. The digits are written once and read only by the payment file. */
+  account_number: string;
+  is_current: boolean;
+  added_at: string;
 }
 
 // ── Errors ───────────────────────────────────────────────────────────────────
@@ -636,12 +859,121 @@ export const api = {
     return data;
   },
 
+  // ── The student's own profile ──────────────────────────────────────────────
+  //
+  // Four kinds of fact, four calls, because they are saved for different
+  // reasons and refused for different reasons. Bundling them into one PUT would
+  // mean a rejected bank account discarding a corrected address.
+
+  async screening(): Promise<ScreeningState> {
+    const { data } = await http.get<ScreeningState>('/me/eligibility/');
+    return data;
+  },
+
+  /**
+   * Re-answer the six eligibility questions.
+   *
+   * All six, every time: the outcome is decided by them together, and the
+   * streams that come back are the office's rule applied to them — never
+   * anything this client chose.
+   */
+  async saveScreening(answers: Record<string, string>): Promise<ScreeningResult> {
+    const { data } = await http.put<ScreeningResult>('/me/eligibility/', { answers });
+    return data;
+  },
+
+  async enrolmentProfile(): Promise<EnrolmentProfile> {
+    const { data } = await http.get<EnrolmentProfile>('/me/enrolment/');
+    return data;
+  },
+
+  /** A partial save: what is not sent is left alone, what is sent empty is cleared. */
+  async saveEnrolmentProfile(patch: Partial<EnrolmentProfile>): Promise<EnrolmentProfile> {
+    const { data } = await http.put<EnrolmentProfile>('/me/enrolment/', patch);
+    return data;
+  },
+
+  async banking(): Promise<BankAccountSummary | null> {
+    const { data } = await http.get<{ account: BankAccountSummary | null }>('/me/banking/');
+    return data.account;
+  },
+
+  async saveBanking(input: BankingInput): Promise<BankAccountSummary> {
+    const { data } = await http.put<{ account: BankAccountSummary }>('/me/banking/', input);
+    return data.account;
+  },
+
   async applications(params?: {
     page?: number;
     status?: ApplicationStatus;
     type?: ApplicationType;
+    stream?: FundingStream;
   }): Promise<Page<ApplicationSummary>> {
     const { data } = await http.get<Page<ApplicationSummary>>('/applications/', { params });
+    return data;
+  },
+
+  /**
+   * The approval letters for one application.
+   *
+   * A list: one approval can be funded by two programmes. A 409 carries the
+   * reason there is none — not approved, not priced, or a one-off award the
+   * office has supplied no letter for.
+   */
+  async approvalLetter(id: number): Promise<ApprovalLetter[]> {
+    const { data } = await http.get<ApprovalLetter[]>(
+      `/applications/${id}/approval-letter/`);
+    return data;
+  },
+
+  /**
+   * The approval letters as a PDF, to keep, print or forward.
+   *
+   * Fetched rather than linked, for the same reason documents are: the
+   * endpoint is authorised by the bearer token and a browser navigation
+   * carries no header, so a plain `<a href>` opens the API's 401 page.
+   */
+  async approvalLetterPdf(id: number): Promise<Blob> {
+    const { data } = await http.get<Blob>(
+      `/applications/${id}/approval-letter/pdf/`, { responseType: 'blob' });
+    return data;
+  },
+
+  /** The annual report. `year` is the calendar year the fiscal year starts in. */
+  async annualReport(year?: number, stream?: string): Promise<AnnualReport> {
+    const { data } = await http.get<AnnualReport>('/reports/annual/', {
+      params: { ...(year ? { year } : {}), ...(stream ? { stream } : {}) },
+    });
+    return data;
+  },
+
+  /** The formal report, as the office forwards it to the head department. */
+  async annualReportPdf(year?: number, stream?: string): Promise<Blob> {
+    const { data } = await http.get<Blob>('/reports/annual/pdf/', {
+      params: { ...(year ? { year } : {}), ...(stream ? { stream } : {}) },
+      responseType: 'blob',
+    });
+    return data;
+  },
+
+  async reportedCosts(year?: number): Promise<ReportedCost[]> {
+    const { data } = await http.get<ReportedCost[]>('/reports/costs/', {
+      params: year ? { year } : undefined,
+    });
+    return data;
+  },
+
+  /**
+   * Enter a cost the system cannot know — staff wages, and anything like it.
+   *
+   * Sending the same label for the same year again corrects the figure rather
+   * than adding a second line: two staff-wage rows in one year make a grand
+   * total that depends on which one the reader adds up.
+   */
+  async recordReportedCost(entry: {
+    fiscal_year_start: string; label: string; amount: string; note?: string;
+  }): Promise<ReportedCost> {
+    const { data } = await http.post<ReportedCost>('/reports/costs/', entry);
     return data;
   },
 

@@ -110,7 +110,7 @@ export interface AdmissionAnswers {
   date_of_birth: string;
   gender?: 'female' | 'male' | 'other' | 'prefer_not_to_say';
   email: string;
-  phone: string;
+  phone?: string;
   sin: string;  // Required for federal reporting. Stored encrypted, never shown in full again, and never sent to your institution.
   beneficiary_number?: string;
   street_address: string;  // Street address or PO box.
@@ -213,6 +213,8 @@ export interface EnrollmentVerificationAnswers {
   is_enrolled: boolean;
   course_load: 'full_time' | 'part_time';
   credential_level?: 'certificate' | 'diploma' | 'degree' | 'masters' | 'doctorate' | 'other';
+  institution_type?: 'university' | 'college' | 'trades_school' | 'other';  // Used for the department's annual reporting.
+  program_type?: 'post_secondary' | 'trades' | 'upgrading';  // Used for the department's annual reporting.
   semester?: 'fall' | 'winter' | 'spring' | 'summer';
   program_year?: number;  // Year ___ of a ___ year program.
   program_length_years?: number;
@@ -237,7 +239,7 @@ export interface GraduationBursaryAnswers {
   date_of_birth: string;
   treaty_number: string;
   sin?: string;  // Optional. Stored encrypted and never shown in full.
-  phone: string;
+  phone?: string;
   email: string;  // Where your reference number and the decision are sent.
   beneficiary_number?: string;
   city: string;
@@ -395,6 +397,12 @@ export type FundingStream =
   | 'psssp'
   | 'ucepp'
   | 'dggr';
+
+export const FUNDING_STREAM_LABELS: Record<FundingStream, string> = {
+  psssp: "C-DFN PSSSP",
+  ucepp: "C-DFN UCEPP",
+  dggr: "DGGR Bursaries",
+};
 
 /** Answer shape for a given application type. */
 export interface AnswersByType {

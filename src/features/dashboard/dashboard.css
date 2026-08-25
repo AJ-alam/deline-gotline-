@@ -219,6 +219,10 @@
 }
 .stat--link:hover { border-color: var(--gold); background: var(--gold-soft); }
 
+/* The split is counts, not money, and the sentence saying so has to sit with
+   the figures rather than under the fold. */
+.stream-split__note { margin-top: var(--s-4); max-width: 68ch; }
+
 /* ── Recent activity ── */
 
 .activity { list-style: none; margin: 0; padding: 0; }

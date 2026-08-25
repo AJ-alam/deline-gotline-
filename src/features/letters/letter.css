@@ -1,0 +1,140 @@
+/* The approval letter, laid out as the office's template.
+
+   On screen this is a preview of the printed page; @media print strips the
+   portal around it so what comes out of the printer is the letter alone, on
+   letter-size paper, one letter per page. */
+
+.letter {
+  background: #fff;
+  color: #000;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.9in 0.85in 0.6in;
+  max-width: 8.5in;
+  margin: 0 auto;
+  /* The template is set in a serif; the portal is not. The letter is a document
+     the office signs, so it keeps its own typography rather than inheriting a
+     product's. */
+  font-family: 'Times New Roman', Times, Georgia, serif;
+  font-size: 12pt;
+  line-height: 1.42;
+}
+
+.letter p { margin: 0 0 12px; }
+
+/* ── Letterhead ── */
+
+.letterhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-5);
+  margin-bottom: 0.75in;
+}
+.letterhead__mark {
+  width: 265px;
+  max-width: 52%;
+  height: auto;
+  flex: none;
+}
+/* Decoration only, and it carries no information: it is dropped rather than
+   allowed to squeeze the wordmark on a narrow screen. */
+.letterhead__ribbon {
+  width: 46%;
+  height: 78px;
+  margin-top: 6px;
+}
+
+/* ── The letter's own parts ── */
+
+.letter__date { margin-bottom: 4px !important; }
+.letter__identifier {
+  text-align: right;
+  margin-bottom: 0.45in !important;
+}
+.letter__re { margin-bottom: 16px !important; line-height: 1.35; }
+.letter__footnote { font-size: 9.5pt; line-height: 1.35; margin-top: 4px !important; }
+.letter__closing { margin-top: 26px !important; margin-bottom: 30px !important; }
+.letter__signature { line-height: 1.35; }
+.letter__signature a { color: #0b57a4; }
+
+.letter__footer {
+  margin-top: 0.5in;
+  padding-top: 10px;
+  font-size: 10pt;
+  text-align: center;
+  color: #222;
+}
+
+/* ── The breakdown ──
+   Ruled on all sides, as the template is: it is a table of money on a document
+   somebody signs, not a product's borderless list. */
+
+.letter__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 6px;
+  font-size: 11pt;
+}
+.letter__table th,
+.letter__table td {
+  border: 1px solid #666;
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.letter__table th { font-weight: 700; }
+.letter__table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.letter__total-label { font-weight: 700; }
+
+/* "$1,700.00/month × 4 months", under the amount it explains. */
+.letter__note {
+  display: block;
+  font-size: 9.5pt;
+  color: #444;
+  white-space: normal;
+}
+
+/* ── Printing ──
+   The portal disappears; the letters do not. Each starts a fresh sheet, because
+   two programmes' letters are two documents the office sends. */
+
+@media print {
+  /* The portal's own furniture, by the names the shell actually uses. The
+     first version of this guessed at `.app-sidebar` and `.app-header`, which
+     exist nowhere — so every printed letter would have carried the navigation
+     down its left-hand side. Taken from `forms/printable.css`, which prints
+     correctly, rather than invented a second time. */
+  .shell__side,
+  .shell__bar,
+  .shell__scrim,
+  .letter-page__bar,
+  .no-print { display: none !important; }
+
+  .shell { display: block; }
+  .page { padding: 0; max-width: none; }
+
+  .letter {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    max-width: none;
+    break-after: page;
+    page-break-after: always;
+  }
+  .letter:last-child { break-after: auto; page-break-after: auto; }
+
+  .letter__signature a { color: #000; text-decoration: none; }
+}
+
+@page { size: letter; margin: 0.75in; }
+
+@media (max-width: 700px) {
+  .letter { padding: var(--s-6) var(--s-5); }
+  .letterhead__ribbon { display: none; }
+  .letterhead__mark { max-width: 100%; }
+}

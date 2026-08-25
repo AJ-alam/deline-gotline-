@@ -20,26 +20,36 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 5
 
 
-def enqueue(to_email: str, subject: str, body_html: str, body_text: str = '') -> OutboundEmail | None:
-    """Queue one email. Returns None when there is no address to send to."""
+def enqueue(to_email: str, subject: str, body_html: str, body_text: str = '',
+            attachment: tuple[str, bytes, str] | None = None) -> OutboundEmail | None:
+    """Queue one email. Returns None when there is no address to send to.
+
+    `attachment` is (filename, content, content_type) — the approval letter as
+    a PDF, and nothing else so far.
+    """
     if not to_email:
         logger.warning('Not queueing %r — no recipient address.', subject)
         return None
+    name, content, content_type = attachment or ('', None, '')
     return OutboundEmail.objects.create(
         to_email=to_email,
         subject=subject,
         body_html=body_html,
         body_text=body_text or '',
+        attachment=content,
+        attachment_name=name,
+        attachment_type=content_type,
     )
 
 
-def enqueue_on_commit(to_email: str, subject: str, body_html: str, body_text: str = '') -> None:
+def enqueue_on_commit(to_email: str, subject: str, body_html: str, body_text: str = '',
+                      attachment: tuple[str, bytes, str] | None = None) -> None:
     """Queue only if the surrounding transaction commits.
 
     A decision email must never go out for a decision that rolled back.
     """
     transaction.on_commit(
-        lambda: enqueue(to_email, subject, body_html, body_text)
+        lambda: enqueue(to_email, subject, body_html, body_text, attachment)
     )
 
 
@@ -54,6 +64,11 @@ def deliver(email: OutboundEmail) -> bool:
             to=[email.to_email],
         )
         message.attach_alternative(email.body_html, 'text/html')
+        if email.attachment and email.attachment_name:
+            # bytes() because some backends hand this back as a memoryview,
+            # which the email package will not encode.
+            message.attach(email.attachment_name, bytes(email.attachment),
+                           email.attachment_type or 'application/octet-stream')
         message.send(fail_silently=False)
     except Exception as exc:
         email.last_error = f'{type(exc).__name__}: {exc}'[:1000]

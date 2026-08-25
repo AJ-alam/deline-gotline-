@@ -188,6 +188,15 @@ def record(application, action, actor=None, note='') -> ApplicationEvent:
         from funding.services import deadlines
         deadlines.stamp(locked)
 
+    # Whether the application contradicts itself about where the applicant
+    # lives. Re-stamped whenever the answers change rather than decided once,
+    # because unlike lateness this is a statement about the answers the
+    # application currently holds: correcting the address should clear the
+    # flag, and correcting it the other way should raise one.
+    if action in (Action.SUBMITTED, Action.INFO_PROVIDED):
+        from funding.services import residency
+        residency.stamp(locked)
+
     # Keep the caller's instance consistent with what was written.
     application.status = locked.status
     application.semester = locked.semester
@@ -283,6 +292,16 @@ def registrar_email_for(application) -> str:
         return own
     if not application.student_id:
         return ''
+
+    # The student's own profile, before anything inferred from an old form. This
+    # is the case the profile screen was built to close: a renewal by somebody
+    # whose admission was on paper has no earlier application to carry an
+    # address from, so the request was skipped in silence and tuition could
+    # never be confirmed — by anybody, with nothing anywhere saying why.
+    profile = getattr(application.student, 'enrolment_profile', None)
+    on_file = str(getattr(profile, 'registrar_email', '') or '').strip()
+    if on_file:
+        return on_file
 
     earlier = (
         Application.objects

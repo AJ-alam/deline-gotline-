@@ -11,17 +11,6 @@ from decimal import Decimal
 from . import Field, FieldType
 
 
-def applicant(required_phone: bool = False) -> tuple[Field, ...]:
-    """Who is applying."""
-    return (
-        Field('first_name', 'First name', FieldType.TEXT, required=True, section='Applicant'),
-        Field('last_name', 'Last name', FieldType.TEXT, required=True, section='Applicant'),
-        Field('email', 'Email', FieldType.EMAIL, required=True, section='Applicant'),
-        Field('phone', 'Phone', FieldType.PHONE, required=required_phone, section='Applicant'),
-        Field('beneficiary_number', 'Beneficiary number', FieldType.TEXT, section='Applicant'),
-    )
-
-
 def banking(required: bool = False) -> tuple[Field, ...]:
     """Where the money goes. Only collected where an award is paid out.
 
