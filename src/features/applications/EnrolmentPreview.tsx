@@ -92,10 +92,15 @@ export default function EnrolmentPreview({
                 Will be emailed to <strong>{preview.registrar_email}</strong>.
               </p>
             ) : (
+              // Reachable on a half-filled form: the preview is built from what
+              // has been typed so far, and both forms that generate one ask for
+              // this address themselves. It names the question rather than
+              // stating the problem — the previous wording said no address had
+              // been entered on a renewal that had nowhere to enter one.
               <Alert tone="error">
-                No registrar email has been entered yet. Without one your
-                institution cannot confirm your enrolment, and tuition cannot be
-                awarded.
+                Fill in <strong>Registrar or official email</strong> above.
+                Without it your institution is never asked to confirm your
+                enrolment, and tuition cannot be awarded.
               </Alert>
             )}
 

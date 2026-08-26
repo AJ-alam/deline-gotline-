@@ -8,6 +8,7 @@ the same rule existed in several slightly different versions.
 
 import hashlib
 import json
+import logging
 
 from django.db import transaction
 from django.db.models import Prefetch
@@ -27,8 +28,8 @@ from funding.api.serializers import (
 )
 from accounts.models import Role, User
 from funding.models import (
-    DECIDED_STATUSES, Application, ApplicationEvent, ApplicationStatus,
-    AuditEntry, Award,
+    DECIDED_STATUSES, ApplicantIdentifier, Application, ApplicationEvent,
+    ApplicationStatus, AuditEntry, Award,
 )
 from funding.schemas import ValidationError as SchemaValidationError, get_schema
 from funding.services import banking as banking_service
@@ -40,6 +41,8 @@ from funding.services import prefill as prefill_service
 from funding.services import residency as residency_service
 from funding.services import verification as verification_service
 from funding.services import workflow
+
+logger = logging.getLogger(__name__)
 
 
 # An application whose answers are the record a decision was made from. The
@@ -274,6 +277,97 @@ class ApplicationViewSet(viewsets.ModelViewSet):
         return Response(
             ApplicationDetailSerializer(application,
                                         context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=['post'], url_path='identifiers')
+    def identifiers(self, request, pk=None):
+        """The full SIN and the full bank account, for the office.
+
+        `identifiers.reveal` has existed since the first build, with unit tests,
+        a reason argument and an audit entry — and **no endpoint at all**. So the
+        whole number was unreadable from the portal by anybody: an administrator
+        doing the federal PSSSP return, which is the reason the SIN is collected
+        in the first place, could see `•••••996` and nothing else. A capability
+        with no route in is the `residency_flag` fault again (§6) — this one hid
+        for longer because the masked value looks like a working screen.
+
+        POST rather than GET: reading this writes an audit entry, and a GET that
+        changes the record is a GET a browser or a proxy may repeat on its own.
+
+        Administrators only. Not `reviews_applications`, which includes the
+        support workers who assess applications — the office's rule is that
+        reading a regulated identifier is an administrator's act. Finance is
+        excluded too: the payment file already carries the account they need,
+        and it is built for them rather than read off a screen.
+
+        Bank details come from the same call because the question is the same
+        one — "what is actually on file for this person" — and answering it in
+        two places is how a screen comes to show an account the payment run does
+        not use. It is read from `BankAccount`, which *is* what finance reads,
+        rather than from `answers`, where it deliberately no longer lives.
+        """
+        application = self.get_object()
+
+        if request.user.role != Role.ADMIN:
+            return Response(
+                {'detail': 'Only an administrator may read a full identifier.'},
+                status=status.HTTP_403_FORBIDDEN)
+
+        # Recorded, not demanded. The office asked for these to be visible, and
+        # a typed justification on every read is a box people learn to fill with
+        # a full stop. What the audit trail actually needs is who looked at
+        # whose, and when — which is written either way.
+        reason = str(request.data.get('reason') or '').strip() or 'Office review'
+
+        from funding.services import identifiers as identifier_service
+
+        revealed = {}
+        for identifier in application.identifiers.all():
+            try:
+                revealed[identifier.kind] = identifier_service.reveal(
+                    application, request.user, reason, kind=identifier.kind)
+            except identifier_service.IdentifierError as exc:
+                # A key that has been rotated since the value was written. Say
+                # so against the field rather than failing the whole call: the
+                # bank details may still be readable, and a screen that shows
+                # nothing is indistinguishable from a person with nothing on
+                # file.
+                revealed[identifier.kind] = ''
+                logger.warning('Could not reveal %s on application %s: %s',
+                               identifier.kind, application.pk, exc)
+
+        # A guest application's banking is held as an encrypted identifier and
+        # is already in `revealed` above, as a JSON blob. An application with a
+        # student behind it is paid from the account record.
+        held = revealed.pop(ApplicantIdentifier.Kind.BANK_ACCOUNT, None)
+        account = None
+        student = application.student
+        if student is not None:
+            record = next((a for a in student.bank_accounts.all() if a.is_current), None)
+            if record is not None:
+                account = {
+                    'account_holder': record.account_holder,
+                    'transit_number': record.transit_number,
+                    'institution_number': record.institution_number,
+                    'account_number': record.account_number,
+                    'source': 'account',
+                }
+                AuditEntry.objects.create(
+                    actor=request.user, actor_role=request.user.role,
+                    action='banking.revealed', application=application,
+                    detail=f'Read {student.full_name}’s full bank account — {reason}',
+                )
+        elif held:
+            try:
+                parsed = json.loads(held)
+            except (TypeError, ValueError):
+                parsed = {}
+            if parsed:
+                account = {**parsed, 'source': 'held'}
+
+        return Response({
+            'identifiers': revealed,
+            'bank_account': account,
+        })
 
     @action(detail=True, methods=['post'], url_path='request-enrolment')
     def request_enrolment(self, request, pk=None):

@@ -130,7 +130,7 @@ register(ApplicationSchema(
               max_items=MAX_RECEIPTS, section=RECEIPTS),
 
         # ── Where the money goes ──
-        *banking(),
+        *banking(required=True),
 
         # ── The declaration, as the office words it ──
         Field('declaration_confirmed', 'I confirm the declaration',

@@ -20,3 +20,9 @@ openpyxl==3.1.5
 # document.
 pypdf==6.1.1
 
+# Fernet, which encrypts every stored SIN and set of bank details. It arrives
+# transitively today (supabase pulls it in) and is pinned here because
+# `funding.services.identifiers` imports it directly: a transitive dependency
+# dropping it would break storing a government identifier, at runtime, on a
+# form somebody was filling in.
+cryptography==50.0.0

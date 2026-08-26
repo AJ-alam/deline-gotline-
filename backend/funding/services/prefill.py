@@ -84,6 +84,12 @@ FROM_EARLIER_APPLICATIONS = (
     'credential_level',
     'student_number',
     'phone',
+    # The renewal asks for this now rather than having it carried at send time
+    # (see the comment above `continuing_funding` in schemas/remaining.py). It
+    # has to arrive pre-filled or the change trades a silent failure for a box
+    # every returning student retypes every semester — which is the typo the
+    # original arrangement was avoiding.
+    'registrar_email',
 )
 
 
@@ -106,6 +112,35 @@ def _from_profile(user, keys: set[str]) -> dict:
         # 0 dependants is an answer, and `if value` would drop it — the same
         # class of fault as the frontend's `!answers[key]` treating "No" as
         # unanswered.
+        if value not in (None, ''):
+            filled[key] = value
+    return filled
+
+
+# The banking answers that may be handed back to the person they belong to.
+# `account_number` is deliberately absent: it is written once and read only by
+# the finance export, and the profile endpoint already returns it masked. The
+# form does not need it back - `Schema.clean(private_on_file=...)` accepts a
+# blank one when an account is on file.
+FROM_BANK_ACCOUNT = ('account_holder', 'transit_number', 'institution_number')
+
+
+def _from_bank_account(user, keys: set[str]) -> dict:
+    """Where the student is paid, as they entered it on their profile.
+
+    Without this, banking being required on every form meant retyping the same
+    four boxes on every application - and the office's own screen had just
+    saved them. The account number is not returned; see FROM_BANK_ACCOUNT.
+    """
+    from accounts.models import BankAccount
+    account = BankAccount.objects.filter(user=user, is_current=True).first()
+    if account is None:
+        return {}
+    filled = {}
+    for key in FROM_BANK_ACCOUNT:
+        if key not in keys:
+            continue
+        value = getattr(account, key, None)
         if value not in (None, ''):
             filled[key] = value
     return filled
@@ -134,6 +169,9 @@ def for_schema(user, schema) -> dict:
     # a student who corrects their institution there and still sees the old one
     # on the next form would reasonably conclude the profile does nothing.
     for key, value in _from_profile(user, keys).items():
+        filled.setdefault(key, value)
+
+    for key, value in _from_bank_account(user, keys).items():
         filled.setdefault(key, value)
 
     wanted = [key for key in FROM_EARLIER_APPLICATIONS if key in keys]

@@ -114,12 +114,22 @@ export default function ApprovalLetter() {
       } catch (problem) {
         if (cancelled) return;
         // The server says *why* there is no letter — not approved, not priced,
-        // a one-off award the office has supplied no letter for. Its wording is
-        // what tells somebody what to do next, so it is shown rather than
-        // replaced with a generic failure.
-        const detail = (problem as { response?: { data?: { detail?: string } } })
-          ?.response?.data?.detail;
-        setError(detail || 'The approval letter could not be loaded.');
+        // the pricing awards nothing, or a one-off award the office has supplied
+        // no letter for. Its wording is what tells somebody what to do next, so
+        // it is shown rather than replaced with a generic failure.
+        //
+        // Read from `ApiError.message`, which is where `toApiError` puts the
+        // body's `detail`. This reached for `problem.response.data.detail` —
+        // the shape axios throws, not the shape the client re-throws — so it
+        // was always `undefined` and every one of the four reasons showed as
+        // "The approval letter could not be loaded." A student whose award is
+        // a travel claim was told the page was broken rather than that their
+        // award has no letter.
+        setError(
+          problem instanceof ApiError && problem.message
+            ? problem.message
+            : 'The approval letter could not be loaded.',
+        );
       }
     })();
 

@@ -97,6 +97,10 @@ export interface AcademicScholarshipAnswers {
   gpa_achieved: string;  // As a percentage — for example 85. This decides which achievement band applies.
   transcripts_status: 'uploading_now' | 'already_on_file' | 'sent_by_institution';  // Attach a copy either way — the band is awarded against the transcript, not against the figure typed above.
   doc_transcript: string;  // Must show your full name and the name of the institution.
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
   declaration_confirmed: boolean;  // I confirm that the information provided is accurate. I understand that eligibility for the scholarship is subject to enrollment verification and meeting the DGG Education Policy requirements.
   signature: string;
   signed_on: string;
@@ -172,6 +176,7 @@ export interface ContinuingFundingAnswers {
   beneficiary_number: string;  // Your DGG citizenship ID
   email: string;
   institution_name: string;
+  registrar_email: string;  // Where we send the enrolment verification for your institution to confirm. Carried from your profile or your last application — check it is still right.
   program: string;
   course_load: 'full_time' | 'part_time';
   dependent_count: number;
@@ -179,6 +184,10 @@ export interface ContinuingFundingAnswers {
   receives_sfa: boolean;  // This decides which funding stream pays your award, so it is asked every semester.
   doc_transcript: string;
   doc_enrollment_confirmation: string;
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
   declaration_confirmed: boolean;  // I declare that all information given on this application is true and complete.
   signature: string;
 }
@@ -193,10 +202,10 @@ export interface EmergencyReliefAnswers {
   emergency_description: string;  // What has happened, and how it is affecting your studies.
   amount_requested: string;  // What you need. It is paid up to the published maximum.
   doc_supporting?: string[];  // A note, a letter, a receipt — attach as many as you have. Not required, and never a reason to delay asking.
-  account_holder?: string;
-  transit_number?: string;  // Five digits.
-  institution_number?: string;  // Three digits.
-  account_number?: string;  // Seven to twelve digits.
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
   declaration_confirmed: boolean;  // I declare that the information given here is true and complete, and that the amount requested is for the emergency described.
   signature: string;
   signed_on: string;
@@ -271,6 +280,10 @@ export interface HardshipBursaryAnswers {
   other_supports_attempted: string;  // For example food banks, family support, campus emergency funds. How have you tried to resolve this already?
   fund_breakdown: Array<{ purpose: string; amount: string }>;  // One line per thing the money is for.
   amount_requested?: string;  // The breakdown added up. Paid up to the published maximum, which the office sets.
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
   declaration_confirmed: boolean;  // I confirm that the information provided is accurate and complete. I understand that hardship support is discretionary and considered a last resort.
   signature: string;
   signed_on: string;
@@ -286,10 +299,10 @@ export interface PracticumAnswers {
   placement_end: string;
   roles_and_responsibilities: string;  // The key tasks the student was responsible for.
   performance_summary: string;  // The student's performance, attendance and contributions.
-  account_holder?: string;
-  transit_number?: string;  // Five digits.
-  institution_number?: string;  // Three digits.
-  account_number?: string;  // Seven to twelve digits.
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
   employer_declaration: boolean;  // The employer confirms that the information provided is accurate and complete. Award is contingent on regular attendance and satisfactory performance.
   supervisor_signature: string;  // The supervisor's full legal name.
   report_completed_on: string;
@@ -314,10 +327,10 @@ export interface TravelAnswers {
   expenses: Array<{ description: string; amount: string; receipt_attached?: boolean }>;  // One line per expense. Every line needs a receipt.
   amount_requested?: string;  // The expense lines added up.
   doc_receipts: string[];  // Attach every receipt — select them all at once, or add them one at a time. PDF or photo.
-  account_holder?: string;
-  transit_number?: string;  // Five digits.
-  institution_number?: string;  // Three digits.
-  account_number?: string;  // Seven to twelve digits.
+  account_holder: string;
+  transit_number: string;  // Five digits.
+  institution_number: string;  // Three digits.
+  account_number: string;  // Seven to twelve digits.
   declaration_confirmed: boolean;  // I declare that the expenses incurred have been used for the purpose of traveling to and from my post-secondary institution. Any false information will result in the denial of reimbursement.
   signature: string;
 }
@@ -329,14 +342,14 @@ export interface TravelAnswers {
  * section a step does not name is not rendered at all — the questions
  * simply vanish from the form while everything still passes. */
 export const APPLICATION_SECTIONS: Record<ApplicationType, string[]> = {
-  academic_scholarship: ["Program information", "Achievements", "Declaration"],
+  academic_scholarship: ["Program information", "Achievements", "Payment", "Declaration"],
   admission: ["Applicant", "Address", "Study", "Registrar", "Funding", "Payment", "Documents", "Declaration"],
   appeal: ["Student and academic context", "Reason for appeal", "Supporting evidence", "Declaration"],
-  continuing_funding: ["Review your information", "Upload required documents", "Declaration"],
+  continuing_funding: ["Review your information", "Upload required documents", "Payment", "Declaration"],
   emergency_relief: ["Your details", "The emergency", "Supporting documents", "Payment", "Declaration"],
   enrollment_verification: ["Student", "Enrollment", "Costs", "Institution", "Declaration"],
   graduation_bursary: ["Student information", "Current mailing address", "Graduation details", "Documents", "Payment", "Release of funds", "Declaration"],
-  hardship_bursary: ["Student information", "The emergency", "Fund breakdown", "Declaration"],
+  hardship_bursary: ["Student information", "The emergency", "Fund breakdown", "Payment", "Declaration"],
   practicum: ["Employer information", "Student information", "Performance and roles", "Payment", "Declaration"],
   travel: ["Student", "Travel", "Expenses", "Receipts", "Payment", "Declaration"],
 };

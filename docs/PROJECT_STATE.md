@@ -5,7 +5,7 @@ system is, what was done to it and why, what works today, and what is still
 open. Where a decision looks odd, the reason is given: most of them were made
 because the obvious alternative had already caused a bug.
 
-Last updated: 23 August 2026.
+Last updated: 26 August 2026.
 
 ---
 
@@ -112,10 +112,16 @@ Verified by 973 backend tests, 253 frontend tests, and the live audit scripts in
   (information review, then documents and declaration).
 - **Documents** upload for real (PDF or photo, 10MB cap, allowlisted types,
   stored under a generated filename).
-- **Form B (enrolment verification)** is generated from the admission
-  application, pre-filled, and emailed to the registrar automatically. The
-  application **cannot be forwarded or approved until it comes back confirmed** —
-  tuition is funded against the registrar's figure, never the student's estimate.
+- **Form B (enrolment verification)** is generated from the application,
+  pre-filled, and emailed to the registrar automatically. The application
+  **cannot be forwarded or approved until it comes back confirmed** — tuition is
+  funded against the registrar's figure, never the student's estimate. Both
+  types that need one — the admission application and the continuing-funding
+  renewal — now **ask the student who to send it to**, so it goes out on
+  submission whatever the office already holds. The renewal used to carry the
+  address at send time from the profile or an earlier application and asked for
+  nothing; a student with neither was told their registrar had been contacted
+  and nobody was (§5, §6).
 - **Review → decision → pricing**, with a full trace of every rule considered.
 - **Payment run** producing a CSV; the same money cannot be dispatched twice.
 - **Policy rates** editable by admins, with history and a refusal to record a
@@ -458,6 +464,98 @@ prices an application, rewrites the profile underneath it, re-prices, and also
 scans `funding/` for any other reader — because a test that priced one
 application proves one application.
 
+**Every form that pays asks where to send it.** The rule used to be written as
+"required on every form that collects it", and enforced by reading the five
+forms that collected it. Three that pay money collected none at all and so were
+never in scope: `continuing_funding` — tuition and a living allowance, every
+semester — `academic_scholarship` and `hardship_bursary`. Nothing but a
+filled-in banking section creates a `BankAccount`, so a student whose *first*
+application was one of those three had no account, and every award on it was
+priced, approved and then held out of the payment file reading "has no bank
+account on file" — on a screen the applicant never sees. The office reported it
+as the payment dashboard showing errors.
+
+Two tests asserted the absence, both saying "this cannot be claimed without an
+account, so finance already has somewhere to pay". A portal account is not a
+`BankAccount`. That premise was never checked because every test and every audit
+that touched those forms used a student who had already filed an admission
+application — and an admission has always asked. Filing one as a freshly
+registered student is what shows it, which is now what
+`scripts/readiness_audit.py` does.
+
+The rule is derived from the seeded rules rather than from a list kept by hand:
+`test_schemas.BankingIsAskedWhereverMoneyIsPaidTests` reads
+`seed_rules.RULES` for the types that produce money and demands banking on each,
+so a rule added for a new type tomorrow fails until that form asks. A hand-kept
+list of five is exactly what missed these three.
+
+**An administrator can read a full SIN and a full bank account.**
+`identifiers.reveal` was written in the first build with a reason argument, an
+audit entry and unit tests — and **no endpoint**. From the portal the whole
+number was unreadable by anybody, so an administrator doing the federal PSSSP
+return, which is why the SIN is collected at all, saw `•••••996` and had no way
+to see more. The same class as `residency_flag` and `ShareLink`: a capability
+with no route in. It hid longer than those because a masked value looks like a
+working screen rather than a missing one, and the detail screen said in so many
+words that reading the full number was recorded — describing something that
+could not be done.
+
+`POST /api/applications/{id}/identifiers/`, administrators only. A POST because
+reading writes an audit entry, and a GET that changes the record is one a
+browser or a proxy may repeat by itself. Not `reviews_applications`, which
+includes the support workers who assess applications; not finance, whose payment
+file already carries the account they need.
+
+The audit entry is kept and the typed justification is dropped. A box demanded
+on every read is a box filled with a full stop, and what the log actually needs
+is who read whose and when — which is written either way, one entry for the
+identifier and a separate one for the banking, because a single entry covering
+both cannot answer "who has seen this person's SIN". The detail endpoint still
+masks both: returning them there would put a regulated number in every staff
+response, every browser cache and every log, and would need an entry per page
+view, which makes the log useless.
+
+**Finance sees the account before releasing the money.** The payment run listed
+student, application, what it covers and how much, and not one digit of where
+the money was going — the account was in the dispatched CSV and nowhere else. So
+checking a transit number against a student's file meant sending the batch
+first, and every award in a sent batch is marked PAID and drops off the run: the
+check could only be made after it was too late to act on. The row now carries
+the holder, the transit and institution numbers, and the account masked to the
+last four. Masked, because this screen lists everybody waiting to be paid; the
+file the bank acts on still carries the whole number, and
+`test_finance.WhatFinanceSeesBeforeReleasingMoneyTests` asserts the screen and
+the file describe the same account.
+
+**The renewal asks who its registrar is, and no longer infers one.** This
+reverses an earlier decision on purpose, so both halves are recorded.
+`continuing_funding` used not to ask: the address was resolved at send time from
+the student's profile, then from the most recent earlier application that
+carried one, and the reasoning was that retyping it every semester is how a typo
+reaches an institution. That is a real risk and it was the wrong trade. What it
+missed is the student with nothing to carry — a first renewal in the portal, an
+admission taken on paper, a profile never opened. For them the request was
+skipped **in silence**, while the form's own summary said "we ask your registrar
+to confirm your enrolment"; tuition is funded against the registrar's figure, so
+the application could then never be priced for tuition by anybody, and no screen
+said why. Twice now that has reached the office as a live fault, and each fix
+addressed a different route in (staff can issue by hand; the profile can hold an
+address) without closing the hole itself.
+
+The typo risk is answered by pre-filling rather than by not asking:
+`prefill.FROM_PROFILE` already offered `registrar_email`, and
+`FROM_EARLIER_APPLICATIONS` now does too, so a returning student confirms what
+is on file exactly as they do for their institution and programme. It is
+required, for the same reason it is required on the admission application.
+
+`workflow.registrar_email_for` is unchanged and its fallbacks are not dead: they
+serve applications filed before this change, the preview endpoint's half-filled
+draft, and staff reissuing against an address that bounced. Migration 0016
+writes the address that *would* have been used onto renewals already in a
+database — without it, `amend` re-cleans the whole answer set and an
+administrator opening an older renewal is told the registrar email is missing on
+a question the student was never asked.
+
 **A student may re-answer the screening; they may not write the outcome.**
 `PUT /api/me/eligibility/` takes the six answers and runs
 `eligibility.assess` — the streams that come back are the office's rule applied
@@ -696,6 +794,82 @@ next free port, and `FRONTEND_URL` is baked into the registrar's link at the
 moment it is queued — a wandering dev server sent registrars links to a dead
 port.
 
+**An application cannot be filed without somewhere to pay it.** `banking()`
+was optional on three of the five forms that collect it, which put the shortfall
+at the far end of the money path: the award was priced, approved, and then held
+out of the payment file reading "has no bank account on file" — on a screen the
+applicant never sees, weeks after they could have answered in a second. It is
+required on all five now. The office's rule, and the reason the payment run no
+longer needs to report it.
+
+That rule is only workable because nothing is retyped. `account_number` is
+written once and read only by the finance export, so requiring it back would
+have made every *second* application unsubmittable — the student would be asked
+for a number the portal deliberately refuses to show them. Two things close
+that: `prefill` fills `account_holder`, `transit_number` and
+`institution_number` from the student's `BankAccount` (never the number), and
+`Schema.clean(private_on_file=...)` accepts a blank private answer when the
+server already holds it. It is the same "absent means unchanged" rule that the
+edit path already used for a SIN, extended to a new application by somebody with
+details on file. `banking.on_file_for` is the single definition of what is
+already held, so the form and the validator cannot disagree about it.
+
+**The payment run reports what needs a person, not a wall of red.** With banking
+required, "no bank account on file" cannot arise. What is left is rare and
+genuinely needs somebody: a release of funds to another person, a guest claim
+not yet attached to an account, an award whose pricing went missing. It is
+reported quietly and still never dropped — a payment missing from the file is a
+person who does not get paid, which is the reason the list exists at all.
+
+**Finance is told an amount, not a breakdown.** The payment file carried one
+row per award *line*, on the reasoning that "a single lump sum cannot be traced
+back to the rule that produced it". The office reversed that: an application
+priced across two streams and two categories became four rows against one bank
+account, and finance had to add them up to learn what one transfer was worth.
+`finance.payment_batches` now groups into one payment per **application** — not
+per student, because a student with two funded applications is owed two
+payments that must each trace to the decision behind them, and merging them
+produces a figure no decision accounts for. The breakdown is not lost: it is on
+the application, on the approval letter and in the decision history, which are
+the office's records rather than a payment instruction. A `Covers` column keeps
+the categories readable, and the reference is `DGG-<date>-A<application>` —
+quoting one line's reference against a lump sum would name a part as the whole.
+The award ids travel in the API response as `award_ids`, because the check that
+a superseded pricing is never re-offered is what stops money going out twice and
+it must survive the row becoming a payment rather than a line.
+
+**Emptying the database has two mechanisms, and they are kept apart.**
+`purge_applications --drop-test-accounts` reasons about which addresses are
+throwaway and protects staff on principle — `admin@dgg.test` is on a test domain
+and is the account that administers the site. `--keep-only=a@x,b@y` does neither:
+it names who survives and deletes everyone else, staff included, for the
+cut-over where a database that has been tested against becomes the one the
+office signs into. Asking for both at once is refused rather than resolved in
+some order, because two mechanisms answering "is this account safe?" differently
+in one run makes a safeguard into a coin toss.
+
+Two guards, both load-bearing and both verified by removing them and watching
+tests fail. *A keep address that matches no account is refused* — a typo does
+not announce itself, it simply matches nothing, and the account it was meant to
+protect is deleted with the rest. *A keep list that leaves no active
+administrator is refused* — registration makes students, staff are made by an
+administrator, and §10 already records how a portal with no accounts reads:
+"No active account found with the given credentials", which looks exactly like a
+broken deployment and is a working one nobody can enter. Both guards run in
+`survey`, before the first delete rather than partway through one.
+
+**Deleting an account empties the office's history of whose name was on it.**
+Nine of the eleven foreign keys into `User` are SET_NULL, and four of those sit
+on rows a purge deliberately *keeps*: `PolicyChange.changed_by`,
+`RuleSet.created_by`, `ReportedCost.recorded_by`, and the audit entries that are
+not about an application. So the rate change survives and the person who made it
+does not. That is the right trade — PROTECT would make the account undeletable,
+and the entry matters more than the attribution — but it is a real loss, so the
+report counts it per model instead of letting a column quietly empty itself.
+`--keep-only` also names every account it would delete in full rather than
+truncating at twenty, because this is the path that deletes staff and a
+truncated list hides exactly the account somebody wanted to check.
+
 ---
 
 ## 6. Bugs that were found the hard way
@@ -724,7 +898,7 @@ Recorded because each represents a class that can recur.
 | The guest submission path never stored an encrypted identifier | It called `split_private`, which lifts a SIN out of `answers` precisely so it can be stored somewhere safer — and then stored it nowhere. Invisible while no guest form asked for one. The graduation award asks, and a regulated number the applicant typed would have been silently discarded. |
 | The document endpoint required a login, on a form claimable without one | The graduation award requires proof of completion and is filed by people with no account. The upload control rendered, every request was 401, and the required answer could never be given: the form was unsubmittable in a browser while the whole suite passed. No test had ever asked for a file as a guest. |
 | `jsonable` stringified anything that was not a JSON scalar | Fine while every answer was one. The moment a field held a list — expense rows, several receipts — the answer stored was the text `"[{'amount': Decimal('812.50')}]"`, readable by nothing and derivable from by nothing. Caught before it shipped only because the travel claim was audited over real HTTP rather than through the schema alone. |
-| A renewal from a student new to the portal could never be approved | The enrolment request goes out at submission, but only when a registrar address is known — the renewal form does not ask for one, it is carried from the student's last application. Somebody whose admission was on paper has nothing to carry, so the request was skipped **in silence**: tuition could never be confirmed, so the application could never be forwarded or approved, by anybody. `verification.issue` had one caller and no endpoint, so the comment promising staff could reissue described something that did not exist — which also left a bounced address and an expired request with no way back. Staff can now issue and reissue it, and the screen distinguishes "not requested" from "not required". Found by wiping the database: with accumulated data every student always had an address to carry. |
+| A renewal from a student new to the portal could never be approved | The enrolment request goes out at submission, but only when a registrar address is known — the renewal form does not ask for one, it is carried from the student's last application. Somebody whose admission was on paper has nothing to carry, so the request was skipped **in silence**: tuition could never be confirmed, so the application could never be forwarded or approved, by anybody. `verification.issue` had one caller and no endpoint, so the comment promising staff could reissue described something that did not exist — which also left a bounced address and an expired request with no way back. Staff can now issue and reissue it, and the screen distinguishes "not requested" from "not required". Found by wiping the database: with accumulated data every student always had an address to carry. **Closed properly on 27 Aug 2026 by asking:** the renewal now has a `registrar_email` field, pre-filled from the profile and from the last application that named one, so the request goes out on submission for everybody. Both earlier fixes gave the office a way to recover *after* the silence; neither stopped it. `scripts/renewal_registrar_audit.py` drives the case that could not be reproduced by anyone with history — a student registered seconds earlier, filing a renewal, through to an award built on the registrar's figure. |
 | The screen said an enrolment was "not required" when it had merely never been asked for | Two different situations reported identically, and the one that reads as "nothing to do here" was the one that needed doing. |
 | Staff opening /applications got the student's page | "My applications", "Everything you have submitted", and a catalogue inviting a support worker to apply for funding. Their navigation points at /review, so it took arriving by another route to see it — and with rows in the database it read as a plausible queue. Only an empty database made it obvious. |
 | A confirmed enrolment made an application uneditable by anyone | The registrar's `confirmed_tuition` is written onto `answers`; the admission schema has no such question, because the student is never asked it. Re-posting the stored answers was then refused — for a key the *server* had put there — so from the moment an institution answered, neither the office nor the student could change anything. `verification.py` asserted in a comment that every confirmable key was a schema field; two of the four were not. Answers the schema does not define are now carried through an edit untouched and never taken from the client, so an edit cannot raise the tuition an award is funded against. |
@@ -751,7 +925,35 @@ Recorded because each represents a class that can recur.
 | A screening answer nobody offered was read as "no" | `eligibility._yes` treats anything it does not recognise as a negative, silently. So `receives_sfa: 'maybe'` — or a number, which a DRF CharField will quietly stringify into `'5'` — decided a funding stream by falling through a comparison, and looked from the outside exactly like somebody answering no. Identity-by-display-string in miniature: a value nobody offered, meaning something nobody chose. Both doors that take these answers now check them against the choices the question actually offered. Found by asserting that a non-string is refused, which it was not. |
 | An empty stream list read as "never screened" | The fallback to `is_indian_act_registered` / `is_deline_beneficiary` fired whenever `eligible_streams` was empty — correct while the only accounts with no tags were ones that predated them. The profile made emptiness a *current answer*: a student who re-answered the screening to say they now receive SFA, and is not a beneficiary, qualifies for nothing — and was handed PSSSP straight back by the fallback. Found by a test asserting the consequence ("an account with no streams cannot file an application") rather than the write, which passed on its own. `eligibility_assessed_at` now separates the two cases. |
 | A DRF response whose body is `None` | `GET /api/me/banking/` returned a bare `None` for "no account on file": 200, no content type, and a client that cannot parse it. "Nothing on file" is the common case for a new student, so the one answer the endpoint gives most often arrived as a transport error. Caught by a test calling `.json()` on it, which is what the client does. |
+| Three forms that pay money asked for no bank account | `continuing_funding`, `academic_scholarship` and `hardship_bursary`. Nothing but a filled-in banking section creates a `BankAccount`, so a student whose **first** application was one of those three had none — the award was priced, approved and then held out of the payment file reading "has no bank account on file", on a screen the applicant never sees and weeks after they could have answered in a second. Reported by the office as the payment dashboard showing errors. Two tests asserted the absence on the grounds that "this cannot be claimed without an account, so finance already has somewhere to pay" — a portal account is not a `BankAccount`, and the premise was never checked because every test and audit touching those forms used a student who had already filed an admission, which does ask. The guard is now derived from `seed_rules.RULES` rather than from a list of five kept by hand. |
+| `identifiers.reveal` had unit tests, an audit entry, a reason argument — and no endpoint | So the full SIN was unreadable from the portal by anybody, including the administrator doing the federal return the number is collected for. The same class as `residency_flag` and `ShareLink`, but it survived longer: a masked `•••••996` looks like a working screen, and the detail page said in so many words that reading the full number was recorded against your name — describing an act nothing could perform. Found by asking the question the office asked, rather than by reading the module, whose docstring described the endpoint as though it existed. |
+| The payment run showed no account on the screen that releases the money | Student, application, what it covers, how much — and nowhere the money was going. The account was only in the dispatched CSV, and dispatching marks every award in the batch PAID and drops it off the run, so the only moment finance could check a transit number was after the one moment it could still act on it. |
+| The check that stops money going out twice had stopped checking | `surface_audit` read `row['id']` from the payment run as an `Award` primary key and filtered the award table by it. The file became one payment per **application**, so that id is an application — and `award_ids` was added to the row at the same time, with a comment saying it exists precisely so this invariant stays observable. The audit was never updated. Where the two id ranges did not overlap it matched nothing and passed vacuously, which is every accumulated database; on a freshly migrated one the numbers are small and collide, and it reported unrelated awards as superseded. Found by running the whole suite against a database built from nothing. **No money was ever at risk** — two independent guards hold: superseding cancels the previous lines, and `Award.objects.awarded()` scopes to the decision in force. Each was sabotaged separately and the behaviour held; the repaired check fires only when both are broken, at which point it reports $25,200 offered against a $12,600 decision. |
+| A curly apostrophe killed an audit script outright | Windows console output defaults to cp1252 with a *strict* encoder, so a `print` of a check description containing `’` raised `UnicodeEncodeError` and ended the run — the same encoding fault that once failed 143 queued emails, arriving through stdout instead of through SMTP. Scripts that reconfigure stdout survive it; ones that do not die on their own output. |
+| A database URL whose password contained `#` | `urlsplit` reads `#` as the start of a fragment, so everything from it was discarded: the host parsed as `postgres`, with no port and no database name. Percent-encoding is the fix. Nothing said so — `dj_database_url` returned a config dict happily, and the failure arrived later as a connection error naming a host nobody had configured. |
+| The Supabase direct host is IPv6-only | `db.<ref>.supabase.co` has an AAAA record and no A record. Neither a machine on an IPv4-only network nor a Vercel function can reach it, and the resolver's answer is "Name or service not known" — which reads as a deleted project rather than an unroutable one. The pooler (`aws-N-<region>.pooler.supabase.com`, user `postgres.<ref>`) is the IPv4 route, and is what `.env.example` had documented all along. |
+| `FIELD_ENCRYPTION_KEY` was read from a setting nothing declared | `identifiers._key()` reads it with `getattr(settings, …)`, and `settings.py` never assigned it. So the environment variable could be set correctly on the host, shown in the dashboard, and be invisible to Django — a deployed process would still have refused every application asking for a SIN. Config that is set and unread looks exactly like config that is correct. Same class as a flag with readers and no writer, in the opposite direction. |
+| `build.sh` called a management command that did not exist | `python manage.py seed_policies` had been a deploy step for as long as `build.sh` had existed, and no such command was ever written. A deploy step naming a missing command fails at the moment of cut-over and is silent until then. |
+| `migrate` leaves a fresh database unable to price anything | Migration 0013 returns early when no `PolicySetting` exists, deliberately: seeding from a migration would give the test suite rates before a test asked for any, so a test proving what happens when a rate is *missing* would find one and pass for the wrong reason. Correct for the suite, and it means a production database that has only been migrated has no rates, no deadlines and no rule set. `seed_policies` is now that step, and `funding.office_config` is the one copy of the figures both it and `seed_demo` read. |
+| Production had been pointed at Gmail for 75 days | `EMAIL_HOST` on the deployment was still `smtp.gmail.com` with no credentials, while the project had moved to Hostinger. The first real delivery attempt came back `535 … BadCredentials … gsmtp`, from a provider nobody had meant to be using. Environment set once at the start of a project and never revisited is not configuration, it is sediment. |
+| The live domain served a different deployment entirely | `dgg.nexauratechs.com` resolved to Hostinger (`platform: hostinger`), serving a stale single-bundle frontend from a shared-hosting vhost, while the Vercel project that held all the configuration was never in the request path. Every `/api/*` request returned `index.html` with `Content-Type: text/html` and a 200 — a frontend talking to itself. A 200 is not evidence that the thing answering is the thing you deployed. |
+| A document store that could only write | `SupabaseStorage._open` raised `NotImplementedError` from the day the class was written. Uploading returned 201 and the object was genuinely in the bucket; opening it was a 500. Invisible to all 1,186 tests and to every developer, because `STORAGES` selects this backend only when `SUPABASE_SERVICE_KEY` is set and local work runs on `FileSystemStorage`, where reading works. The third time this project has shipped a write-only document store, and the first not found by a person clicking a link. Two faults in front of it — an empty `SUPABASE_URL`, then a `service_role` key from another project — had to be cleared before it could even be reached, which is the ordinary shape of this: a broken thing behind a broken thing reads as one problem. |
+| `cleanUrls: true` in `vercel.json` 404'd every deep link | The SPA fallback rewrote `/(.*)` to `/index.html`, and `cleanUrls` 308-redirects any `.html` path to its extensionless form — so the fallback resolved to a redirect instead of the document and Vercel answered `NOT_FOUND` for /login, /dashboard, /profile and /enrolment/&lt;token&gt;. Wrong since the commit that introduced the file. It survived because of **who** uses a deep link: staff and students load `/` and navigate inside the router, where no request reaches Vercel at all. The registrar arrives cold from an email, on a path, with no account and no other route in — the one user who cannot report that the link is dead. Tuition is funded against their figure, so the entire tuition path ran through the single URL nobody could see was broken. `vercel.json` is imported by nothing, type-checked by nothing and touched by none of the 1200 tests; `core.test_vercel_config` now reads it, and asserts the pairing rather than banning `cleanUrls` outright. |
+| The scheduler that drained the outbox simply vanished | Every email the portal had ever queued sat in `outbound_email` unsent — 112 of them — while the portal looked entirely healthy from every screen. `send_queued_emails` is driven by an external cron because nothing serverless can run a management command on a timer, and an external dependency is one nobody redeploys, reviews or tests: it disappeared from the Hostinger account leaving no trace, and the only symptom was a registrar who never wrote back. The office reported it as "Form B is not being sent" — that is the one message whose absence is *visible*, because tuition cannot be confirmed without it — but nothing at all was being sent. **A queue whose worker lives somewhere else has no failure mode visible from the thing being measured.** |
+| `email_status` existed, and could not be run where it mattered | The command reports all three ways email fails silently, and predates the deployment it needed to describe. Nothing on serverless runs a management command — the same fact that put the drain behind HTTP — so the one deployment where email was actually broken was the only place the diagnostic could not be run. It is now `GET /api/tasks/email-status/` as well, over one shared assessment in `notifications/diagnostics.py`. A diagnostic that runs only where the fault is absent is not a diagnostic. |
 | Two sabotages of this round's work were **not** caught by the tests written for them | Both concerned discarding a client-supplied computed total. The tests passed with the guard removed, because a second mechanism — deriving over the top, and an empty initial value — happened to produce the right answer anyway. Written as they were, they asserted the outcome and not the defence. Both now exercise the path where only the guard stands: a total that does not parse, and a total that arrives pre-filled. |
+| Rotating `TASK_TOKEN` silently stopped every outbound email | The token is written *literally into the Hostinger cron command* and stored in Vercel as a **Sensitive** variable, which is write-only: nobody can read it back, so rotating it means setting a new value and editing the cron in the same pass. On 25 Aug 2026 the env was re-created, the cron began answering 403, and mail stopped for 19 hours with every screen looking healthy. Two facts have to be changed together and only one of them lives in this repository. The tell for a stopped scheduler is not the pending count but the *shape* of `sent_at`: 112 messages sharing five adjacent minutes is a hand flush, not a schedule. |
+| A queued email outlived the row it pointed at | `verification.issue` deletes the previous `EnrollmentVerification` when a request is re-issued — deliberately, so two links are never live at once — but nothing cancels the already-queued email carrying the deleted row's token. With a healthy cron the window is five minutes. With the queue stopped for 19 hours the row was superseded while its email waited, and registrars received links that were dead before they arrived. `resolve()` reports them with the same "This link is not valid." it gives an unknown token, so a superseded link is indistinguishable from a forged one — to the recipient and to whoever debugs it. |
+| The award editor was offered on exactly the applications with no award | "Edit breakdown" was gated on `canAmend`, which is the rule for *amending answers*: admin, and not `DECIDED_STATUSES`. The award rule is different and the server states it plainly — `set_award` refuses only `DECLINED`, because "approved stays editable until the money is paid, which is what the editor is for". So the button was hidden on `approved` and `sent_to_finance`, the two statuses where an award exists, and offered on the ones where there is nothing to seed it with. The editor therefore opened empty, and saving replaced the whole decision with the single line typed into it. The seeding was never broken; it was unreachable. A client repeating a server rule repeated the wrong one. |
+| A hand-set award silently destroyed a semester's funding, in production | Application #56 — an `admission`, already `sent_to_finance` — carried one line: `scholarship 400.00 rule=manual_1`. No tuition, no living. Re-pricing it would award $42,300. The empty editor above produced it, and because `scholarship` is not in `SEMESTER_CATEGORIES` the approval letter was then correctly refused, which the student saw as "The approval letter could not be loaded." Two faults meeting: one wrote the data, the other hid the reason. |
+| The living allowance is paid per month of a "semester" nobody bounds | `rules.engine._months` returns `(years x 12) + months + 1` from `semester_start`/`semester_end`, with a sensible default of 4 when the dates are missing or reversed — and **no upper bound**. Application #56's enrolment verification carried `2026-08-29` to `2030-03-26`, so a fall semester priced at 44 months x $950 = **$41,800** of living allowance. Application #54 has the opposite, `semester_start == semester_end`. Both were accepted in silence. The registrar is asked to confirm these dates and nothing checks that a semester is a semester. Still open: the bound is the office's to state. |
+| The approval letter's four reasons were all shown as "could not be loaded" | `ApprovalLetter.tsx` read `problem.response.data.detail` — the shape **axios** throws, not the shape `toApiError` re-throws. `ApiError` carries the server's wording in `.message` and has no `.response` at all, so the expression was always `undefined` and every failure fell through to the generic sentence, including the informative 409s. The comment directly above it said the server's wording "is what tells somebody what to do next, so it is shown rather than replaced with a generic failure". The test passed throughout because it rejected with a hand-made `{response:{data:{detail}}}` — a shape no caller ever produces. **A fabricated error shape proves nothing about the real one**, and this is the third entry in this table where a test asserted against something the client does not actually do. |
+| The payment run listed one blocked line per award, not per person | `finance.preview` blocks each award *line*, which is right — a line is what does or does not reach the file — but the reason is about the student. An application priced into five lines said "Both Journey has no bank account on file" five times, and the screen reported "28 awards cannot be paid" for eight people. The reader cannot tell twenty-eight problems from eight. |
+| The dashboard and the payment run quoted different figures for one pot | Production showed **$80,650.00 awaiting payment** on Home and **$0.00 ready to pay** on the payment run, both true and neither explaining the other: the dashboard counts every `PENDING` award, the run counts only unblocked ones, and every award was blocked for want of a bank account. Putting the blocked figure on the dashboard broke `test_the_whole_summary_is_a_handful_of_queries` — `finance.preview` does a bank lookup per award — so the payment run is where the difference is now stated, being the screen that can also say why. |
+| Three fixes sat in the working tree while production ran without them | `groupBlocked` had already been written, with a comment describing the duplicate-blocked symptom exactly, and the office was still looking at the unfixed screen. Undeployed work is indistinguishable from work never done, and "it is fixed" means nothing until a deployment carries it. |
+| Banking was optional on three of the five forms that pay out | The consequence surfaced at the wrong end and to the wrong person: an award priced, approved, and then held out of the payment file reading "has no bank account on file" — twenty-eight lines of it on a screen the applicant never sees. The question is now asked where the person who knows the answer is sitting, and refused without. **A required answer collected late is an answer nobody can act on.** |
+| Making banking required would have made every second application unsubmittable | `account_number` is written once and read only by the finance export, so a returning student would be asked for a number the portal deliberately refuses to show them, and there is no value they could type that the screen could confirm. The rule only works with `prefill` reading `BankAccount` for the three returnable fields and `clean(private_on_file=...)` accepting a blank fourth. **Tightening a requirement without checking what the server is willing to hand back is how a form becomes impossible to fill in.** |
+| The audit written to prove a bug failed once the bug was fixed | `banking_prefill_audit` asserted that banking is *absent* from the prefill and that admission is *refused* without it. Both became false, correctly, and six checks failed. Rewritten to pin the new rule from both ends — blank is accepted when an account is on file, and somebody with nothing on file still cannot file. An audit that reproduces a defect has to be turned around when the defect goes, or it becomes a test asserting the fault is still there. |
 
 ---
 
@@ -845,6 +1047,35 @@ cd backend
         # a mistyped programme refused rather than reported as an empty
         # year, and a narrowed export that says on its face and in its
         # filename that it is not the whole year
+./venv/Scripts/python.exe scripts/money_chain_audit.py   # 16 checks: one
+        # figure followed the whole way — the tuition the registrar confirmed
+        # reaching the award, the award reaching the letters to the penny, and
+        # the report reconciling. Deliberately gives the student a different
+        # estimate from the registrar's figure, so a chain that quietly uses
+        # the student's number is visible
+./venv/Scripts/python.exe scripts/award_editor_audit.py  # 14 checks: what the
+        # server allows a hand-set award to do at each status, and that saving
+        # one line replaces every auto-generated one
+./venv/Scripts/python.exe scripts/banking_prefill_audit.py  # 22 checks: the
+        # payment details a student saves on their profile, and whether the
+        # next form opens with them
+./venv/Scripts/python.exe scripts/readiness_audit.py    # 95 checks: the whole
+        # money path in the order the office uses it, and the joins between the
+        # parts — every paying form asks where to send it and a student whose
+        # *first* application is any of them can still be paid; the registrar's
+        # figure reaching the award; the award's lines, the office's stream
+        # split and the report's programme table describing the same money; the
+        # letters adding up to the award, as a page, a PDF and an email; the
+        # payment run's account, file and no-double-dispatch; an award blocked
+        # for want of an account being recovered by recording one; and what an
+        # administrator may read, what nobody else may, and what is written down
+        # about it
+./venv/Scripts/python.exe scripts/renewal_registrar_audit.py  # 25 checks: a
+        # renewal from a student registered seconds earlier — no admission on
+        # file, no profile, nothing to carry — through the registrar's email
+        # and link to an award built on the tuition they confirmed. The one
+        # case a returning student cannot reproduce, and the one that was
+        # silently broken
 ./venv/Scripts/python.exe scripts/surface_audit.py      # 336 checks: what the
         # ten form audits never touch — registration, the eligibility
         # screening, token refresh, `attach/`, `enrolment-preview`, the
@@ -862,7 +1093,7 @@ hardcoded port each — 8011, 8013, 8015, 8020, 8021, 8050 — so following the
 instruction above produced a ConnectionError against a server that was running
 perfectly well.
 
-All fifteen pass in full — 1,237 checks, counted by running them. The isolation check in `lifecycle_audit.py`
+All twenty pass in full — 1,416 checks, counted by running them (27 Aug 2026), against both an accumulated database and one built from nothing. Run them both ways: three of the faults recorded in §6 are only visible on an empty one. The isolation check in `lifecycle_audit.py`
 used to report that it could not run, every time, because `seed_demo` created a
 single student: it now seeds a second one and the audit files an application as
 them, so "a student cannot open an application that is not theirs" is tried in
@@ -945,6 +1176,34 @@ from a session scratchpad and are gone; what they covered is folded into
   in-person full-time study at least 200km from home, and allows two round-trips
   a year. Nothing counts trips or measures distance.
 
+**Needs a decision from the office — added 26 August 2026:**
+
+- **What is the longest a semester may be?** `rules.engine._months` pays the
+  living allowance per month between `semester_start` and `semester_end` and
+  bounds nothing, so a confirmation carrying programme dates priced 44 months
+  at $950 (§6). A bound has to be a number the office states; refusing anything
+  above it and reporting the refusal — the same manner as a missing rate — is
+  the shape of the fix, but the number is not a developer's to invent. Until it
+  exists, **every living-allowance figure depends on two dates a registrar
+  types and nothing checks.**
+- **May an application reach finance unpriced?** Application #53 is an appeal at
+  `sent_to_finance` with no decision at all. Nothing is paid, because there are
+  no award lines, but the workflow permitted the transition.
+
+**Production hygiene, outstanding as of 26 August 2026:**
+
+- **`seed_demo` accounts are live on the deployment.** `admin@dgg.test`,
+  `director@dgg.test`, `finance@dgg.test` and `worker@dgg.test` all exist in
+  production with the password published in this repository. §10 says exactly
+  this must not happen. `admin@dgg.test` also carries the **director** role
+  while being named "Alice Administrator", so it is not what its address says.
+  The only real account is the administrator on a personal address.
+- **Production holds 56 applications, 62 award lines and 8 `@example.com`
+  students**, all invented by audit scripts run against it. `purge_applications
+  --drop-test-accounts` clears the case data and the throwaway students; the
+  four demo staff accounts have to go by hand, because the purge never deletes
+  staff on principle.
+
 **Known gaps:**
 
 - `POST /applications/{id}/attach/` (link a guest application to an account) has
@@ -955,17 +1214,134 @@ from a session scratchpad and are gone; what they covered is folded into
 
 **Before deploying:**
 
-1. `FIELD_ENCRYPTION_KEY` must be set or the process refuses to start.
+1. `FIELD_ENCRYPTION_KEY` must be set or the process refuses to encrypt. It is
+   declared in `settings.py`; setting the environment variable alone was
+   invisible to Django until 25 Aug 2026 (§6).
 2. `FRONTEND_URL` must be the public address, or registrar links point at
    localhost.
 3. `send_queued_emails` must be scheduled — nothing drains the outbox by itself.
-   This is how 143 messages accumulated unsent.
+   This is how 143 messages accumulated unsent. On a serverless deployment
+   nothing can run a management command on a timer, so
+   `POST /api/tasks/send-emails/` behind `TASK_TOKEN` is the same drain over
+   HTTP, driven by an external cron (§10). `GET /api/tasks/email-status/`,
+   behind the same token, says whether that cron is actually running: messages
+   waiting with `sent` at nought is a scheduler never set up, or stopped. It
+   reports no secret and changes nothing.
 4. `SECRET_KEY` must be set; production refuses the built-in one.
 5. `manage.py seed_rules --publish` after any change to the rules themselves.
    A `RuleSet` holds its effects as JSON, so editing `seed_rules.py` changes
    what a *new* set contains and leaves the one in force untouched. The old
    version is superseded rather than overwritten, which is what keeps an
    earlier decision replayable.
+6. `manage.py seed_policies` on a database that has only been migrated. Without
+   it there are no rates, no deadlines and no rule set, so nothing can be
+   priced — `migrate` installs none of them on purpose (§6).
+7. `DATABASE_URL` must percent-encode the password and name the **pooler**
+   host, not `db.<ref>.supabase.co` (§6). Session mode (5432) for migrations,
+   transaction mode (6543) for the deployed function.
+
+---
+
+## 10. Where it is deployed
+
+**Live at `https://dgg.nexauratechs.com`.** Frontend and Django are one Vercel
+project (`deline-gotline-`, team `hammads-projects-47adac19`); `api/index.py` is
+the WSGI entrypoint and `vercel.json` rewrites `/api/*`, `/admin/*` and
+`/static/*` to it. The stable alias
+`deline-gotline-hammads-projects-47adac19.vercel.app` is what the cron talks to,
+deliberately: it survives the custom domain moving.
+
+The domain is a Hostinger-managed zone. `dgg` is an ALIAS to
+`cname.vercel-dns.com.`; every mail record (`@` and `khata` MX, SPF, DKIM,
+DMARC) belongs to Hostinger and must stay untouched — `contact@nexauratechs.com`
+is the address the portal sends from.
+
+**Database.** Supabase Postgres, project `zstiqoqvovryhkytawzr`, region
+`ap-northeast-1`. Reached through the pooler; see §6 for the two independent
+reasons the direct host cannot be used from either a developer's machine or a
+Vercel function.
+
+**The region is Tokyo, and that is a decision to revisit before real students
+use it.** The portal stores Social Insurance Numbers and bank account details
+for Canadian students, and `ap-northeast-1` is Japan. Raised on 25 Aug 2026 with
+the database holding two accounts and no applications — the cheapest it will
+ever be to move — and the owner's answer was that this is a testing phase and
+Supabase as it stands is enough. Recorded rather than re-argued: it is a
+reasonable call for a client demo and a different question for a live intake,
+and the cost of moving grows with every application filed. `ca-central-1` is the
+Canadian region. Nothing in the code knows where the database is, so the move is
+a new project, `migrate`, `seed_policies`, and a connection string.
+
+**Two requirements files, held together by a test.** `api/requirements.txt` is
+what the function installs and `backend/requirements.txt` is what a developer
+does. `core.test_requirements` fails when they disagree, and names the two
+packages that belong to one side only. `cryptography` is pinned explicitly in
+both: `identifiers.py` imports Fernet directly and was relying on `supabase`
+happening to pull it in.
+
+**Email leaves the building on a cron.** Hostinger shared hosting
+(`u510647961`) runs, every five minutes:
+
+```
+curl -sS -m 60 -X POST -H "X-Task-Token: …" \
+  https://deline-gotline-hammads-projects-47adac19.vercel.app/api/tasks/send-emails/ \
+  >> /home/u510647961/dgg-email-drain.log 2>&1
+```
+
+This line went missing at some point before 25 August 2026 and took every
+outbound email with it; see §6. It is the whole delivery mechanism, it lives
+outside the repository, and nothing in a deploy or a test suite touches it — so
+**check it exists before believing email works.**
+`GET /api/tasks/email-status/` answers that from inside the deployment.
+
+Hostinger rather than Vercel because the project is on the Hobby plan, where
+cron fires **once a day** — a student waiting a day to be told their application
+was approved is not a queue that works. The endpoint refuses with 503 when
+`TASK_TOKEN` is unset rather than falling through to a comparison of two empty
+strings, which would leave anybody able to flush the office's mail queue.
+
+**No fictional accounts in the production database.** `seed_policies` creates
+none, deliberately: `seed_demo`'s are invented people sharing one published
+password, which is fine on a laptop and is a set of live credentials on a public
+site. The office's accounts are made by hand.
+
+That leaves a gap worth naming, because it cost an afternoon: a correctly
+deployed portal with an empty `User` table refuses every login with *"No active
+account found with the given credentials"* — which reads as a broken deployment
+and is in fact a working one nobody has an account on. **Seeding the office's
+configuration and creating the first administrator are one step, not two.**
+Until an admin exists, the only thing the portal can do is register students.
+
+**Uploads go to Supabase Storage, bucket `dgg-documents`, private.** Never to
+`MEDIA_ROOT`: on Vercel that is inside the function bundle, read-only and thrown
+away on the next deploy, so a student would attach a transcript, be told it was
+accepted, and the file would not exist. `STORAGES` picks `SupabaseStorage`
+whenever `SUPABASE_SERVICE_KEY` is set, which is why local work needs nothing
+configured.
+
+The bucket is private because `DocumentView` already decides who may read a
+document; the backend signs its own URLs. A public bucket would widen access and
+buy nothing.
+
+Getting there took three separate faults, and the order they surfaced in is the
+point — each one hid the next:
+
+1. `SUPABASE_URL` was empty. From inside the storage client that is
+   `[Errno 16] Device or resource busy` out of httpx, which names nothing.
+2. The `service_role` key was signed by a different project's JWT secret:
+   `403 signature verification failed`. The keys were rotated the same morning.
+3. **`SupabaseStorage._open` raised `NotImplementedError`** — and had since the
+   class was written. Uploads returned 201, the object really was in the bucket,
+   and opening one was a 500 *on the deployment only*, because every test and
+   every developer runs on `FileSystemStorage`, where reading works perfectly.
+
+The third is the one worth remembering. It is the same defect as "uploaded
+documents could never be opened again" and "attached documents could not be
+opened, again" — the third time this project has shipped a document store that
+only writes, and the first two were both found by a person clicking a link.
+`core.test_supabase_storage` now drives the class directly against a stubbed
+client, including a save-then-open round trip: opening a name the test invented
+proves nothing about what `_save` actually wrote.
 
 ---
 

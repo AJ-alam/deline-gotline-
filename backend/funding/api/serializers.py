@@ -387,8 +387,16 @@ class ApplicationCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'type': f"No schema is defined for {attrs['type']!r}."}
             )
+        # Banking is required on every form that pays out. `account_number` is
+        # never returned by anything, so a student who has already given it must
+        # be allowed to leave it blank - otherwise their second application is
+        # unsubmittable and the only remedy is retyping a number they cannot see.
+        from funding.services import banking as banking_service
+        request = self.context.get('request')
+        on_file = banking_service.on_file_for(getattr(request, 'user', None))
         try:
-            attrs['cleaned_answers'] = schema.clean(attrs['answers'])
+            attrs['cleaned_answers'] = schema.clean(
+                attrs['answers'], private_on_file=on_file)
         except SchemaValidationError as exc:
             # Field-level errors, so a client can show each message against the
             # question it belongs to.

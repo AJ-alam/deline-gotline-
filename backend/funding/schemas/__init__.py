@@ -504,7 +504,8 @@ class ApplicationSchema:
                 ordered.append(f.section)
         return tuple(ordered)
 
-    def clean(self, answers: dict, *, revising: bool = False) -> dict:
+    def clean(self, answers: dict, *, revising: bool = False,
+              private_on_file: frozenset[str] = frozenset()) -> dict:
         """Validate submitted answers, returning values keyed by field key.
 
         Reports every problem at once rather than the first, and rejects unknown
@@ -518,6 +519,15 @@ class ApplicationSchema:
         application, and neither could the student answering a request for more
         information. Absent means unchanged; a value that *is* sent is validated
         exactly as at submission.
+
+        `private_on_file` names private answers the server already holds for
+        this applicant - in practice the banking fields, when the student has a
+        current `BankAccount`. Banking is required on every form that pays out,
+        and `account_number` is deliberately never returned by anything, so a
+        student who gave it once would be asked to type it again on every later
+        application and be unable to submit without it. Blank means "use what is
+        on file"; a value that *is* sent replaces it and is validated exactly as
+        at submission.
         """
         errors: dict[str, str] = {}
         cleaned: dict = {}
@@ -530,8 +540,8 @@ class ApplicationSchema:
             # Matched the way `private_keys` matches — a SIN qualifies by its
             # type, and a rule that checked only the flag would leave exactly
             # the field this exists for still required.
-            if (revising and _is_blank(answers.get(f.key))
-                    and f.key in self.private_keys):
+            if (_is_blank(answers.get(f.key)) and f.key in self.private_keys
+                    and (revising or f.key in private_on_file)):
                 continue
             # A computed answer is worked out below from the others. A value
             # submitted for one is discarded rather than refused: a client that

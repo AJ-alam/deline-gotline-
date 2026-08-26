@@ -21,7 +21,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Role, User
 from funding.models import (
-    Application, ApplicationEvent, ApplicationStatus, AuditEntry,
+    Application, ApplicationEvent, ApplicationStatus, ApplicationType, AuditEntry,
     EnrollmentVerification,
 )
 from funding.services import workflow
@@ -36,21 +36,56 @@ def make_user(role=Role.STUDENT, email=None):
 
 
 class NoAddressToCarryTests(TestCase):
-    """A renewal from somebody who has never filed in the portal before."""
+    """A renewal filed before the renewal form asked for a registrar.
+
+    This used to be reachable through the API: `continuing_funding` had no
+    `registrar_email` field, so a student with no admission on file and no
+    profile submitted one and nobody was asked. It is not reachable that way
+    any more — the form asks, and refuses without an answer.
+
+    The rows are still reachable, which is why these tests build one directly
+    rather than through the endpoint. Every database filled before this change
+    holds renewals like it, and migration 0016 can only carry an address across
+    for the students who had one somewhere. The recovery path staff use is the
+    same one, and it is the thing under test here.
+    """
 
     def setUp(self):
         self.student = make_user(email='student@enrol.test')
         self.worker = make_user(Role.SUPPORT_WORKER, 'worker@enrol.test')
         self.director = make_user(Role.DIRECTOR, 'director@enrol.test')
         self.client = APIClient()
-        self.client.force_authenticate(self.student)
 
+        # Filed the way one filed before the field existed: the whole answer
+        # set the schema asked for at the time, which is today's minus the
+        # registrar. Posting to the endpoint would be refused, correctly.
+        answers = answers_for('continuing_funding')
+        answers.pop('registrar_email')
+        self.application = Application.objects.create(
+            student=self.student,
+            type=ApplicationType.CONTINUING_FUNDING,
+            schema_slug='continuing_funding',
+            answers=answers,
+        )
+        workflow.record(self.application, ApplicationEvent.Action.SUBMITTED,
+                        self.student)
+        self.application.refresh_from_db()
+
+    def test_the_form_now_refuses_what_created_this_row(self):
+        """The gap is closed at the door as well as recoverable behind it.
+
+        Without this the class above reads as "we support renewals with no
+        registrar", which is the arrangement that caused the bug.
+        """
+        self.client.force_authenticate(self.student)
+        answers = answers_for('continuing_funding')
+        answers.pop('registrar_email')
         response = self.client.post('/api/applications/', {
-            'type': 'continuing_funding',
-            'answers': answers_for('continuing_funding'),
+            'type': 'continuing_funding', 'answers': answers,
         }, format='json')
-        self.assertEqual(response.status_code, 201, response.data)
-        self.application = Application.objects.get(pk=response.data['id'])
+
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertIn('registrar_email', response.data['answers'])
 
     def test_no_request_goes_out_when_there_is_no_address(self):
         self.assertFalse(

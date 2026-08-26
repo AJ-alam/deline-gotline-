@@ -11,8 +11,22 @@ from decimal import Decimal
 from . import Field, FieldType
 
 
-def banking(required: bool = False) -> tuple[Field, ...]:
-    """Where the money goes. Only collected where an award is paid out.
+def banking(required: bool = True) -> tuple[Field, ...]:
+    """Where the money goes. Required on every form that pays out.
+
+    Optional on three of the five forms that asked for it, which put the
+    shortfall at the far end of the money path: the award was priced, approved
+    and then held out of the payment file with "has no bank account on file",
+    on a screen the applicant never sees and weeks after they could have
+    answered in a second. The office's rule is that an application cannot be
+    filed without somewhere to pay it, so the question is asked where the person
+    who knows the answer is sitting.
+
+    Nobody retypes it: `prefill` fills the three returnable fields from the
+    student's `BankAccount`, and `clean(banking_on_file=True)` accepts a blank
+    `account_number` when one is already recorded - the number is deliberately
+    never returned, so requiring it back would make the form unfillable for
+    exactly the students who have already given it.
 
     Marked private, so these are validated and then kept out of `answers`
     entirely: that column is returned whole by the detail endpoint, printed on

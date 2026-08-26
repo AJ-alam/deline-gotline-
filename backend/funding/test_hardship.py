@@ -67,6 +67,10 @@ class FormContentTests(SimpleTestCase):
                 'active_and_compliant',
                 'hardship_reason', 'other_supports_attempted',
                 'fund_breakdown', 'amount_requested',
+                # Not on the office's screen; added because this pays money and
+                # nothing else records where. See test_bank_details_are_asked_for.
+                'account_holder', 'transit_number', 'institution_number',
+                'account_number',
                 'declaration_confirmed', 'signature', 'signed_on',
             },
         )
@@ -74,7 +78,8 @@ class FormContentTests(SimpleTestCase):
     def test_it_falls_into_the_four_steps_the_screens_show(self):
         self.assertEqual(
             SCHEMA.sections,
-            ('Student information', 'The emergency', 'Fund breakdown', 'Declaration'),
+            ('Student information', 'The emergency', 'Fund breakdown', 'Payment',
+             'Declaration'),
         )
 
     def test_the_office_s_own_name_for_it_is_the_one_shown(self):
@@ -88,13 +93,34 @@ class FormContentTests(SimpleTestCase):
         self.assertTrue(field.required)
         self.assertIn('food banks', field.help_text)
 
-    def test_no_bank_details_are_asked_for(self):
-        """This cannot be claimed without an account, so finance already has
-        somewhere to pay. A second set is a second set that can disagree."""
+    def test_bank_details_are_asked_for(self):
+        """Reversed on 27 Aug 2026, because the reason for leaving them out was
+        false.
+
+        This test used to assert the opposite: "this cannot be claimed without
+        an account, so finance already has somewhere to pay." Having a *portal*
+        account is not having a `BankAccount`. Nothing creates one but a
+        filled-in banking section, so a student whose first application was this
+        one had no account on file at all — the award was priced, approved and
+        then held out of the payment file reading "has no bank account on file",
+        on a screen the applicant never sees.
+
+        Found by filing this form as a freshly registered student and looking at
+        `finance.preview()`, which is the only way to see it: every test and
+        every audit that touched this form used a student who had already filed
+        an admission application, and an admission application does ask.
+
+        The "second set that can disagree" worry is answered by pre-fill rather
+        than by not asking — `prefill` fills the three returnable fields from the
+        account already on file, and a blank `account_number` is accepted when
+        one is recorded. See `test_schemas.BankingIsAskedWhereverMoneyIsPaidTests`
+        for the rule this now belongs to.
+        """
         for key in ('account_holder', 'transit_number',
                     'institution_number', 'account_number'):
-            self.assertNotIn(key, SCHEMA.keys)
-
+            self.assertIn(key, SCHEMA.keys)
+            self.assertTrue(SCHEMA.field(key).required, key)
+            self.assertTrue(SCHEMA.field(key).private, key)
     def test_no_documents_are_asked_for(self):
         """The office's screen has no upload. Recorded rather than assumed:
         every neighbouring form has one, so its absence looks like an

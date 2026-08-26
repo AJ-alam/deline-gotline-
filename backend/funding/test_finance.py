@@ -262,12 +262,33 @@ class CsvTests(TestCase):
         result = finance.dispatch(actor=make_user(Role.FINANCE))
         return list(csv.DictReader(io.StringIO(result['csv'])))
 
-    def test_one_row_per_award_line_not_one_lump_per_student(self):
-        """Finance reconciles against categories; a lump sum cannot be traced
-        back to the rule that produced it."""
+    def test_one_row_per_application_not_one_per_award_line(self):
+        """The office asked for an amount to pay, not the rules behind it.
+
+        An application priced across two streams and two categories used to
+        become four rows against one bank account, and finance had to add them
+        up to learn what one transfer was worth. The breakdown still exists on
+        the application, the approval letter and the decision history, which are
+        the office's records rather than a payment instruction.
+        """
         rows = self._rows()
-        self.assertEqual(len(rows), self.application.awards.count())
-        self.assertGreater(len(rows), 1)
+        self.assertEqual(len(rows), 1)
+        self.assertGreater(self.application.awards.count(), 1,
+                           'the fixture must price several lines for this to mean anything')
+
+    def test_the_one_row_is_the_whole_award_added_up(self):
+        """A lump sum that does not equal the award is worse than four rows."""
+        from decimal import Decimal
+        row = self._rows()[0]
+        expected = sum((a.amount for a in self.application.awards.all()), Decimal('0.00'))
+        self.assertEqual(Decimal(row['Amount']), expected)
+
+    def test_the_row_still_says_what_the_payment_covers(self):
+        """Traceability is reduced, not abandoned: the categories are listed."""
+        row = self._rows()[0]
+        self.assertTrue(row['Covers'])
+        for award in self.application.awards.all():
+            self.assertIn(award.get_category_display(), row['Covers'])
 
     def test_the_file_carries_what_finance_needs_to_pay_someone(self):
         row = self._rows()[0]
@@ -281,10 +302,13 @@ class CsvTests(TestCase):
         for row in self._rows():
             self.assertRegex(row['Amount'], r'^\d+\.\d{2}$')
 
-    def test_every_row_names_the_award_category(self):
+    def test_every_row_carries_a_reference_naming_the_application(self):
+        """One payment, one reference. Quoting a single award line's reference
+        against a lump sum would name a part as though it were the whole."""
         for row in self._rows():
-            self.assertTrue(row['Award'])
+            self.assertTrue(row['Covers'])
             self.assertTrue(row['Reference'])
+            self.assertIn(f'A{self.application.pk:06d}', row['Reference'])
 
 
 class EndpointTests(TestCase):
@@ -331,3 +355,162 @@ class EndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertIn('nothing ready', response.data['detail'].lower())
+
+
+class WhatFinanceSeesBeforeReleasingMoneyTests(TestCase):
+    """The account a payment is going into, on the screen that sends it.
+
+    The payment run listed student, application, what it covers and how much —
+    and not one digit of where the money was going. The account was in the
+    dispatched CSV and nowhere else, so the only way to check a transit number
+    against a student's file was to send the batch first. Every award in a sent
+    batch is marked PAID and drops off the run, so that check could only ever be
+    made after it was too late to act on.
+
+    Masked to the last four rather than printed whole: finance is releasing to
+    an account already on file, not transcribing one, and a screen listing
+    everybody waiting to be paid should not carry full account numbers. The
+    file the bank acts on still carries all of it.
+    """
+
+    def setUp(self):
+        seed_rates()
+        call_command('seed_rules', '--publish', '--effective-from', '2020-01-01',
+                     verbosity=0)
+        self.client = APIClient(HTTP_X_FORWARDED_PROTO='https')
+        self.officer = make_user(Role.FINANCE)
+        self.student = make_user(with_account=False)
+        BankAccount.objects.create(
+            user=self.student, account_holder='Majid Khan',
+            transit_number='12345', institution_number='003',
+            account_number='7654321',
+        )
+        self.application = approved_application(student=self.student)
+
+    def row(self):
+        self.client.force_authenticate(self.officer)
+        body = self.client.get('/api/finance/pending/').data
+        return next(r for r in body['awards']
+                    if r['application_id'] == self.application.pk)
+
+    def test_the_row_says_which_account_it_is_paying(self):
+        self.assertEqual(self.row()['account'], '••••4321')
+
+    def test_and_who_the_account_belongs_to(self):
+        self.assertEqual(self.row()['account_holder'], 'Majid Khan')
+
+    def test_and_the_numbers_that_identify_the_bank(self):
+        row = self.row()
+        self.assertEqual(row['transit_number'], '12345')
+        self.assertEqual(row['institution_number'], '003')
+
+    def test_the_full_account_number_is_not_on_the_screen(self):
+        """Masked, because this screen lists everybody waiting to be paid."""
+        self.client.force_authenticate(self.officer)
+        body = self.client.get('/api/finance/pending/')
+        self.assertNotIn('7654321', str(body.data))
+
+    def test_but_it_is_in_the_file_the_bank_acts_on(self):
+        """The two halves of one rule. If neither carried it nobody could be
+        paid; if the screen carried it, it would be in every finance response
+        and every browser cache."""
+        self.client.force_authenticate(self.officer)
+        sent = self.client.post('/api/finance/dispatch/')
+        self.assertEqual(sent.status_code, 200)
+        self.assertIn('7654321', sent.content.decode())
+
+    def test_the_account_shown_is_the_one_the_file_uses(self):
+        """Two reads of the same record. A screen showing one account while the
+        file carries another is worse than a screen showing none."""
+        shown = self.row()
+
+        self.client.force_authenticate(self.officer)
+        sent = self.client.post('/api/finance/dispatch/')
+        rows = list(csv.reader(io.StringIO(sent.content.decode())))
+        header, body = rows[0], rows[1:]
+        line = next(r for r in body
+                    if r[header.index('Account holder')] == 'Majid Khan')
+
+        self.assertEqual(shown['account_holder'], line[header.index('Account holder')])
+        self.assertEqual(shown['transit_number'], line[header.index('Transit')])
+        self.assertEqual(shown['institution_number'], line[header.index('Institution')])
+        self.assertTrue(
+            line[header.index('Account number')].endswith(shown['account'][-4:]),
+            'the screen and the file disagree about which account this is')
+
+    def test_every_ready_row_carries_an_account(self):
+        """`payment_batches` reads `row['account']`, which only a ready row has.
+        A blocked award reaching that code would be a KeyError on the payment
+        screen — or worse, a row carrying somebody else's account."""
+        stranded = make_user(with_account=False)
+        approved_application(student=stranded)
+
+        self.client.force_authenticate(self.officer)
+        body = self.client.get('/api/finance/pending/').data
+
+        self.assertTrue(any('no bank account' in r['reason'].lower()
+                            for r in body['blocked']))
+        for row in body['awards']:
+            self.assertTrue(row['account_holder'],
+                            'a ready row must always carry an account')
+
+
+class BlockedAwardsRecoverTests(TestCase):
+    """Recording an account releases an award that was held for want of one.
+
+    Every form that pays asks for banking now, so no *new* application can be
+    blocked this way. A database filled before that change still holds ones
+    that are, and the office needs a route out that is not "ask them to file
+    again".
+
+    `finance.preview` reads `BankAccount` live rather than caching a verdict, so
+    recording the account is enough — which is a claim about behaviour, and this
+    is the only thing that checks it.
+    """
+
+    def setUp(self):
+        seed_rates()
+        call_command('seed_rules', '--publish', '--effective-from', '2020-01-01',
+                     verbosity=0)
+        self.client = APIClient(HTTP_X_FORWARDED_PROTO='https')
+        self.officer = make_user(Role.FINANCE)
+        self.student = make_user(with_account=False)
+        self.application = approved_application(student=self.student)
+
+    def blocked_for_me(self):
+        self.client.force_authenticate(self.officer)
+        body = self.client.get('/api/finance/pending/').data
+        return [r for r in body['blocked']
+                if r['application_id'] == self.application.pk]
+
+    def ready_for_me(self):
+        self.client.force_authenticate(self.officer)
+        body = self.client.get('/api/finance/pending/').data
+        return [r for r in body['awards']
+                if r['application_id'] == self.application.pk]
+
+    def save_banking(self):
+        self.client.force_authenticate(self.student)
+        return self.client.put('/api/me/banking/', {
+            'account_holder': 'Majid Khan', 'transit_number': '12345',
+            'institution_number': '003', 'account_number': '7654321',
+        }, format='json')
+
+    def test_it_starts_blocked(self):
+        self.assertTrue(self.blocked_for_me())
+        self.assertFalse(self.ready_for_me())
+
+    def test_the_student_saving_their_details_releases_it(self):
+        saved = self.save_banking()
+        self.assertIn(saved.status_code, (200, 201), saved.data)
+
+        self.assertFalse(self.blocked_for_me())
+        self.assertEqual(len(self.ready_for_me()), 1)
+
+    def test_and_it_is_paid_into_what_they_saved(self):
+        self.save_banking()
+        self.assertEqual(self.ready_for_me()[0]['account_holder'], 'Majid Khan')
+
+        self.client.force_authenticate(self.officer)
+        sent = self.client.post('/api/finance/dispatch/')
+        self.assertIn('7654321', sent.content.decode())

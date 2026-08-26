@@ -229,6 +229,22 @@ export default function ApplicationDetail() {
   const [asking, setAsking] = useState<TransitionAction | null>(null);
   const [note, setNote] = useState('');
   const [registrarEmail, setRegistrarEmail] = useState('');
+  // What an administrator has chosen to look at. Held here rather than fetched
+  // with the application: the detail endpoint masks both on purpose, and
+  // reading the real values writes an audit entry — one per page load would
+  // make that log unable to answer who actually looked at whose file.
+  const [revealed, setRevealed] = useState<{
+    identifiers: Record<string, string>;
+    bank_account: {
+      account_holder: string;
+      transit_number: string;
+      institution_number: string;
+      account_number: string;
+      source: 'account' | 'held';
+    } | null;
+  } | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [revealError, setRevealError] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -349,6 +365,34 @@ export default function ApplicationDetail() {
   const canAmend =
     me.role === 'admin' &&
     !DECIDED_STATUSES.includes(application.status);
+  // The award editor's rule is not the amendment rule. The server refuses a
+  // hand-set award only on a declined application - an approved one stays
+  // editable until the money is paid, which is the whole point of the editor.
+  // Borrowing `canAmend` hid the button on exactly the two statuses where an
+  // award exists, and offered it on the ones where there is nothing to seed
+  // it with, so the editor could only ever open empty and save over the
+  // breakdown.
+  const canEditAward =
+    me.role === 'admin' &&
+    application.status !== 'declined' &&
+    Boolean(application.decision);
+
+  // Administrators only, matching the server. A support worker assesses these
+  // and does not read regulated identifiers; finance is paid from the file the
+  // payment run builds rather than from a screen.
+  const canReveal = me.role === 'admin';
+  const hasIdentifiers = Object.keys(application.identifiers ?? {}).length > 0;
+  const reveal = async () => {
+    setRevealing(true);
+    setRevealError('');
+    try {
+      setRevealed(await api.readIdentifiers(application.id));
+    } catch {
+      setRevealError('Those details could not be read.');
+    } finally {
+      setRevealing(false);
+    }
+  };
 
   return (
     <main className="page stack stack--loose">
@@ -472,7 +516,7 @@ export default function ApplicationDetail() {
                 Preview
               </Button>
             )}
-            {canAmend && !editingAward && (
+            {canEditAward && !editingAward && (
               <Button size="sm" onClick={() => setEditingAward(true)}>
                 Edit breakdown
               </Button>
@@ -532,20 +576,55 @@ export default function ApplicationDetail() {
         )}
       </Card>
 
-      {/* Whether this can be paid, without putting the account on a review
-          screen. The digits used to be printed here, straight out of the
-          answers; they belong in the payment file and nowhere else. A missing
-          account is what holds an approved award, so it is worth saying. */}
-      <Card title="Payment">
+      {/* Whether this can be paid. Masked by default, because a review screen
+          that carries an account number puts it in every staff response and
+          every browser cache. An administrator can read the real one — the
+          office does need it, and until this control existed there was no way
+          to see it at all from anywhere in the portal. */}
+      <Card
+        title="Payment"
+        actions={
+          canReveal && (application.banking.on_file || hasIdentifiers) ? (
+            <Button busy={revealing} onClick={() => void reveal()}>
+              {revealed ? 'Refresh details' : 'Show full details'}
+            </Button>
+          ) : undefined
+        }
+      >
         {application.banking.on_file ? (
-          <div className="row">
-            <Badge tone="ok">Account on file</Badge>
-            <span className="small muted">
-              {application.banking.account}
-              {application.banking.holder && ` · ${application.banking.holder}`}
-              {application.banking.held
-                && ' · held until this application is attached to an account'}
-            </span>
+          <div className="stack stack--tight">
+            <div className="row">
+              <Badge tone="ok">Account on file</Badge>
+              <span className="small muted">
+                {revealed?.bank_account
+                  ? `${revealed.bank_account.account_number} · ${revealed.bank_account.account_holder}`
+                  : `${application.banking.account}${
+                      application.banking.holder ? ` · ${application.banking.holder}` : ''
+                    }`}
+                {application.banking.held
+                  && ' · held until this application is attached to an account'}
+              </span>
+            </div>
+            {revealed?.bank_account && (
+              <dl className="answers">
+                <div className="answers__row">
+                  <dt>Account holder</dt>
+                  <dd>{revealed.bank_account.account_holder}</dd>
+                </div>
+                <div className="answers__row">
+                  <dt>Transit number</dt>
+                  <dd>{revealed.bank_account.transit_number}</dd>
+                </div>
+                <div className="answers__row">
+                  <dt>Institution number</dt>
+                  <dd>{revealed.bank_account.institution_number}</dd>
+                </div>
+                <div className="answers__row">
+                  <dt>Account number</dt>
+                  <dd>{revealed.bank_account.account_number}</dd>
+                </div>
+              </dl>
+            )}
           </div>
         ) : (
           <Alert tone="info">
@@ -553,6 +632,7 @@ export default function ApplicationDetail() {
             payment run until one is recorded.
           </Alert>
         )}
+        {revealError && <Alert tone="error">{revealError}</Alert>}
       </Card>
 
       {/* The institution's side of the file. Above the student's answers,
@@ -684,14 +764,23 @@ export default function ApplicationDetail() {
 
       <Card title="Answers">
         <AnswerList application={application} schema={schema} />
-        {Object.keys(application.identifiers ?? {}).length > 0 && (
+        {hasIdentifiers && (
           <div className="stack stack--tight" style={{ marginTop: 'var(--s-4)' }}>
             {Object.entries(application.identifiers).map(([kind, masked]) => (
               <p key={kind} className="small muted">
-                {kind.toUpperCase()}: <strong>{masked}</strong> — stored
-                encrypted. Reading the full number is recorded against your name.
+                {kind.toUpperCase()}:{' '}
+                <strong>{revealed?.identifiers?.[kind] || masked}</strong>
+                {' — stored encrypted.'}
+                {canReveal
+                  ? ' Reading the full number is recorded against your name.'
+                  : ' Only an administrator can read the full number.'}
               </p>
             ))}
+            {canReveal && !revealed && (
+              <Button busy={revealing} onClick={() => void reveal()}>
+                Show full number
+              </Button>
+            )}
           </div>
         )}
       </Card>

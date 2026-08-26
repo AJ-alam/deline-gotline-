@@ -206,13 +206,16 @@ what the applicant is told.
 Admission and continuing-funding applications fund tuition, and **tuition is
 funded against the registrar's figure, never the student's estimate.**
 
-- The request goes out automatically on submission — but only if a registrar's
-  address is known. The renewal form does not ask for one: it is taken from the
-  student's profile, or carried from their last application. Somebody whose
-  admission was on paper and who has not filled in their profile has nothing to
-  carry.
+- The request goes out automatically on submission. **Both forms ask the
+  student for the registrar's address**, so this no longer depends on what the
+  office already holds. On the renewal the box arrives pre-filled from the
+  student's profile, or from the last application that named one, and the
+  student confirms or corrects it — a correction is the address that gets the
+  email.
 - The card distinguishes **not requested** from **not required**. "Not
-  requested" is the one that needs doing.
+  requested" is the one that needs doing. Since both forms ask, you should now
+  only see it on a renewal filed before August 2026, or where the request could
+  not be queued.
 - Enter the registrar's address and press **Request confirmation**. Leave it
   blank to write to the address already on file again — that covers a bounced
   address and an expired link.
@@ -306,12 +309,13 @@ It matters to your work in three ways.
   every later application. The student can still change any of it on the form,
   and the server validates what comes back exactly as if it had been typed — a
   pre-filled answer carries no more authority than a typed one.
-- **The registrar's address can now come from the profile.** A renewal does not
-  ask for one; it used to be carried only from the student's last application,
-  so somebody whose admission was on paper had nothing to carry and the enrolment
-  request was skipped in silence. If the enrolment card says *not requested*, it
-  is still worth asking the student to put the address on their profile — or
-  entering it yourself on the application screen.
+- **The registrar's address on the profile is what pre-fills the renewal.** The
+  renewal asks for the address itself now, so a student who keeps it on their
+  profile confirms it rather than typing it each semester. It used to be carried
+  silently from the last application, which meant somebody whose admission was on
+  paper had nothing to carry and the enrolment request was skipped without a
+  word — that is closed. Keeping the profile current is still the difference
+  between confirming a box and retyping one.
 - **Students can re-answer the six screening questions.** This is how somebody
   tells the office they have started receiving SFA, which withdraws both C-DFN
   streams from their *account* from that point on. It does not touch any

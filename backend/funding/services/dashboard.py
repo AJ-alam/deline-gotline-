@@ -282,6 +282,11 @@ def for_staff(user) -> dict:
         'money': {
             'awarded': str(money['awarded'] or ZERO),
             'awaiting_payment': str(money['pending'] or ZERO),
+            # Deliberately every pending award, blocked or not: this is what is
+            # owed. How much of it cannot go out yet is answered on the payment
+            # run, which is the screen that can also say why. Computing it here
+            # meant calling `finance.preview` — a bank-account lookup per award —
+            # on every dashboard load, which the query-cost test caught.
             'paid': str(money['paid'] or ZERO),
         },
         # The three queues someone actually works from.

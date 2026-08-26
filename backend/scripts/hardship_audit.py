@@ -31,6 +31,10 @@ EXPECTED_FIELDS = {
     'full_name', 'beneficiary_number', 'institution_name', 'active_and_compliant',
     'hardship_reason', 'other_supports_attempted',
     'fund_breakdown', 'amount_requested',
+    # Added 27 Aug 2026: this form pays money and asked for nowhere to send
+    # it, so an approved award on it was held in the payment run reading "has
+    # no bank account on file". See PROJECT_STATE.md §5.
+    'account_holder', 'transit_number', 'institution_number', 'account_number',
     'declaration_confirmed', 'signature', 'signed_on',
 }
 
@@ -118,7 +122,7 @@ def main() -> int:
           f'missing {EXPECTED_FIELDS - set(by_key)}')
     check('it falls into the four steps the screens show',
           schema['sections'] == ['Student information', 'The emergency',
-                                 'Fund breakdown', 'Declaration'],
+                                 'Fund breakdown', 'Payment', 'Declaration'],
           str(schema['sections']))
     check("it is titled the way the office titles it",
           schema['label'] == 'Emergency Hardship Bursary (Last Resort)',

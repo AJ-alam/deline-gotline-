@@ -22,6 +22,9 @@ vi.mock('../../api/client', async () => {
   return { ...actual, default: { approvalLetter }, api: { approvalLetter } };
 });
 
+// Imported after the mock: pulling `ApiError` in as a top-level *value*
+// runs the mock factory before `approvalLetter` exists.
+const { ApiError } = await import('../../api/client');
 const { default: ApprovalLetter } = await import('./ApprovalLetter');
 
 function letter(overrides: Partial<Letter> = {}): Letter {
@@ -158,12 +161,31 @@ describe('ApprovalLetter', () => {
     // Rejected lazily. `mockRejectedValue` builds the rejected promise at setup
     // time, before the component has attached a handler, and the runner reports
     // that as an unhandled rejection even though the component catches it.
-    approvalLetter.mockImplementation(() => Promise.reject({
-      response: { data: { detail: 'This application has not been approved.' } },
-    }));
+    //
+    // Rejected with a real `ApiError`, which is what `api.approvalLetter`
+    // actually throws. This used to reject with `{response: {data: {detail}}}`
+    // — the shape axios throws *inside* the client, before `toApiError`
+    // converts it — so the test drove a path no caller ever takes, passed, and
+    // the screen showed "could not be loaded" for every one of the server's
+    // four reasons. A fabricated error shape proves nothing about the real one.
+    approvalLetter.mockImplementation(() => Promise.reject(
+      new ApiError(409, 'This application has not been approved.'),
+    ));
     show();
     expect(await screen.findByText('This application has not been approved.'))
       .toBeInTheDocument();
+  });
+
+  it.each([
+    'This application has not been priced.',
+    'The pricing in force awards nothing.',
+    'The office has supplied approval letters for semester funding only. '
+      + 'This award is a one-off.',
+  ])('shows the server reason: %s', async (detail) => {
+    approvalLetter.mockImplementation(() => Promise.reject(new ApiError(409, detail)));
+    show();
+    expect(await screen.findByText(detail)).toBeInTheDocument();
+    expect(screen.queryByText(/could not be loaded/)).not.toBeInTheDocument();
   });
 
   it('still says something when the failure carries no reason', async () => {

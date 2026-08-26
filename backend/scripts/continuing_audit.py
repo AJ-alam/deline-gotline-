@@ -28,9 +28,13 @@ PASSWORD = 'DemoPass123!'
 # Exactly what the renewal screen shows.
 EXPECTED_FIELDS = {
     'full_name', 'beneficiary_number', 'email',
-    'institution_name', 'program', 'course_load', 'dependent_count',
+    'institution_name', 'registrar_email', 'program', 'course_load',
+    'dependent_count',
     'semester', 'receives_sfa',
     'doc_transcript', 'doc_enrollment_confirmation',
+    # This form pays tuition and a living allowance every semester and asked
+    # for nowhere to send it, so a first-time renewal's award was held.
+    'account_holder', 'transit_number', 'institution_number', 'account_number',
     'declaration_confirmed', 'signature',
 }
 
@@ -127,11 +131,18 @@ def main() -> int:
           "a choice field spelled yes/no reads as 'on SFA' for both answers")
     check('the semester is required',
           by_key.get('semester', {}).get('required') is True)
+    check('the renewal asks who confirms the enrolment',
+          by_key.get('registrar_email', {}).get('required') is True,
+          'without one the institution is never asked and tuition cannot be priced')
+    check('and asks for it as an address rather than as free text',
+          by_key.get('registrar_email', {}).get('type') == 'email',
+          str(by_key.get('registrar_email')))
     check('the declaration is its own type, not an ordinary tick',
           by_key.get('declaration_confirmed', {}).get('type') == 'confirm')
     check('the form falls into the two steps the screen shows',
           set(schema['sections']) == {'Review your information',
-                                      'Upload required documents', 'Declaration'},
+                                      'Upload required documents', 'Payment',
+                                      'Declaration'},
           str(schema['sections']))
 
     print('\nWhat the form opens with')
@@ -160,6 +171,7 @@ def main() -> int:
         'beneficiary_number': prefilled.get('beneficiary_number') or 'DGG-2026-0041',
         'email': prefilled.get('email') or arguments.student,
         'institution_name': prefilled.get('institution_name') or 'Aurora College',
+        'registrar_email': prefilled.get('registrar_email') or 'registrar@aurora.ca',
         'program': prefilled.get('program') or 'Environmental Science',
         'course_load': 'full_time',
         'dependent_count': 2,
@@ -167,6 +179,10 @@ def main() -> int:
         'receives_sfa': False,
         'doc_transcript': transcript,
         'doc_enrollment_confirmation': enrolment_copy,
+        'account_holder': prefilled.get('account_holder') or 'Majid Khan',
+        'transit_number': prefilled.get('transit_number') or '12345',
+        'institution_number': prefilled.get('institution_number') or '003',
+        'account_number': '7654321',
         'declaration_confirmed': True,
         'signature': 'Majid Khan',
     }
@@ -193,6 +209,17 @@ def main() -> int:
     check("a student's own tuition figure is not accepted here",
           refused.status_code == 400, f'{refused.status_code} {refused.text[:200]}')
 
+    without_registrar = {k: v for k, v in complete.items() if k != 'registrar_email'}
+    refused = submit(without_registrar)
+    check('a renewal with no registrar to ask is refused at the form',
+          refused.status_code == 400, f'{refused.status_code} {refused.text[:200]}')
+    check('and the refusal names the question the student has to answer',
+          'registrar_email' in refused.text, refused.text[:300])
+
+    refused = submit({**complete, 'registrar_email': 'the registrar at Aurora'})
+    check('an address that is not an address is refused rather than emailed',
+          refused.status_code == 400, f'{refused.status_code} {refused.text[:200]}')
+
     print('\nSubmitting')
     created = submit(complete)
     check('the renewal is filed', created.status_code == 201,
@@ -212,8 +239,9 @@ def main() -> int:
     check('the documents are references to stored files, not claims',
           str(application['answers'].get('doc_transcript', '')).startswith('document:'),
           repr(application['answers'].get('doc_transcript')))
-    check('the registrar email is not copied into the renewal',
-          'registrar_email' not in application['answers'])
+    check('the renewal records the registrar it named',
+          application['answers'].get('registrar_email') == complete['registrar_email'],
+          repr(application['answers'].get('registrar_email')))
 
     print('\nOn SFA, the same student is not funded from PSSSP')
     on_sfa = submit({**complete, 'receives_sfa': True})
@@ -233,13 +261,27 @@ def main() -> int:
               enrolment.get('required') is True
               and enrolment.get('status') not in (None, 'not_required'),
               'the form says DGG will contact the registrar; nothing was raised. '
-              f'Check the student has an earlier application carrying a registrar '
-              f'email. Got: {enrolment}')
-        check('addressed to the registrar from the application on file',
-              bool(enrolment.get('registrar_email')), str(enrolment))
-        check('and the renewal itself never asked for that address',
-              'registrar_email' not in keys)
+              f'Got: {enrolment}')
+        # The address the student was shown and confirmed is the one that gets
+        # the email. It used to be resolved at send time from an earlier
+        # application, so a student with no history was promised a request that
+        # was never made — silently, and tuition could then never be priced.
+        check('addressed to exactly the registrar the student named',
+              enrolment.get('registrar_email') == complete['registrar_email'],
+              f"named {complete['registrar_email']}, asked {enrolment.get('registrar_email')}")
         print(f'        addressed to {enrolment.get("registrar_email")}')
+
+    print('\nA registrar that moved between terms')
+    moved = submit({**complete, 'registrar_email': 'records.office@aurora.ca'})
+    check('a renewal naming a different registrar is filed',
+          moved.status_code == 201, f'{moved.status_code} {moved.text[:200]}')
+    if moved.status_code == 201:
+        detail = session.get(f'/api/applications/{moved.json()["id"]}/')
+        enrolment = detail.json().get('enrolment') or {}
+        check('the corrected address is the one asked, not the one on file',
+              enrolment.get('registrar_email') == 'records.office@aurora.ca',
+              f'asked {enrolment.get("registrar_email")} — the box is decoration '
+              f'if an earlier application still wins')
 
     print(f'\n{checks - len(failures)}/{checks} checks passed')
     if failures:

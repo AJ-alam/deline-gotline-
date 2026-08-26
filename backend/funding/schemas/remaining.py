@@ -27,18 +27,29 @@ MAX_EVIDENCE = 20
 # the student is confirming it is still true, which is the only thing a renewal
 # actually establishes.
 #
-# Three award inputs are deliberately *not* asked here:
+# Two award inputs are deliberately *not* asked here:
 #
 #   semester_start / semester_end   the registrar confirms these on the
 #   confirmed_tuition               enrolment verification, and tuition has
 #                                   never been funded against a student's own
 #                                   estimate.
-#   registrar_email                 carried from the admission application by
-#                                   workflow._request_enrolment_confirmation.
 #
 # Two are asked, because neither can be carried from a previous term without
 # being wrong: which semester this renewal is for, and whether SFA is in play.
 # SFA decides the funding stream (services/streams.py) and changes every term.
+#
+# `registrar_email` used to be a third that was not asked: it was carried at
+# send time from the student's profile or their last application, and the
+# stated reason was that retyping it every semester is how a typo reaches an
+# institution. What that reasoning missed is the student who has nothing to
+# carry — a first renewal in the portal, an admission done on paper, a profile
+# never opened. For them the request was skipped **in silence**: the summary
+# above promised the registrar had been asked, nobody was asked, and tuition is
+# funded against the registrar's figure, so the application could never be
+# priced for tuition by anybody. It is asked here now, pre-filled from the
+# profile and from the last application that carried one, so the common case is
+# still a confirmation rather than a retype — and the uncommon case is a box
+# the student can see is empty instead of a promise that quietly was not kept.
 register(ApplicationSchema(
     slug='continuing_funding',
     # Says the three things a returning student needs before starting: how
@@ -59,6 +70,21 @@ register(ApplicationSchema(
               section=REVIEW),
 
         Field('institution_name', 'Institution', FieldType.TEXT, required=True,
+              section=REVIEW),
+        # Where the generated enrolment verification is sent. Required for the
+        # same reason it is required on the admission application: without a
+        # working address here the institution is never asked, and tuition is
+        # funded against the registrar's figure and nothing else.
+        #
+        # It sits in this section rather than a `Registrar` one of its own
+        # because that is what the step is — the facts already on file, shown
+        # for confirmation. A second section would put a heading above a single
+        # question (§5, "nothing sits above a form but the form").
+        Field('registrar_email', 'Registrar or official email', FieldType.EMAIL,
+              required=True,
+              help_text='Where we send the enrolment verification for your '
+                        'institution to confirm. Carried from your profile or '
+                        'your last application — check it is still right.',
               section=REVIEW),
         Field('program', 'Program', FieldType.TEXT, required=True, section=REVIEW),
         Field('course_load', 'Course load', FieldType.CHOICE, required=True,
@@ -81,6 +107,20 @@ register(ApplicationSchema(
               section=DOCUMENTS),
         Field('doc_enrollment_confirmation', 'Enrollment confirmation',
               FieldType.FILE, required=True, section=DOCUMENTS),
+
+        # Where the money goes. This form pays tuition and a living allowance
+        # every semester and asked for none of it, so a student whose *first*
+        # application was a renewal had no `BankAccount` — nothing else creates
+        # one — and every award on it was held out of the payment file reading
+        # "has no bank account on file", on a screen they never see. Same fault
+        # the five forms that already ask were fixed for; these three were never
+        # counted, because the rule was written as "required on every form that
+        # collects it" rather than "on every form that pays".
+        #
+        # Nothing is retyped: `prefill` fills the three returnable fields from
+        # the student's account and `clean(private_on_file=...)` accepts a blank
+        # `account_number` when one is on file.
+        *banking(),
 
         Field('declaration_confirmed', 'Confirm declaration', FieldType.CONFIRM,
               required=True,
@@ -232,7 +272,7 @@ register(ApplicationSchema(
               help_text="The student's performance, attendance and contributions.",
               section=REPORT),
 
-        *banking(),
+        *banking(required=True),
 
         # A CONFIRM rather than a BOOLEAN: "no, this is not accurate" is not an
         # answer a report can be filed with, and a required BOOLEAN accepts
@@ -326,7 +366,7 @@ register(ApplicationSchema(
                         'have. Not required, and never a reason to delay asking.',
               section=EMERGENCY_DOCS),
 
-        *banking(),
+        *banking(required=True),
 
         Field('declaration_confirmed', 'I confirm the declaration',
               FieldType.CONFIRM, required=True,
@@ -417,6 +457,11 @@ register(ApplicationSchema(
                         'maximum, which the office sets.',
               section=HARDSHIP_FUNDS),
 
+        # Pays up to the published maximum and asked for nowhere to pay it, so
+        # an approved bursary was held in the payment run. See the note on the
+        # renewal above: same fault, same reason it was missed.
+        *banking(),
+
         Field('declaration_confirmed', 'I confirm the declaration',
               FieldType.CONFIRM, required=True,
               help_text='I confirm that the information provided is accurate and '
@@ -497,6 +542,11 @@ register(ApplicationSchema(
               FieldType.FILE, required=True,
               help_text='Must show your full name and the name of the institution.',
               section=ACHIEVEMENT),
+
+        # The scholarship is money. Same fault as the renewal and the hardship
+        # bursary above — priced, approved, then held for want of an account
+        # nobody had ever asked for.
+        *banking(),
 
         Field('declaration_confirmed', 'I confirm the declaration',
               FieldType.CONFIRM, required=True,

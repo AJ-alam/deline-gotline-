@@ -95,9 +95,14 @@ def admission_answers(**overrides) -> dict:
 def continuing_answers(**overrides) -> dict:
     """A complete continuing-funding renewal.
 
-    Deliberately carries no semester dates, tuition or registrar email: the
-    renewal does not ask for them. They arrive from the enrolment verification,
-    which is the whole reason this fixture differs from `admission_answers`.
+    Deliberately carries no semester dates and no tuition: the renewal does not
+    ask for them. They arrive from the enrolment verification, which is the
+    whole reason this fixture differs from `admission_answers`.
+
+    It does carry a registrar email, because the renewal asks for one — a
+    student with no history has nothing to carry, and the request used to be
+    skipped in silence. Spelled out here rather than left to `_FILL`'s generic
+    address so a test overriding it reads as a deliberate choice.
     """
     defaults = dict(
         full_name='Majid Khan',
@@ -105,6 +110,7 @@ def continuing_answers(**overrides) -> dict:
         semester='fall',
         dependent_count='0',
         receives_sfa='false',
+        registrar_email='registrar@aurora.ca',
     )
     defaults.update(overrides)
     return answers_for('continuing_funding', **defaults)

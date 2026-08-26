@@ -189,6 +189,35 @@ what every student is paid, or to pay the wrong amount.
 
 ---
 
+## 5b. Reading a full SIN or bank account
+
+**Show full details**, on the Payment card and beside the identifiers on the
+application screen. Administrators only.
+
+The application screen masks both by default — `•••••996`, `••••3210` — and that
+does not change. What is new is that the real values can be read at all: the
+service behind this had unit tests and no endpoint, so until 27 August 2026 the
+whole number was unreadable from the portal by anybody, including the
+administrator doing the federal PSSSP return the number is collected for.
+
+- **One click, no typed justification.** The office asked for these to be
+  visible; a reason box demanded on every read is a box that fills with a full
+  stop.
+- **Every read is recorded** — one `AuditEntry` for the identifier and a
+  separate one for the banking, naming you, the applicant and the time. Two
+  entries rather than one, so the log can answer "who has seen this person's
+  SIN" on its own.
+- **Only administrators.** Not the support workers who assess applications, and
+  not Finance — the payment file already carries the account they need.
+- **Opening the application screen records nothing.** The masked values are on
+  the detail response; the real ones are a separate, deliberate act.
+- The bank details come from the `BankAccount` record the payment run reads, not
+  from the application's answers, where they deliberately no longer live. A
+  guest claim with no account behind it shows the details held encrypted against
+  the application instead, marked as held.
+
+---
+
 ## 6. The payment run
 
 **Payments** (`/payments`). Finance and administrators. The people who assess an
@@ -207,7 +236,7 @@ would be paid twice.
 
 | Reason | What to do |
 |---|---|
-| The student has no bank account on file | They gave none, or gave one before it was routed to the account record. Ask them, or run `purge_banking_answers` on an old database. |
+| The student has no bank account on file | **Should no longer happen on a new application.** Every form that pays now asks for a bank account, so this means the application was filed before 27 August 2026 — three forms that pay money (`continuing_funding`, `academic_scholarship`, `hardship_bursary`) used to ask for none. To clear it: the student saves their payment details on their own profile, or an administrator edits the application and fills them in. The run caches nothing, so the award is offered for payment as soon as the account exists. On a very old database, `purge_banking_answers` moves details that were left in `answers`. |
 | No student is attached to this application | A guest application. Attach it to an account (§8). |
 | Payment was requested to another person | The graduation claim's release-of-funds tick. Nothing here can pay a third party; the office arranges it. What authorises a release is still an open question (§9). |
 | Not attached to a pricing decision | Should not occur. Re-price the application. Reported rather than dropped, because money must not vanish quietly. |
@@ -228,13 +257,23 @@ The selection is locked, so two people pressing the button at the same moment
 cannot send the same award twice. Blocked awards stay pending and are named in
 the result — never quietly excluded.
 
-The file is one row per **award line**, not per student, because finance
-reconciles against the categories:
+The file is one row per **application** — one amount to pay, once. It used to be
+one row per award *line*, so an application priced across two streams and two
+categories became four rows against one bank account; the office asked for the
+opposite, which is to be told the amount to pay rather than the rules that
+produced it. `Covers` keeps the categories as a readable list, so a reconciler
+can still see what one payment is made up of without the file pretending to be a
+ledger. Grouped by application rather than by student, because a student with
+two funded applications is owed two payments that must each trace to the
+decision behind them.
 
 ```
-Reference, Student, Beneficiary number, Application, Award, Amount,
+Reference, Student, Beneficiary number, Application, Amount, Covers,
 Account holder, Transit, Institution, Account number, Approved on
 ```
+
+The account columns are the same record shown on the payment screen — masked
+there, whole here, because the file is what the bank acts on.
 
 The run is manual. Nothing dispatches on a schedule, and no email is sent to
 finance (§9).
@@ -454,8 +493,7 @@ application) onto the account, so finance stops reporting them as having none.
   address in the NWT. Saying yes and giving an address elsewhere is not flagged
   — see PROJECT_STATE §5 for why that was not assumed.
 - **No rule-set publishing from the portal.** `seed_rules --publish` only.
-- **No SIN reveal endpoint.** `funding.services.identifiers.reveal` from a shell,
-  which demands a reason and audits before returning anything.
+
 - **No password reset flow,** for staff or students.
 - **No staff view of a student's profile.** Students maintain their own; the
   office corrects a *filed application* through the amendment path, where the
@@ -494,13 +532,54 @@ Demo accounts, all password `DemoPass123!`: `admin@dgg.test`,
 | Command | What it does |
 |---|---|
 | `seed_demo` | Demo accounts, rates, deadlines, a published rule set |
+| `seed_policies` | The office's rates, deadlines and rule set — and nothing fictional. The production step |
 | `seed_rules --publish` | Publish a new rule-set version — required after any rule change |
+| `purge_applications` | Clear case data before a real intake. Reports by default; `--yes` writes |
 | `send_queued_emails --limit N` | Drain the outbox |
 | `email_status` | Report whether mail is configured and deliverable |
 | `check_awards` | Applications priced more than once, and orphaned awards |
 | `purge_banking_answers` | Move bank details out of `answers` onto account records |
 | `prune_stale_answers` | Remove answers whose question a schema no longer defines |
 | `generate_types --check` | Assert the TypeScript types match the schemas |
+
+### Clearing a database before a real intake
+
+`purge_applications` deletes applications and everything hanging off one —
+events, awards, decisions, repayments, encrypted identifiers, document rows,
+enrolment verifications — plus in-portal notices and the outbound email queue.
+It never touches the office's configuration: the rates and their history, the
+deadlines, the rule sets and the entered report costs all stay.
+
+Reporting is the default. **Nothing is written without `--yes`**, and the banner
+names the database it is pointed at every time, including on a dry run — the
+difference between the local database and production is one environment
+variable, so read that line before you read anything else.
+
+```bash
+# What would go, on whichever database DATABASE_URL names
+manage.py purge_applications
+
+# Case data goes; every account stays
+manage.py purge_applications --yes
+
+# Also delete student accounts the audit scripts invented. Staff always stay
+manage.py purge_applications --drop-test-accounts --yes
+
+# Cut down to a named set of accounts. Deletes staff. Report first, always
+manage.py purge_applications --keep-only=admin@…,director@… --yes
+```
+
+`--keep-only` is refused if an address matches no account, and refused if no
+active administrator would survive — nothing inside the portal can create the
+next administrator, and a portal with no accounts refuses every login in a way
+that reads as a broken deployment.
+
+Two things it does not do. **The uploaded files are not deleted** — Django
+removes the row and never the blob, so the objects stay in the Supabase bucket
+and are reported so you can decide. And **an account's name comes off the
+office's history**: a rate change or a staff-administration audit entry survives
+the person who made it, with the "who" left blank. The command counts those
+before it writes.
 
 ### Checks
 
@@ -513,12 +592,19 @@ cd backend && ./venv/Scripts/python.exe manage.py test
 `npx tsc --noEmit` checks **zero files** — `tsconfig.json` has `"files": []` and
 only project references. Use `npm run typecheck`.
 
-The fourteen live audits in `backend/scripts/` drive real HTTP against a running
+The twenty live audits in `backend/scripts/` drive real HTTP against a running
 server and are the only thing on this project that has reliably found real bugs.
-See PROJECT_STATE.md §7. The newest, `profile_audit.py`, walks a freshly
-registered student from an empty profile to a pre-filled form, a renewal whose
-enrolment request reaches the registrar address the profile holds, a re-answered
-screening changing the next application's stream, and banking reaching finance.
+See PROJECT_STATE.md §7.
+
+`readiness_audit.py` is the one to run before handing this to anybody. It walks
+the whole money path in the order the office uses it and checks the joins
+between the parts: every form that pays asks where to send it, the registrar's
+confirmed tuition reaches the award, the award's own lines and the office's
+stream split and the annual report's programme table all describe the same
+money, the approval letters add up to the award as a page and a PDF and an
+email, the payment run shows the account before releasing it and cannot send the
+same money twice, and an administrator can read a full SIN and a full bank
+account while nobody else can.
 
 ---
 

@@ -276,16 +276,22 @@ def registrar_email_for(application) -> str:
     student is shown what their registrar will receive *before* submitting, and
     a preview addressed to nobody would be a preview of the wrong thing.
 
-    The continuing-funding renewal does not ask for a registrar's address: the
-    student gave one on the application that got them funded in the first place,
-    and retyping it every semester is how a typo reaches an institution. So it
-    falls back to the most recent earlier application by the same student that
-    carries one.
+    Both types that need a confirmation now *ask* for the address, so the first
+    branch answers for anything filed through the portal. The fallbacks below
+    are not dead:
 
-    Without this the renewal would submit, promise the student that their
-    registrar had been contacted, and silently contact nobody — tuition is
-    funded against the registrar's figure, so nothing could ever be awarded
-    for it.
+      - the renewal did not always ask (see `schemas/remaining`), so an
+        application filed before that change carries no `registrar_email` of
+        its own and is still amendable, reissuable and priceable;
+      - `EnrolmentPreviewView` builds an unsaved draft from whatever the
+        student has typed so far, which on a half-filled form is nothing —
+        showing them the address on file beats showing them a blank;
+      - the office may reissue against an application whose own address
+        bounced.
+
+    Ordered profile-before-history for the reason the profile screen exists: a
+    student who corrects their registrar there and still sees last February's
+    address would reasonably conclude the profile does nothing.
     """
     own = str((application.answers or {}).get('registrar_email') or '').strip()
     if own:

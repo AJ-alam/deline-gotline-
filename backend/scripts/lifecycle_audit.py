@@ -143,6 +143,10 @@ def main() -> int:
         'beneficiary_number': opening.get('beneficiary_number') or 'DGG-2026-0041',
         'email': opening.get('email') or 'student@dgg.test',
         'institution_name': opening.get('institution_name') or 'Aurora College',
+        # The renewal asks who confirms the enrolment. It used to be resolved
+        # at send time from an earlier application, which left a student with
+        # no history promised a request that was never made.
+        'registrar_email': opening.get('registrar_email') or 'registrar@aurora.ca',
         'program': opening.get('program') or 'Environmental Science',
         'course_load': 'full_time',
         # Two dependants: the engine reads a boolean it no longer collects, so
@@ -236,13 +240,26 @@ def main() -> int:
           (body.get('enrolment') or {}).get('required') is True,
           str(body.get('enrolment')))
 
-    # Submission raises the request by itself — but only when a registrar
-    # address can be carried from an earlier application, and the renewal form
-    # does not ask for one. On an empty database, or for a student whose
-    # admission was on paper, there is nothing to carry: the request was
-    # skipped in silence and the application could then never be forwarded or
-    # approved by anybody. Staff ask directly in that case, which is what this
-    # walks. Everything after it is the same either way.
+    # Submission raises the request by itself, and the renewal now names the
+    # address it goes to, so this should hold on any database — including an
+    # empty one, and for a student whose admission was on paper. It used to be
+    # carried from an earlier application: with nothing to carry the request
+    # was skipped in silence, and the application could then never be forwarded
+    # or approved by anybody.
+    #
+    # Asserted before the fallback rather than instead of it. The branch below
+    # still exists for a row filed before the form asked, and a check that
+    # merely tolerates the silence would pass on the day it comes back.
+    check('the renewal asked the institution by itself',
+          bool((body.get('enrolment') or {}).get('registrar_email')),
+          'nothing was raised at submission; the form names a registrar, so '
+          f'this should not need staff. Got: {body.get("enrolment")}')
+    check('and asked exactly the registrar the student named',
+          (body.get('enrolment') or {}).get('registrar_email')
+          == answers['registrar_email'],
+          f"named {answers['registrar_email']}, "
+          f"asked {(body.get('enrolment') or {}).get('registrar_email')}")
+
     if not (body.get('enrolment') or {}).get('registrar_email'):
         check('an unasked enrolment says so rather than calling itself not required',
               (body.get('enrolment') or {}).get('status') == 'not_requested',
@@ -310,9 +327,15 @@ def main() -> int:
         context = opened.json()['application']
         check('the form names the student',
               bool(context.get('student_name')), str(context)[:200])
+        # Against the keys. Searching the rendered dictionary for 'sin' matches
+        # a student on a **Nurs**ing programme — the "nt" inside Ontario again.
+        # It passes here only because this audit's programme is Environmental
+        # Science, which is an accident of the fixture rather than a property
+        # of the check.
         check('and does not hand the institution a SIN or date of birth',
-              'sin' not in str(context.get('prefill', {})).lower()
-              and 'date_of_birth' not in context.get('prefill', {}))
+              'sin' not in (context.get('prefill') or {})
+              and 'date_of_birth' not in (context.get('prefill') or {}),
+              str(sorted(context.get('prefill') or {}))[:300])
 
     confirmed = anonymous_post(f'/api/enrolment/{token}/', json={'answers': {
         'student_name': answers['full_name'],
@@ -1191,9 +1214,10 @@ def main() -> int:
                                  json={'action': 'approved'}).status_code
               in (403, 404))
 
-    check('the renewal never stored a registrar address of its own',
-          'registrar_email' not in after['answers'])
-    check('nor a tuition figure the student typed',
+    check('the renewal stored the registrar it named',
+          after['answers'].get('registrar_email') == answers['registrar_email'],
+          repr(after['answers'].get('registrar_email')))
+    check('but not a tuition figure the student typed',
           'tuition_requested' not in after['answers'])
 
     print(f'\n{checks - len(failures)}/{checks} checks passed')

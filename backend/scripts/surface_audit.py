@@ -976,19 +976,47 @@ def audit_policy_and_money(student: Actor, worker: Actor, director: Actor,
         return response.json() if response.status_code == 200 else {'awards': []}
 
     run = offered()
-    ids = [row['id'] for row in run.get('awards', [])]
+    rows = run.get('awards', [])
+
+    # `row['id']` is the *application*, not an award. The file became one
+    # payment per application — the office asked to be told the amount to pay
+    # rather than the rules that produced it — and this check went on reading
+    # the row id as an `Award` primary key, so it filtered the award table by
+    # application numbers.
+    #
+    # That is not a check failing; it is a check that had stopped running.
+    # Where the two id ranges did not overlap it matched nothing and passed
+    # vacuously, which is every accumulated database. On a freshly migrated one
+    # the numbers are small and collide, and it reported unrelated awards as
+    # superseded. `award_ids` is on the row for exactly this, and was added at
+    # the same time as the lump sum with a comment saying so.
+    ids = [row['id'] for row in rows]
     check('nothing is offered to finance twice in one run',
           len(ids) == len(set(ids)), f'{len(ids)} rows, {len(set(ids))} distinct')
+
+    award_ids = [pk for row in rows for pk in row.get('award_ids', [])]
+    check('every row names the award lines behind it',
+          all(row.get('award_ids') for row in rows),
+          'without these there is no way to ask whether a superseded pricing '
+          'is still being offered — the invariant that stops money going out '
+          'twice becomes unobservable the moment the file is a lump sum')
+    check('no award line is offered under two payments',
+          len(award_ids) == len(set(award_ids)),
+          f'{len(award_ids)} lines, {len(set(award_ids))} distinct')
 
     # The invariant the $17,100 bug broke: a superseded decision's lines stay
     # PENDING, because nothing pays them and so nothing ever moves them on. If
     # the run is not scoped to the decision in force, an application priced
     # twice is offered twice and the money goes out twice.
-    superseded = Award.objects.filter(pk__in=ids).exclude(decision__is_current=True)
+    superseded = Award.objects.filter(pk__in=award_ids).exclude(decision__is_current=True)
     check('every award offered belongs to the decision in force',
           not superseded.exists(),
-          f'{superseded.count()} of {len(ids)} offered lines belong to a '
+          f'{superseded.count()} of {len(award_ids)} offered lines belong to a '
           f'superseded or missing decision: {list(superseded.values_list("pk", flat=True))[:10]}')
+    check('and the check above was able to look at something',
+          bool(award_ids) or not rows,
+          'no award ids to examine while rows are offered: this check is '
+          'passing because it is looking at nothing')
 
     # Compared as amounts, not as text: '27142.0' and '27142.00' are the same
     # money, and a check that calls them different fails for a reason that has
@@ -1009,22 +1037,29 @@ def audit_policy_and_money(student: Actor, worker: Actor, director: Actor,
                            awards__status=Award.Status.PENDING)
                    .exclude(student=None).distinct().first())
     if repriceable is not None:
-        before = {row['id'] for row in run.get('awards', [])
-                  if row['application_id'] == repriceable.pk}
+        # The award lines, not the payment row. One payment now covers several
+        # lines and is keyed on the application, which does not change when an
+        # application is re-priced - so comparing row ids would compare the
+        # application with itself and report every re-pricing as a duplicate.
+        before = {pk for row in run.get('awards', [])
+                  if row['application_id'] == repriceable.pk
+                  for pk in row.get('award_ids', [])}
         priced = director.post(f'/api/applications/{repriceable.pk}/price/', json={})
         check('the director can re-price an application',
               priced.status_code in (201, 409),
               f'{priced.status_code} {priced.text[:160]}')
         if priced.status_code == 201:
             after_run = offered()
-            after = {row['id'] for row in after_run.get('awards', [])
-                     if row['application_id'] == repriceable.pk}
+            after = {pk for row in after_run.get('awards', [])
+                     if row['application_id'] == repriceable.pk
+                     for pk in row.get('award_ids', [])}
             check('re-pricing replaces what is offered rather than adding to it',
                   not (before & after),
                   f'{len(before & after)} lines from the superseded pricing are '
                   f'still being offered')
             stale = Award.objects.filter(
-                pk__in={row['id'] for row in after_run.get('awards', [])}
+                pk__in={pk for row in after_run.get('awards', [])
+                        for pk in row.get('award_ids', [])}
             ).exclude(decision__is_current=True)
             check('nothing from the superseded pricing survives into the run',
                   not stale.exists(), str(list(stale.values_list('pk', flat=True))[:10]))

@@ -5,6 +5,8 @@ the people who release the money, and keeping those apart is the ordinary
 control on a funding body.
 """
 
+from decimal import Decimal
+
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -29,18 +31,55 @@ class PendingAwardsView(APIView):
                             status=status.HTTP_403_FORBIDDEN)
 
         ready, blocked = finance.preview()
+        batches = finance.payment_batches(ready)
+        blocked_total = sum((row['award'].amount for row in blocked), Decimal('0.00'))
+        ready_total = sum((batch['amount'] for batch in batches), Decimal('0.00'))
         return Response({
-            'count': len(ready),
-            'total': sum((row['award'].amount for row in ready), 0),
+            # One payment per application, because that is what finance is
+            # asked to do. `count` counts payments, not award lines: "Send 4
+            # awards" against one student and one bank transfer described the
+            # rules rather than the act.
+            'count': len(batches),
+            'total': str(ready_total),
+            # Both figures, on the screen that has to explain them. The
+            # dashboard counts every pending award; this screen counted only the
+            # payable ones, so "$80,650.00 awaiting payment" sat beside "Ready
+            # to pay $0.00" with nothing saying the difference was blocked. Two
+            # numbers for one pot, and neither admitted the other existed.
+            'blocked_total': str(blocked_total),
+            'pending_total': str(ready_total + blocked_total),
             'awards': [
                 {
-                    'id': row['award'].pk,
-                    'student': row['award'].application.student.full_name,
-                    'application_id': row['award'].application_id,
-                    'category': row['award'].get_category_display(),
-                    'amount': str(row['award'].amount),
+                    'id': batch['application'].pk,
+                    'student': batch['student'].full_name,
+                    'application_id': batch['application'].pk,
+                    'category': '; '.join(batch['categories']),
+                    'lines': len(batch['awards']),
+                    # The award lines this one payment is made of. The row's own
+                    # `id` is the application now, so without these there is no
+                    # way to ask whether a superseded pricing is still being
+                    # offered — an invariant that must survive the payment file
+                    # becoming a lump sum, because it is what stops money going
+                    # out twice.
+                    'award_ids': [award.pk for award in batch['awards']],
+                    'amount': str(batch['amount']),
+                    # Where this payment is going, on the screen where somebody
+                    # commits to sending it. The account was in the CSV and
+                    # nowhere else, so the only way to check a transit number
+                    # before releasing money was to send the batch first and
+                    # open the file afterwards — by which point every award in
+                    # it is marked paid and cannot be sent again.
+                    #
+                    # Masked to the last four. Finance is releasing money to an
+                    # account already on file, not transcribing it: the digits
+                    # that matter for a sanity check are the ones that identify
+                    # which account it is, and the file carries the whole thing.
+                    'account_holder': batch['account'].account_holder,
+                    'account': f"••••{batch['account'].account_number[-4:]}",
+                    'transit_number': batch['account'].transit_number,
+                    'institution_number': batch['account'].institution_number,
                 }
-                for row in ready
+                for batch in batches
             ],
             'blocked': [
                 {

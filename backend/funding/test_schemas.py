@@ -425,3 +425,105 @@ class ContactRulesTests(SimpleTestCase):
                 schema = get_schema(slug)
                 self.assertFalse(schema.field('phone').required)
                 self.assertTrue(schema.field('email').required)
+
+
+class BankingIsAskedWhereverMoneyIsPaidTests(SimpleTestCase):
+    """Every form that can produce an award asks where to pay it.
+
+    The rule was previously written as "required on every form that collects
+    it", and enforced by reading the five forms that collected it. Three that
+    pay money collected none at all and so were never in scope:
+    `continuing_funding` (tuition and a living allowance, every semester),
+    `academic_scholarship` and `hardship_bursary`.
+
+    What that cost is at the far end of the money path. Nothing but a filled-in
+    banking section creates a `BankAccount`, so a student whose *first*
+    application was one of those three had no account; the award was priced,
+    approved, and then held out of the payment file reading "has no bank account
+    on file" — on a screen the applicant never sees, weeks after they could have
+    answered in a second. That is the wall of red the payment run exists to not
+    be.
+
+    Derived from the seeded rules rather than from a list kept by hand. The rule
+    set is the authority on which application types produce money, so a rule
+    added for a new type tomorrow fails this test until that form asks — which
+    is precisely what a hand-kept list of five did not do.
+    """
+
+    BANKING = ('account_holder', 'transit_number', 'institution_number',
+               'account_number')
+
+    def paying_types(self):
+        from funding.management.commands.seed_rules import RULES
+
+        types = set()
+        for rule in RULES:
+            types.update(rule.get('applies_to_types') or ())
+        return types
+
+    def test_the_rule_set_pays_out_on_more_than_five_forms(self):
+        """Guards the guard.
+
+        If `RULES` were ever read wrongly and came back empty, every assertion
+        below would pass by iterating nothing — the residency-count fault, in a
+        test file.
+        """
+        self.assertGreaterEqual(len(self.paying_types()), 8, self.paying_types())
+
+    def test_every_paying_form_asks_where_to_pay_it(self):
+        missing = {}
+        for slug in sorted(self.paying_types()):
+            keys = set(get_schema(slug).keys)
+            absent = [key for key in self.BANKING if key not in keys]
+            if absent:
+                missing[slug] = absent
+        self.assertEqual(
+            missing, {},
+            'these forms produce an award and ask for nowhere to send it, so '
+            f'every award on them is held in the payment run: {missing}')
+
+    def test_and_requires_it(self):
+        """Optional is the same failure one step later — a student who skips it
+        is a student whose award is held."""
+        weak = {}
+        for slug in sorted(self.paying_types()):
+            schema = get_schema(slug)
+            keys = set(schema.keys)
+            optional = [key for key in self.BANKING
+                        if key in keys and not schema.field(key).required]
+            if optional:
+                weak[slug] = optional
+        self.assertEqual(weak, {}, f'banking is optional on: {weak}')
+
+    def test_and_keeps_it_out_of_answers(self):
+        """`answers` is returned whole by the detail endpoint, printed on the
+        paper form and copied into the registrar's copy. A form that asked for
+        banking without marking it private would put an account number in all
+        three."""
+        leaking = {}
+        for slug in sorted(self.paying_types()):
+            schema = get_schema(slug)
+            keys = set(schema.keys)
+            public = [key for key in self.BANKING
+                      if key in keys and not schema.field(key).private]
+            if public:
+                leaking[slug] = public
+        self.assertEqual(leaking, {}, f'banking would land in answers on: {leaking}')
+
+    def test_the_three_that_were_missed(self):
+        """Named as well as swept, so a failure says which screen changed."""
+        for slug in ('continuing_funding', 'academic_scholarship', 'hardship_bursary'):
+            with self.subTest(slug=slug):
+                schema = get_schema(slug)
+                for key in self.BANKING:
+                    field = schema.field(key)
+                    self.assertTrue(field.required, f'{slug}.{key}')
+                    self.assertTrue(field.private, f'{slug}.{key}')
+
+    def test_appeal_is_not_expected_to_ask(self):
+        """The exception, pinned. An appeal asks for a decision to be revisited
+        and prices nothing, so it has no rule and no payment section — and a
+        test that swept every *form* rather than every paying form would have
+        demanded banking on it."""
+        self.assertNotIn('appeal', self.paying_types())
+        self.assertNotIn('account_number', set(get_schema('appeal').keys))

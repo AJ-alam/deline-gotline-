@@ -34,6 +34,15 @@ if not (DEBUG or TESTING):
             f'SECRET_KEY must be at least {_MIN_SECRET_KEY_LENGTH} characters; '
             f'got {len(SECRET_KEY.strip())}.'
         )
+# The key that encrypts government identifiers. `funding.services.identifiers`
+# reads it off the settings object and refuses to derive one from SECRET_KEY in a
+# deployed process — rotating SECRET_KEY would otherwise make every stored SIN
+# unreadable. It has to be declared *here* for that read to see anything: the
+# environment variable alone was invisible to Django, so a deployment could set
+# it, believe it was configured, and still refuse every application that asks for
+# a SIN. Left empty locally, where identifiers.py derives one on purpose.
+FIELD_ENCRYPTION_KEY = config('FIELD_ENCRYPTION_KEY', default='')
+
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,.vercel.app').split(',')
 if config('VERCEL_URL', default=None):
     ALLOWED_HOSTS.append(config('VERCEL_URL'))
@@ -164,6 +173,10 @@ REST_FRAMEWORK = {
         # already capped at 10MB, allowlisted by type and stored under a
         # generated name, so this bounds the disk an anonymous address can use.
         'guest_document': '10/hour',
+        # The scheduler draining the outbox. Generous because the whole point is
+        # a short interval — a cron every two minutes is 720 calls a day — and
+        # the endpoint is already behind a shared secret.
+        'email_drain': '2000/day',
     },
     # Never expose internal error details to API consumers
     'EXCEPTION_HANDLER': 'core.responses.custom_exception_handler',
@@ -337,6 +350,12 @@ EMAIL_SUBJECT_PREFIX = '[DGG Funding] '
 
 # Finance recipient (for dispatch_report)
 FINANCE_EMAIL = config('FINANCE_EMAIL', default='')
+
+# The shared secret a scheduler presents to drain the outbound queue over HTTP
+# (`POST /api/tasks/send-emails/`). Nothing on a serverless deployment can run a
+# management command on a timer, so an external cron drives it. Empty means the
+# endpoint refuses rather than opens — see `SendQueuedEmailsView`.
+TASK_TOKEN = config('TASK_TOKEN', default='')
 
 # ── FILE UPLOAD SECURITY ────────────────────────────────────────────────────
 # 10 MB hard cap on uploaded files

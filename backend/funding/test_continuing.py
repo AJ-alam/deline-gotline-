@@ -14,6 +14,7 @@ award calculation gets them instead.
 import itertools
 from types import SimpleNamespace
 
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -23,7 +24,7 @@ from funding.models import (
     FundingStream,
 )
 from funding.rules.engine import build_context
-from funding.schemas import ValidationError, all_schemas, get_schema
+from funding.schemas import FieldType, ValidationError, all_schemas, get_schema
 from funding.services import deadlines, verification
 from funding.test_fixtures import admission_answers, continuing_answers
 
@@ -54,11 +55,28 @@ class ShapeTests(APITestCase):
         keys = set(get_schema('continuing_funding').keys)
         self.assertEqual(keys, {
             'full_name', 'beneficiary_number', 'email',
-            'institution_name', 'program', 'course_load', 'dependent_count',
+            'institution_name', 'registrar_email', 'program', 'course_load',
+            'dependent_count',
             'semester', 'receives_sfa',
             'doc_transcript', 'doc_enrollment_confirmation',
+            # The renewal pays tuition and a living allowance every semester and
+            # asked for nowhere to send it, so every award on a first-time
+            # renewal was held. See test_schemas.BankingIsAskedWhereverMoneyIsPaidTests.
+            'account_holder', 'transit_number', 'institution_number',
+            'account_number',
             'declaration_confirmed', 'signature',
         })
+
+    def test_it_asks_who_to_send_the_enrolment_verification_to(self):
+        """Required, and an address rather than free text.
+
+        Named separately from the key set above because that assertion is about
+        the form's shape and this one is about the thing the form cannot work
+        without — a key set edited to make a test pass would take this with it.
+        """
+        field = get_schema('continuing_funding').field('registrar_email')
+        self.assertIs(field.type, FieldType.EMAIL)
+        self.assertTrue(field.required)
 
     def test_it_does_not_ask_for_figures_the_registrar_confirms(self):
         """Tuition has never been funded against a student's own estimate."""
@@ -72,7 +90,8 @@ class ShapeTests(APITestCase):
         schema = get_schema('continuing_funding')
         self.assertEqual(
             set(schema.sections),
-            {'Review your information', 'Upload required documents', 'Declaration'},
+            {'Review your information', 'Upload required documents', 'Payment',
+             'Declaration'},
         )
 
 
@@ -196,8 +215,17 @@ class DependantsTests(APITestCase):
         )
 
 
-class RegistrarCarryOverTests(APITestCase):
-    """The renewal promises the registrar is contacted. It has no field for one."""
+class RegistrarOnTheRenewalTests(APITestCase):
+    """The renewal promises the registrar is contacted. Now it asks who.
+
+    It did not always. The address was carried at send time from the profile or
+    from an earlier application, and a student with neither submitted, was told
+    their registrar had been asked, and nobody had been — with tuition funded
+    against the registrar's figure, so nothing could ever be awarded for it.
+
+    The point of these tests is that the promise in the form's own summary is
+    now kept for *every* renewal, not only for the ones with history.
+    """
 
     def setUp(self):
         self.student = make_student()
@@ -209,36 +237,90 @@ class RegistrarCarryOverTests(APITestCase):
             'answers': admission_answers(registrar_email=registrar),
         }, format='json')
 
-    def submit_renewal(self):
+    def submit_renewal(self, **overrides):
         return self.client.post('/api/applications/', {
-            'type': 'continuing_funding', 'answers': continuing_answers(),
+            'type': 'continuing_funding', 'answers': continuing_answers(**overrides),
         }, format='json')
 
-    def test_the_registrar_is_taken_from_the_application_on_file(self):
-        self.file_admission()
-        response = self.submit_renewal()
+    def test_the_student_s_answer_is_who_gets_asked(self):
+        response = self.submit_renewal(registrar_email='records@aurora.ca')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         issued = EnrollmentVerification.objects.get(
             application__type='continuing_funding')
-        self.assertEqual(issued.registrar_email, 'registrar@aurora.ca')
+        self.assertEqual(issued.registrar_email, 'records@aurora.ca')
 
-    def test_a_renewal_with_nothing_on_file_does_not_fail_the_submission(self):
-        """No registrar to reach is a gap for staff, not a 500 for the student."""
-        response = self.submit_renewal()
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['status'], ApplicationStatus.SUBMITTED)
-        self.assertFalse(
-            EnrollmentVerification.objects.filter(
-                application__type='continuing_funding').exists())
+    def test_a_renewal_from_a_student_with_no_history_still_reaches_somebody(self):
+        """The whole reason this field was added.
 
-    def test_the_registrar_email_is_never_copied_into_the_renewals_answers(self):
-        """It is carried at send time. Storing it would let it drift from the
-        admission application it came from, silently, a semester later."""
-        self.file_admission()
-        self.submit_renewal()
+        No admission on file, no profile, nothing to carry — and before this
+        the request was skipped without a word.
+        """
+        self.assertFalse(Application.objects.filter(type='admission').exists())
+
+        self.submit_renewal(registrar_email='first@aurora.ca')
+
+        issued = EnrollmentVerification.objects.get(
+            application__type='continuing_funding')
+        self.assertEqual(issued.registrar_email, 'first@aurora.ca')
+
+    def test_it_cannot_be_submitted_without_one(self):
+        """Refused at the form rather than accepted and quietly unfulfillable.
+
+        A renewal with no registrar can never be priced for tuition, by anyone.
+        Taking it and saying nothing is the failure this replaces.
+        """
+        answers = continuing_answers()
+        answers.pop('registrar_email')
+        response = self.client.post('/api/applications/', {
+            'type': 'continuing_funding', 'answers': answers,
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('registrar_email', response.data['answers'])
+        self.assertFalse(Application.objects.filter(
+            type='continuing_funding').exists())
+
+    def test_a_malformed_address_is_refused_rather_than_emailed(self):
+        response = self.submit_renewal(registrar_email='aurora college registrar')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('registrar_email', response.data['answers'])
+
+    def test_it_is_stored_on_the_renewal_that_used_it(self):
+        """Written down, not resolved afresh every time somebody looks.
+
+        The address is what the student confirmed *for this term*. Leaving it
+        out of `answers` and re-deriving it later means an application whose
+        recorded registrar changes underneath it when the profile is edited —
+        and no screen would say so.
+        """
+        self.submit_renewal(registrar_email='records@aurora.ca')
         renewal = Application.objects.get(type='continuing_funding')
-        self.assertNotIn('registrar_email', renewal.answers)
+        self.assertEqual(renewal.answers['registrar_email'], 'records@aurora.ca')
+
+    def test_correcting_it_on_the_renewal_beats_the_admission_on_file(self):
+        """A registrar's office that moved address between terms.
+
+        The student is shown what is on file and can change it; the change has
+        to be the one that is used, or the box is decoration.
+        """
+        self.file_admission(registrar='old@aurora.ca')
+        self.submit_renewal(registrar_email='new@aurora.ca')
+
+        issued = EnrollmentVerification.objects.get(
+            application__type='continuing_funding')
+        self.assertEqual(issued.registrar_email, 'new@aurora.ca')
+
+    def test_the_renewal_is_asked_for_at_submission_like_an_admission(self):
+        """Same moment, same mechanism — this is what "the same as admission"
+        has to mean for the student to be told the truth by the summary."""
+        self.submit_renewal(registrar_email='records@aurora.ca')
+
+        issued = EnrollmentVerification.objects.get(
+            application__type='continuing_funding')
+        self.assertEqual(issued.status, EnrollmentVerification.Status.REQUESTED)
+        self.assertTrue(issued.token)
+        self.assertGreater(issued.expires_at, timezone.now())
 
 
 class PrefillTests(APITestCase):

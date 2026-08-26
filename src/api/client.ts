@@ -246,12 +246,25 @@ export interface RuleSetSummary {
   rule_count: number;
 }
 
+/** One payment: an application, an amount, one bank transfer. */
 export interface PayableAward {
   id: number;
   student: string;
   application_id: number;
+  /** The categories the payment covers, as a readable list. */
   category: string;
+  /** How many award lines were added together to make it. */
+  lines: number;
   amount: string;
+  /** Where the money is going. Masked to the last four: finance is releasing
+   *  to an account already on file rather than transcribing one, and the
+   *  dispatched file carries the whole number. Before this the account was in
+   *  the CSV and nowhere else, so the only way to check it was to send the
+   *  batch — after which every award in it is paid and cannot be sent again. */
+  account_holder: string;
+  account: string;
+  transit_number: string;
+  institution_number: string;
 }
 
 export interface BlockedAward {
@@ -263,6 +276,11 @@ export interface BlockedAward {
 export interface PaymentRun {
   count: number;
   total: string;
+  /** What is owed but cannot go out. The dashboard counts every pending
+   *  award; without this the two screens quote different figures for the
+   *  same pot and neither explains the difference. */
+  blocked_total: string;
+  pending_total: string;
   awards: PayableAward[];
   blocked: BlockedAward[];
 }
@@ -1083,6 +1101,31 @@ export const api = {
     const { data } = await http.post<Application>(
       `/applications/${id}/request-enrolment/`,
       registrarEmail ? { registrar_email: registrarEmail } : {});
+    return data;
+  },
+
+  /**
+   * The full SIN and the full bank account, for an administrator.
+   *
+   * The detail endpoint masks both, deliberately: returning them there would
+   * put a regulated number in every staff response, every browser cache and
+   * every log, and would need an audit entry per page view — which makes the
+   * audit log useless for answering who actually looked.
+   *
+   * A POST, because reading writes that entry. A GET that changes the record
+   * is one a browser or a proxy may repeat on its own.
+   */
+  async readIdentifiers(id: number, reason = '') {
+    const { data } = await http.post<{
+      identifiers: Record<string, string>;
+      bank_account: {
+        account_holder: string;
+        transit_number: string;
+        institution_number: string;
+        account_number: string;
+        source: 'account' | 'held';
+      } | null;
+    }>(`/applications/${id}/identifiers/`, reason ? { reason } : {});
     return data;
   },
 

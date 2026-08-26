@@ -28,7 +28,7 @@ export const STEPS: Partial<Record<ApplicationType, Array<{ title: string; secti
     { title: 'Information review', sections: ['Review your information'] },
     {
       title: 'Documents & declaration',
-      sections: ['Upload required documents', 'Declaration'],
+      sections: ['Upload required documents', 'Payment', 'Declaration'],
     },
   ],
   // Who and where, then what it cost, then how it is paid and signed. The
@@ -55,7 +55,7 @@ export const STEPS: Partial<Record<ApplicationType, Array<{ title: string; secti
   academic_scholarship: [
     { title: 'Program info', sections: ['Program information'] },
     { title: 'Achievements', sections: ['Achievements'] },
-    { title: 'Declaration', sections: ['Declaration'] },
+    { title: 'Payment & declaration', sections: ['Payment', 'Declaration'] },
   ],
   // Three, and the shortest of them first. Somebody filing this is having a
   // bad week: the questions that need thought are on their own step, and the
@@ -74,7 +74,7 @@ export const STEPS: Partial<Record<ApplicationType, Array<{ title: string; secti
     { title: 'Student info', sections: ['Student information'] },
     { title: 'Emergency case', sections: ['The emergency'] },
     { title: 'Fund breakdown', sections: ['Fund breakdown'] },
-    { title: 'Declaration', sections: ['Declaration'] },
+    { title: 'Payment & declaration', sections: ['Payment', 'Declaration'] },
   ],
   // Four, because a claim with no account behind it has to ask for everything
   // a student's record would already hold: who they are, where they are, what

@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 COLUMNS = [
     'Reference', 'Student', 'Beneficiary number', 'Application',
-    'Award', 'Amount', 'Account holder', 'Transit', 'Institution',
+    'Amount', 'Covers', 'Account holder', 'Transit', 'Institution',
     'Account number', 'Approved on',
 ]
 
@@ -141,31 +141,79 @@ def preview():
     return ready, blocked
 
 
-def build_csv(rows) -> str:
-    """The file finance receives.
+def payment_batches(rows):
+    """What finance is actually asked to do: pay one amount, once, per
+    application.
 
-    One row per award line rather than one per student: finance reconciles
-    against the award categories, and a single lump sum cannot be traced back to
-    the rule that produced it.
+    The file used to carry one row per award *line*. An application priced
+    across two streams and two categories became four rows against one bank
+    account, and the office asked for the opposite: tell finance the amount to
+    pay, not the rules that produced it. The breakdown is not lost — it is on
+    the application, on the approval letter and in the decision history, all of
+    which are the office's own records rather than a payment instruction.
+
+    Grouped by application, not by student. An award belongs to an application,
+    and a student with two funded applications is owed two payments that must
+    each be traceable to the decision behind it; merging them would produce a
+    figure no single decision accounts for.
+
+    `Covers` keeps the categories as a readable list, so a reconciler can still
+    see what one payment is made up of without the file pretending to be a
+    ledger.
     """
+    batches: dict[int, dict] = {}
+    for row in rows:
+        award, account = row['award'], row['account']
+        application = award.application
+        batch = batches.get(application.pk)
+        if batch is None:
+            batch = batches[application.pk] = {
+                'application': application,
+                'student': application.student,
+                'account': account,
+                'awards': [],
+                'amount': Decimal('0.00'),
+                'categories': [],
+            }
+        batch['awards'].append(award)
+        batch['amount'] += award.amount
+        label = award.get_category_display()
+        if label not in batch['categories']:
+            batch['categories'].append(label)
+    return list(batches.values())
+
+
+def batch_reference(application, when) -> str:
+    """One reference per payment, because there is now one payment.
+
+    Derived from the application rather than from any single award line: the
+    line references still exist on the awards themselves, but a lump sum that
+    quoted one of them would name a part as though it were the whole.
+    """
+    return f'DGG-{when:%Y%m%d}-A{application.pk:06d}'
+
+
+def build_csv(rows) -> str:
+    """The file finance receives: one row per application, one amount to pay."""
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(COLUMNS)
 
-    for row in rows:
-        award, account = row['award'], row['account']
-        application = award.application
-        student = application.student
+    now = timezone.now()
+    for batch in payment_batches(rows):
+        application = batch['application']
+        student = batch['student']
+        account = batch['account']
         decided = application.events.filter(
             action=ApplicationEvent.Action.APPROVED).order_by('-occurred_at').first()
 
         writer.writerow([
-            award.reference or f'AWD-{award.pk}',
+            batch_reference(application, now),
             student.full_name,
             student.beneficiary_number,
             application.get_type_display(),
-            award.get_category_display(),
-            f'{award.amount:.2f}',
+            f"{batch['amount']:.2f}",
+            '; '.join(batch['categories']),
             account.account_holder,
             account.transit_number,
             account.institution_number,

@@ -378,13 +378,24 @@ def audit_prefill(student: Actor) -> None:
 
 
 def audit_renewal_reaches_the_registrar(student: Actor, email: str) -> None:
-    """The bug the profile closes.
+    """The bug the profile closes, now from the other side.
 
-    A renewal does not ask for a registrar's address; it is carried from the
-    student's last application. Somebody whose admission was on paper has
-    nothing to carry, so the request was skipped in silence — tuition could
-    never be confirmed and the application could never be approved, by anybody,
-    with nothing anywhere saying why.
+    A renewal used not to ask for a registrar's address: it was carried at send
+    time from the student's last application. Somebody whose admission was on
+    paper had nothing to carry, so the request was skipped in silence — tuition
+    could never be confirmed and the application could never be approved, by
+    anybody, with nothing anywhere saying why.
+
+    The renewal asks now, so the silence is gone whatever is on file. What this
+    still proves is the part that keeps the change honest: the box arrives
+    holding the address the student put on their profile, so a returning
+    student confirms it rather than retyping it every semester — which is the
+    typo the carried-at-send-time arrangement existed to avoid.
+
+    `answers_for` starts from the live pre-fill and only invents what is still
+    missing, so a `registrar_email` that the profile failed to offer would show
+    up here as a request addressed to the filler address rather than as a
+    passing test.
     """
     section('A renewal from somebody with no earlier application')
 
@@ -554,18 +565,30 @@ def audit_banking(student: Actor, email: str) -> None:
                            json={**BANK, 'account_number': '1111222233'})
     check('replacing it is accepted', replaced.status_code == 200,
           f'{replaced.status_code} {replaced.text[:160]}')
+    # Counted as a change rather than as a total. This student also *files*
+    # applications, and every form that pays now asks for a bank account — so
+    # the row count here is however many distinct accounts they have given
+    # across the whole audit, and an absolute number would be an assertion
+    # about the order of the sections above rather than about retirement.
     accounts = BankAccount.objects.filter(user=person).order_by('id')
+    superseded = [a for a in accounts if not a.is_current]
     check('the previous account is retired rather than edited',
-          accounts.count() == 2 and not accounts[0].is_current
-          and accounts[0].retired_at is not None,
-          f'{accounts.count()} account(s)')
+          bool(superseded) and all(a.retired_at is not None for a in superseded)
+          and not any(a.account_number == '1111222233' for a in superseded),
+          f'{accounts.count()} account(s), superseded '
+          f'{[(a.pk, a.account_number, a.retired_at) for a in superseded]}')
     check('exactly one is current',
           BankAccount.objects.filter(user=person, is_current=True).count() == 1)
+    check('and it is the one just saved',
+          BankAccount.objects.get(user=person, is_current=True).account_number
+          == '1111222233')
+
+    before = BankAccount.objects.filter(user=person).count()
     check('saving the same details twice does not churn the record',
           student.put('/api/me/banking/',
                       json={**BANK, 'account_number': '1111222233'}).status_code == 200
-          and BankAccount.objects.filter(user=person).count() == 2,
-          str(BankAccount.objects.filter(user=person).count()))
+          and BankAccount.objects.filter(user=person).count() == before,
+          f'{before} -> {BankAccount.objects.filter(user=person).count()}')
     check('the change is audited without the digits',
           AuditEntry.objects.filter(action='account.banking_updated',
                                     actor=person).exists()

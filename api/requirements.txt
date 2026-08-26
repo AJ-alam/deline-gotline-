@@ -1,3 +1,8 @@
+# What the Vercel function installs. `backend/requirements.txt` is the same list
+# plus gunicorn (no server to run here) and pypdf (reads a generated PDF back in
+# the tests). `core.test_requirements` holds the two files to that rule, because
+# a dependency added to one and not the other is a deployment that imports
+# something the developer's machine happens to have.
 Django==5.2.13
 djangorestframework==3.17.1
 djangorestframework-simplejwt==5.5.1
@@ -13,3 +18,10 @@ python-dotenv==1.0.1
 supabase==2.15.3
 reportlab==4.3.1
 openpyxl==3.1.5
+
+# Fernet, which encrypts every stored SIN and set of bank details. It arrives
+# transitively today (supabase pulls it in) and is pinned here because
+# `funding.services.identifiers` imports it directly: a transitive dependency
+# dropping it would break storing a government identifier, at runtime, on a
+# form somebody was filling in.
+cryptography==50.0.0

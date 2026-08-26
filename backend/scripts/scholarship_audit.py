@@ -31,6 +31,10 @@ EXPECTED_FIELDS = {
     'full_name', 'beneficiary_number', 'institution_name',
     'semester', 'academic_year',
     'gpa_achieved', 'transcripts_status', 'doc_transcript',
+    # Added 27 Aug 2026: this form pays money and asked for nowhere to send
+    # it, so an approved award on it was held in the payment run reading "has
+    # no bank account on file". See PROJECT_STATE.md §5.
+    'account_holder', 'transit_number', 'institution_number', 'account_number',
     'declaration_confirmed', 'signature', 'signed_on',
 }
 
@@ -110,7 +114,8 @@ def main() -> int:
           f'unexpected {set(by_key) - EXPECTED_FIELDS}, '
           f'missing {EXPECTED_FIELDS - set(by_key)}')
     check('it falls into the three steps the screens show',
-          schema['sections'] == ['Program information', 'Achievements', 'Declaration'],
+          schema['sections'] == ['Program information', 'Achievements', 'Payment',
+                                 'Declaration'],
           str(schema['sections']))
     check('the grade is a bounded percentage, not free text',
           by_key.get('gpa_achieved', {}).get('type') == 'percent',
@@ -123,8 +128,19 @@ def main() -> int:
           str(by_key.get('transcripts_status', 'absent')))
     check('the date signed opens on today',
           by_key.get('signed_on', {}).get('defaults_to_today') is True)
-    check('no bank details are asked for — this needs an account already',
-          not ({'account_holder', 'account_number'} & set(by_key)))
+    # Reversed 27 Aug 2026. The old reasoning — "this needs an account already,
+    # so finance has somewhere to pay" — confused a *portal* account with a
+    # `BankAccount`. Nothing but a filled-in banking section creates one, so a
+    # student whose first application was this had their award held.
+    check('bank details are asked for, because this pays money',
+          {'account_holder', 'transit_number', 'institution_number',
+           'account_number'} <= set(by_key),
+          str(sorted(set(by_key))))
+    check('and every one of them is required',
+          all(by_key[k].get('required') is True
+              for k in ('account_holder', 'transit_number',
+                        'institution_number', 'account_number')),
+          'optional is the same failure one step later')
     check('and no award amount is written into the form',
           not any('$' in field.get('help_text', '') for field in schema['fields']),
           'the amounts are policy rates; a copy in help text is a second place '

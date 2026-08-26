@@ -40,6 +40,22 @@ KEYS = ('account_holder', 'transit_number', 'institution_number', 'account_numbe
 REQUIRED = ('account_holder', 'transit_number', 'institution_number', 'account_number')
 
 
+def on_file_for(user) -> frozenset[str]:
+    """The banking answers the server already holds for this person.
+
+    Banking is required on every form that pays out, and `account_number` is
+    never returned by anything - so without this a student who gave it once
+    could not submit another application at all. Named as keys rather than
+    returned as values: the caller needs to know it may be left blank, not what
+    it says.
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return frozenset()
+    if not BankAccount.objects.filter(user=user, is_current=True).exists():
+        return frozenset()
+    return frozenset(KEYS)
+
+
 def values_from(answers: dict) -> dict:
     """Just the banking answers, as strings, dropping blanks."""
     return {key: str(answers[key]).strip()

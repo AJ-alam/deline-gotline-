@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import api, { ApiError, type PaymentRun as Run } from '../../api/client';
 import { Alert, Badge, Button, Card } from '../../components/ui';
 import { formatMoney } from '../../components/ui/format';
+import { groupBlocked } from './blocked';
 
 export default function PaymentRun() {
   const [run, setRun] = useState<Run | null>(null);
@@ -104,19 +105,29 @@ export default function PaymentRun() {
       {error && <Alert tone="error">{error}</Alert>}
       {sent && <Alert tone="ok">{sent}</Alert>}
 
-      {run.blocked.length > 0 && (
-        <Alert tone="error">
-          {run.blocked.length} award{run.blocked.length === 1 ? '' : 's'} cannot be
-          paid yet. They stay pending and are not written into the file.
-          <ul className="stack stack--tight small" style={{ marginTop: 'var(--s-2)' }}>
-            {run.blocked.map((item) => (
-              <li key={item.award_id}>
-                Application #{item.application_id} — {item.reason}
-              </li>
-            ))}
-          </ul>
-        </Alert>
-      )}
+      {/* Not a wall of red. Banking is required on every form that pays out,
+          so "no bank account on file" is no longer a thing the office reads
+          about weeks later on a screen the applicant never sees - it is asked
+          for where the person who knows the answer is sitting. What remains
+          here is rare and genuinely needs a person: a release of funds to
+          somebody else, a guest claim with no account attached yet, an award
+          whose pricing went missing. Reported quietly and never dropped,
+          because a payment missing from the file is a person who does not get
+          paid - the reason this list exists at all. */}
+      {run.blocked.length > 0 && (() => {
+        const groups = groupBlocked(run.blocked);
+        return (
+          <Card title={`${formatMoney(run.blocked_total)} needs a person before it can be paid`}>
+            <ul className="stack stack--tight small">
+              {groups.map((group) => (
+                <li key={group.key}>
+                  Application #{group.application_id} — {group.reason}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        );
+      })()}
 
       <Card
         title={`Ready to pay — ${formatMoney(run.total)}`}
@@ -127,7 +138,7 @@ export default function PaymentRun() {
             disabled={run.count === 0}
             onClick={() => void dispatch()}
           >
-            Send {run.count} award{run.count === 1 ? '' : 's'} to finance
+            Send {run.count} payment{run.count === 1 ? '' : 's'} to finance
           </Button>
         }
       >
@@ -140,7 +151,13 @@ export default function PaymentRun() {
                 <tr>
                   <th>Student</th>
                   <th>Application</th>
-                  <th>Award</th>
+                  <th>Covers</th>
+                  {/* Where it is going, beside what is going. The account was
+                      in the dispatched CSV and nowhere else, so checking a
+                      transit number meant sending the batch first — and every
+                      award in a sent batch is marked paid and cannot go
+                      again. */}
+                  <th>Paying into</th>
                   <th>Amount</th>
                 </tr>
               </thead>
@@ -151,7 +168,21 @@ export default function PaymentRun() {
                     <td>
                       <Badge tone="neutral">#{award.application_id}</Badge>
                     </td>
-                    <td>{award.category}</td>
+                    <td>
+                      {award.category}
+                      {award.lines > 1 && (
+                        <span className="muted small"> ({award.lines} lines)</span>
+                      )}
+                    </td>
+                    <td className="small">
+                      {award.account}
+                      <span className="muted">
+                        {' '}
+                        · {award.transit_number}-{award.institution_number}
+                      </span>
+                      <br />
+                      <span className="muted">{award.account_holder}</span>
+                    </td>
                     <td className="num">{formatMoney(award.amount)}</td>
                   </tr>
                 ))}
