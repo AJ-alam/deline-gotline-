@@ -822,11 +822,25 @@ export const api = {
    * continuing-funding renewal has much to say here: it exists to be confirmed
    * rather than filled in.
    */
-  async formPrefill(type: ApplicationType): Promise<Record<string, string | number | boolean>> {
-    const { data } = await http.get<{ answers: Record<string, string | number | boolean> }>(
-      `/form-prefill/${type}/`,
-    );
-    return data.answers;
+  /**
+   * What a form opens with, and which private answers the server already holds.
+   *
+   * `private_on_file` is not a nicety. `account_number` is never returned by
+   * anything — the portal does not show a student their own account number —
+   * and the server accepts a blank one when a `BankAccount` exists. Without
+   * being told, the renderer counts that blank as missing and disables the
+   * submit button, which is how a returning student came to be locked out of
+   * the renewal they file every semester.
+   */
+  async formPrefill(type: ApplicationType): Promise<{
+    answers: Record<string, string | number | boolean>;
+    privateOnFile: string[];
+  }> {
+    const { data } = await http.get<{
+      answers: Record<string, string | number | boolean>;
+      private_on_file?: string[];
+    }>(`/form-prefill/${type}/`);
+    return { answers: data.answers, privateOnFile: data.private_on_file ?? [] };
   },
 
   /** The screening questions. Public: someone checks before they have an account. */

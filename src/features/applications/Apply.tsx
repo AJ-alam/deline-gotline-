@@ -33,6 +33,10 @@ export default function Apply() {
   const [busy, setBusy] = useState(false);
   const [answers, setAnswers] = useState<Answers>({});
   const [initial, setInitial] = useState<Answers | null>(null);
+  // Which private answers the server already holds. Without this the renderer
+  // counts a blank `account_number` as missing and disables the submit button —
+  // on a box the portal deliberately never shows the student.
+  const [privateOnFile, setPrivateOnFile] = useState<string[]>([]);
 
   useEffect(() => {
     if (!type) return;
@@ -45,12 +49,13 @@ export default function Apply() {
       api.schema(type),
       // A student with no history, or one whose prefill fails, still gets a
       // working empty form — this is a convenience, not a prerequisite.
-      api.formPrefill(type).catch(() => ({})),
+      api.formPrefill(type).catch(() => ({ answers: {}, privateOnFile: [] })),
     ])
       .then(([definition, prefilled]) => {
         if (cancelled) return;
         setSchema(definition);
-        setInitial(prefilled as Answers);
+        setInitial(prefilled.answers as Answers);
+        setPrivateOnFile(prefilled.privateOnFile ?? []);
       })
       .catch(() => !cancelled && setLoadError('That application form could not be loaded.'));
     return () => { cancelled = true; };
@@ -98,6 +103,7 @@ export default function Apply() {
             schema={schema}
             initial={initial}
             steps={type ? STEPS[type] : undefined}
+            privateOnFile={privateOnFile}
             busy={busy}
             errors={errors}
             formError={formError}

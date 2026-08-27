@@ -273,6 +273,12 @@ class ApplicationViewSet(viewsets.ModelViewSet):
                             actor=request.user,
                             note=serializer.validated_data.get('note', ''))
 
+            # The reviewer's most common request is "your registrar address
+            # bounced". Without this the student corrects it, the answer is
+            # stored, and the only live link still points at the address that
+            # bounced — so tuition can never be confirmed and nothing says why.
+            verification_service.reissue_if_address_changed(application)
+
         application.refresh_from_db()
         return Response(
             ApplicationDetailSerializer(application,
@@ -509,6 +515,11 @@ class ApplicationViewSet(viewsets.ModelViewSet):
                         + (f'. Note: {note}' if note else '')),
             )
             workflow.record_amendment(application, actor=request.user, note=note)
+
+            # Same as on `revise`: correcting the registrar's address has to
+            # move the request, or the application records one address while
+            # the institution holding the only live link is a different one.
+            verification_service.reissue_if_address_changed(application)
 
         application.refresh_from_db()
         return Response(
@@ -855,7 +866,31 @@ class PrefillView(APIView):
             return Response({'detail': 'No such application type.'},
                             status=status.HTTP_404_NOT_FOUND)
 
-        response = Response({'answers': prefill_service.for_schema(request.user, schema)})
+        # Which private answers the server already holds, so the form knows not
+        # to demand them.
+        #
+        # `account_number` is written once and read by nothing but the finance
+        # export — the portal deliberately never shows a student their own
+        # account number, so `prefill` cannot return it. `Schema.clean` accepts
+        # a blank one when a `BankAccount` exists, and that pair is the only
+        # reason a second application is submittable at all.
+        #
+        # The renderer did not know any of it. It counted a required blank as
+        # missing and held the submit button shut, so a returning student
+        # opening the form they file every semester was told "1 left on this
+        # form" against a box they cannot fill and cannot see. The server was
+        # willing all along; nothing had told the client.
+        #
+        # Sent as keys rather than as values, and only for keys this schema
+        # actually asks: the client needs to know it may leave them blank, not
+        # what they say. Same set `ApplicationCreateSerializer` passes to
+        # `clean(private_on_file=...)`, from the same function, so the form and
+        # the validator cannot disagree about what is on file.
+        on_file = banking_service.on_file_for(request.user)
+        response = Response({
+            'answers': prefill_service.for_schema(request.user, schema),
+            'private_on_file': sorted(on_file & set(schema.keys)),
+        })
         response['Cache-Control'] = 'private, no-store'
         return response
 

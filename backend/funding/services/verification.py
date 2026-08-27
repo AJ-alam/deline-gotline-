@@ -91,6 +91,63 @@ def issue(application: Application, registrar_email: str,
     return created
 
 
+def reissue_if_address_changed(application) -> EnrollmentVerification | None:
+    """Re-ask the institution when the address on the application has moved.
+
+    `registrar_email` became a stored answer when the renewal started asking for
+    one, which made it editable — by the student answering a request for more
+    information, and by the office amending a filed application. Nothing noticed
+    the change. The application recorded the corrected address while the only
+    live link sat in the wrong institution's mailbox, and no screen said the two
+    disagreed.
+
+    That is the office's most common corrective action. A registrar's address
+    bounces, the reviewer asks the student to fix it, the student fixes it, and
+    the request is never sent again — with tuition funded against the
+    registrar's figure, the application then cannot be priced by anybody.
+
+    Deliberately narrow:
+
+      - only for types that need a confirmation at all;
+      - never over a *completed* one, which `issue` refuses anyway: the
+        institution has already answered and the answer is what tuition is
+        funded against. An address corrected after that is a correction to the
+        record, not a reason to ask again;
+      - only when the address actually differs, so an edit that changes a
+        misspelled programme does not send an institution a second link and
+        invalidate the one its registrar is part-way through filling in.
+
+    Returns the new verification, or None when nothing needed doing.
+    """
+    from funding.services.workflow import NEEDS_ENROLMENT_CONFIRMATION
+
+    if application.type not in NEEDS_ENROLMENT_CONFIRMATION:
+        return None
+
+    wanted = str((application.answers or {}).get('registrar_email') or '').strip()
+    if not wanted:
+        return None
+
+    existing = EnrollmentVerification.objects.filter(application=application).first()
+    if existing is not None:
+        if existing.status == EnrollmentVerification.Status.COMPLETED:
+            return None
+        if existing.registrar_email.strip().lower() == wanted.lower():
+            return None
+
+    try:
+        return issue(application, wanted)
+    except VerificationError as exc:
+        # Never fail the edit over this. The student has just answered a request
+        # for more information, or the office has just corrected a form; losing
+        # that write because a mail row could not be queued would be worse than
+        # the stale link, and staff can reissue by hand.
+        logger.warning(
+            'Could not re-issue the enrolment request for application %s: %s',
+            application.pk, exc)
+        return None
+
+
 def resolve(token: str) -> EnrollmentVerification:
     """Find a usable verification by token.
 

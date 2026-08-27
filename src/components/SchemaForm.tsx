@@ -771,6 +771,7 @@ export function SchemaForm({
   steps,
   footer,
   revising = false,
+  privateOnFile = [],
   onChange,
   onSubmit,
 }: {
@@ -810,6 +811,23 @@ export function SchemaForm({
    * typing a new value still validates it, here and on the server.
    */
   revising?: boolean;
+  /**
+   * Private answers the server already holds for this applicant.
+   *
+   * `account_number` is written once and read by nothing but the finance
+   * export, so `prefill` never returns it — the portal does not show a student
+   * their own account number. `Schema.clean(private_on_file=...)` accepts a
+   * blank one when a `BankAccount` exists, and that pair is the only reason a
+   * second application is submittable at all.
+   *
+   * The renderer did not know, so it counted the blank as missing and disabled
+   * the submit button: a returning student opening the renewal they file every
+   * semester was told "1 left on this form" against a box they can neither see
+   * nor fill. `GET /api/form-prefill/{slug}/` reports these, from the same
+   * function the create serializer passes to the validator, so the form and
+   * the server cannot disagree about what is on file.
+   */
+  privateOnFile?: string[];
   /** Every change, for a caller that needs to see answers before submission —
    *  the enrolment verification preview is generated from them. */
   onChange?: (answers: Answers) => void;
@@ -878,10 +896,15 @@ export function SchemaForm({
   // needs them to separate those; a step made of one does not.
   const showSectionHeadings = !current || current.sections.length > 1;
 
+  /** A private answer the server already holds, so a blank is an answer. */
+  const heldOnFile = (field: SchemaField) =>
+    field.private === true && privateOnFile.includes(field.key);
+
   /** Which of this step's required questions are still blank. */
   const missing = shown.flatMap(([, fields]) =>
     fields.filter((field) => field.required
       && !(revising && field.private)
+      && !heldOnFile(field)
       && !isAnswered(field, answers[field.key])),
   );
 
@@ -977,8 +1000,11 @@ export function SchemaForm({
                   // A withheld answer is not required *of this edit*: it is
                   // already stored, and marking it so would put an asterisk on
                   // a blank nobody has to fill in.
-                  required={field.required && !(revising && field.private)}
-                  hint={revising && field.private && field.required
+                  required={field.required
+                    && !(revising && field.private)
+                    && !heldOnFile(field)}
+                  hint={field.required && field.private
+                    && ((revising && field.private) || heldOnFile(field))
                     ? `${field.help_text} Leave blank to keep what is on file.`.trim()
                     : field.help_text}
                   error={errors[field.key]}
